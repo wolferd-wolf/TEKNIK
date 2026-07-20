@@ -1,0 +1,128 @@
+name: TEKNIK CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: teknik-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-build-capture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      GODOT_VERSION: "4.7.1"
+      GODOT_RELEASE: "4.7.1-stable"
+      GODOT_BIN: /usr/local/bin/godot
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl unzip xvfb libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
+
+      - name: Install Godot and export templates
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_RELEASE}/Godot_v${GODOT_RELEASE}_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          sudo install -m 0755 "/tmp/godot/Godot_v${GODOT_RELEASE}_linux.x86_64" "${GODOT_BIN}"
+
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_RELEASE}/Godot_v${GODOT_RELEASE}_export_templates.tpz" \
+            --output /tmp/export-templates.tpz
+          mkdir -p "/tmp/export-templates" "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          unzip -q /tmp/export-templates.tpz -d /tmp/export-templates
+          cp -R /tmp/export-templates/templates/. "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
+          godot --version
+
+      - name: Import project
+        run: godot --headless --path . --editor --quit
+
+      - name: Run deterministic tests
+        run: godot --headless --path . --script res://tests/run_tests.gd
+
+      - name: Capture rendered QA screenshot
+        run: |
+          mkdir -p artifacts
+          xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy -- \
+            --qa-screenshot=artifacts/bootstrap.png
+          test -s artifacts/bootstrap.png
+
+      - name: Install required Android SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --sdk_root="$ANDROID_HOME" \
+            "platform-tools" \
+            "build-tools;35.0.1" \
+            "platforms;android-35" \
+            "cmdline-tools;latest" \
+            "cmake;3.10.2.4988404" \
+            "ndk;28.1.13356709"
+
+      - name: Configure Godot Android export
+        run: |
+          mkdir -p "$HOME/.config/godot" "$HOME/.android" build
+          printf '%s\n' \
+            '[gd_resource type="EditorSettings" format=3]' \
+            '' \
+            '[resource]' \
+            "export/android/java_sdk_path = \"$JAVA_HOME\"" \
+            "export/android/android_sdk_path = \"$ANDROID_HOME\"" \
+            > "$HOME/.config/godot/editor_settings-${GODOT_VERSION%.*}.tres"
+
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -v \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - name: Export Android debug APK
+        run: |
+          godot --headless --path . --export-debug "Android" build/TEKNIK-debug.apk
+          test -s build/TEKNIK-debug.apk
+
+      - name: Publish QA artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teknik-${{ github.sha }}
+          if-no-files-found: warn
+          retention-days: 30
+          path: |
+            artifacts/
+            build/*.apk
+
+      - name: Write job summary
+        if: always()
+        run: |
+          {
+            echo '## TEKNIK automated QA'
+            echo
+            echo '- Deterministic simulation tests executed.'
+            echo '- Rendered bootstrap screenshot requested.'
+            echo '- Android ARM64 debug export requested.'
+            echo '- Physical-device 50 FPS certification is not part of this cloud-runner job.'
+          } >> "$GITHUB_STEP_SUMMARY"
