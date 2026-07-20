@@ -39,14 +39,15 @@ func _build_environment() -> void:
 	var environment := Environment.new()
 	environment.background_mode = Environment.BG_SKY
 	environment.sky = sky
-	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	environment.ambient_light_energy = 0.5
+	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	environment.ambient_light_color = Color("c4cfc3")
+	environment.ambient_light_energy = 0.46
 	environment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	environment.tonemap_mode = Environment.TONE_MAPPER_ACES
 	environment.fog_enabled = true
 	environment.fog_light_color = Color("9fb7bc")
 	environment.fog_light_energy = 0.52
-	environment.fog_density = 0.0018
+	environment.fog_density = 0.0011
 	environment.fog_sky_affect = 0.38
 
 	var world_environment := WorldEnvironment.new()
@@ -63,11 +64,15 @@ func _build_environment() -> void:
 	add_child(sun)
 
 	var camera := Camera3D.new()
-	camera.position = Vector3(-72.0, 28.0, 50.0)
+	camera.position = _camera_position()
 	camera.fov = 50.0
 	camera.far = 280.0
 	add_child(camera)
-	camera.look_at(Vector3(18.0, 11.0, -5.0), Vector3.UP)
+	camera.look_at(Vector3(
+		38.0,
+		float(TerrainGenerator.WATER_LEVEL) + 4.0,
+		TerrainGenerator.river_center_z(WORLD_SEED, 38)
+	), Vector3.UP)
 
 
 func _build_terrain() -> void:
@@ -175,7 +180,11 @@ func _build_forest() -> void:
 				continue
 			if TerrainGenerator.surface_slope(WORLD_SEED, world_x, world_z) > 1:
 				continue
-			if Vector2(float(world_x) + 72.0, float(world_z) - 50.0).length() < 18.0:
+			var camera_position: Vector3 = _camera_position()
+			if Vector2(
+				float(world_x) - camera_position.x,
+				float(world_z) - camera_position.z
+			).length() < 18.0:
 				continue
 
 			var scale: float = lerpf(
@@ -187,7 +196,7 @@ func _build_forest() -> void:
 			var basis := Basis(Vector3.UP, rotation).scaled(Vector3.ONE * scale)
 			var ground := Vector3(float(world_x) + 0.5, float(height) + 1.0, float(world_z) + 0.5)
 			trunk_transforms.append(Transform3D(basis, ground + Vector3.UP * 1.35 * scale))
-			lower_canopy_transforms.append(Transform3D(basis, ground + Vector3.UP * 3.65 * scale))
+			lower_canopy_transforms.append(Transform3D(basis, ground + Vector3.UP * 3.7 * scale))
 
 	_tree_count = trunk_transforms.size()
 	_add_tree_multimesh(_trunk_mesh(), trunk_transforms)
@@ -215,6 +224,13 @@ func _sample_world_voxel(world_position: Vector3i) -> int:
 	return TerrainGenerator.voxel_at(WORLD_SEED, world_position)
 
 
+func _camera_position() -> Vector3:
+	var world_x: int = -70
+	var world_z: int = roundi(TerrainGenerator.river_center_z(WORLD_SEED, world_x) + 16.0)
+	var ground_height: int = TerrainGenerator.surface_height(WORLD_SEED, world_x, world_z)
+	return Vector3(float(world_x), float(ground_height) + 7.5, float(world_z))
+
+
 func _trunk_mesh() -> BoxMesh:
 	var mesh := BoxMesh.new()
 	mesh.size = Vector3(0.62, 2.7, 0.62)
@@ -222,14 +238,13 @@ func _trunk_mesh() -> BoxMesh:
 	return mesh
 
 
-func _lower_canopy_mesh() -> CylinderMesh:
-	var mesh := CylinderMesh.new()
-	mesh.top_radius = 0.06
-	mesh.bottom_radius = 1.42
-	mesh.height = 3.8
-	mesh.radial_segments = 7
-	mesh.rings = 1
-	mesh.material = _material(Color("355f44"), 0.96)
+func _lower_canopy_mesh() -> SphereMesh:
+	var mesh := SphereMesh.new()
+	mesh.radius = 1.55
+	mesh.height = 3.25
+	mesh.radial_segments = 8
+	mesh.rings = 4
+	mesh.material = _material(Color("396b47"), 0.96)
 	return mesh
 
 

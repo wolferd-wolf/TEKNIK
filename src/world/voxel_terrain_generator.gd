@@ -46,8 +46,8 @@ static func surface_height(seed: int, world_x: int, world_z: int) -> int:
 	var upland_height: float = (
 		10.0
 		+ continental * 8.0
-		+ (rolling - 0.5) * 5.0
-		+ ridge * 9.0
+		+ (rolling - 0.5) * 4.0
+		+ ridge * 6.0
 	)
 
 	var distance_to_river: float = river_distance(seed, world_x, world_z)
@@ -86,7 +86,7 @@ static func surface_material(seed: int, world_x: int, world_z: int) -> int:
 	var height: int = surface_height(seed, world_x, world_z)
 	if height <= WATER_LEVEL + 1:
 		return SAND
-	if height >= 23 or surface_slope(seed, world_x, world_z) >= 3:
+	if height >= 22 and surface_slope(seed, world_x, world_z) >= 2:
 		return STONE
 	return GRASS
 
