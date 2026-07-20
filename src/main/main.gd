@@ -270,7 +270,7 @@ func _build_ground_detail() -> void:
 		for grid_x: int in range(world_min, world_max, 3):
 			var cell_x: int = floori(float(grid_x) / 3.0)
 			var cell_z: int = floori(float(grid_z) / 3.0)
-			if WorldSeed.sample_unit(WORLD_SEED + 947, cell_x, cell_z) < 0.87:
+			if WorldSeed.sample_unit(WORLD_SEED + 947, cell_x, cell_z) < 0.91:
 				continue
 			var world_x: int = grid_x + roundi((WorldSeed.sample_unit(WORLD_SEED + 953, cell_x, cell_z) - 0.5) * 2.0)
 			var world_z: int = grid_z + roundi((WorldSeed.sample_unit(WORLD_SEED + 967, cell_x, cell_z) - 0.5) * 2.0)
@@ -294,12 +294,12 @@ func _build_ground_detail() -> void:
 
 	_grass_count = transforms.size()
 	var mesh := CylinderMesh.new()
-	mesh.top_radius = 0.025
-	mesh.bottom_radius = 0.22
-	mesh.height = 0.48
+	mesh.top_radius = 0.018
+	mesh.bottom_radius = 0.13
+	mesh.height = 0.34
 	mesh.radial_segments = 4
 	mesh.rings = 1
-	mesh.material = _material(Color("3f6f2f"), 0.98)
+	mesh.material = _material(Color("315f2d"), 0.98)
 	_add_tree_multimesh(mesh, transforms, false)
 
 
