@@ -104,6 +104,11 @@ static func build_mesh(
 		var material := StandardMaterial3D.new()
 		material.vertex_color_use_as_albedo = true
 		material.roughness = 0.94
+		# The correctness mesh is deliberately two-sided until all generated face
+		# windings have dedicated renderer tests. Hidden voxel faces are already
+		# removed by the mesher, so this prevents visible world holes without
+		# reintroducing per-block geometry.
+		material.cull_mode = BaseMaterial3D.CULL_DISABLED
 		mesh.surface_set_material(0, material)
 
 	return {
