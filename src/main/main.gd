@@ -2,12 +2,16 @@ extends Node3D
 
 const WorldSeed = preload("res://src/world/world_seed.gd")
 const KineticNetwork = preload("res://src/simulation/kinetic_network.gd")
+const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
+const TerrainGenerator = preload("res://src/world/voxel_terrain_generator.gd")
+const GreedyMesher = preload("res://src/world/greedy_mesher.gd")
 const PREVIEW_SEED: int = 73_421
 
 var _gear_roots: Array[Node3D] = []
 var _fps_label: Label
 var _fps_elapsed: float = 0.0
 var _kinetic_report: Dictionary
+var _voxel_report: Dictionary
 var _qa_capture_mode: bool = false
 
 
@@ -62,35 +66,11 @@ func _build_environment() -> void:
 
 
 func _build_preview_terrain() -> void:
-	var cube := BoxMesh.new()
-	cube.size = Vector3.ONE
-	var terrain_material := StandardMaterial3D.new()
-	terrain_material.vertex_color_use_as_albedo = true
-	terrain_material.roughness = 0.93
-	cube.material = terrain_material
-
-	const GRID_SIZE: int = 27
-	var multi_mesh := MultiMesh.new()
-	multi_mesh.transform_format = MultiMesh.TRANSFORM_3D
-	multi_mesh.use_colors = true
-	multi_mesh.instance_count = GRID_SIZE * GRID_SIZE
-
-	var index: int = 0
-	var half: int = GRID_SIZE / 2
-	for z: int in range(-half, half + 1):
-		for x: int in range(-half, half + 1):
-			var sample: float = WorldSeed.sample_preview_height(PREVIEW_SEED, x, z)
-			var height: float = 0.18 + sample * 2.25
-			var basis := Basis.IDENTITY.scaled(Vector3(0.96, height, 0.96))
-			multi_mesh.set_instance_transform(index, Transform3D(basis, Vector3(x, height * 0.5, z)))
-			var low := Color("183945")
-			var high := Color("4d725b")
-			multi_mesh.set_instance_color(index, low.lerp(high, sample))
-			index += 1
-
-	var terrain := MultiMeshInstance3D.new()
-	multi_mesh.mesh = cube
-	terrain.multimesh = multi_mesh
+	var chunk: TeknikVoxelChunk = TerrainGenerator.generate_chunk(PREVIEW_SEED, Vector3i.ZERO)
+	_voxel_report = GreedyMesher.build_mesh(chunk)
+	var terrain := MeshInstance3D.new()
+	terrain.mesh = _voxel_report.mesh
+	terrain.position = Vector3(-VoxelChunk.SIZE * 0.5, 0.0, -VoxelChunk.SIZE * 0.5)
 	add_child(terrain)
 
 
@@ -166,7 +146,7 @@ func _build_hud() -> void:
 
 	var subtitle := Label.new()
 	subtitle.position = Vector2(23.0, 51.0)
-	subtitle.text = "SEEDED WORLD  %d   |   MOBILE RENDERER" % PREVIEW_SEED
+	subtitle.text = "SEED %d   |   32³ CHUNK   |   %d GREEDY QUADS" % [PREVIEW_SEED, int(_voxel_report.quads)]
 	subtitle.add_theme_font_size_override("font_size", 15)
 	subtitle.add_theme_color_override("font_color", Color("9fb7c4"))
 	panel.add_child(subtitle)

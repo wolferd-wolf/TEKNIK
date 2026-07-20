@@ -17,7 +17,8 @@ The repository is at the technical-bootstrap stage. The first runnable scene pro
 
 - a Godot Mobile-renderer project;
 - deterministic seeded data generation;
-- a batched `MultiMesh` terrain preview;
+- deterministic 32×32×32 voxel chunk storage;
+- a greedy meshing correctness implementation that collapses a solid chunk to six quads;
 - a data-oriented kinetic stress calculation;
 - an automated rendered screenshot path; and
 - headless tests plus an Android debug export in GitHub Actions.
@@ -48,4 +49,3 @@ The `TEKNIK CI` workflow uploads:
 - test/build logs exposed by GitHub Actions.
 
 Debug-only QA hooks are excluded from the product design and do not constitute a creative mode.
-
