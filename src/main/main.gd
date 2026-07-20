@@ -293,15 +293,19 @@ func _build_ground_detail() -> void:
 			))
 
 	_grass_count = transforms.size()
-	var mesh := BoxMesh.new()
-	mesh.size = Vector3(0.14, 0.62, 0.14)
-	mesh.material = _material(Color("668b42"), 0.98)
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = 0.025
+	mesh.bottom_radius = 0.22
+	mesh.height = 0.48
+	mesh.radial_segments = 4
+	mesh.rings = 1
+	mesh.material = _material(Color("3f6f2f"), 0.98)
 	_add_tree_multimesh(mesh, transforms, false)
 
 
 func _build_clouds() -> void:
 	var transforms: Array[Transform3D] = []
-	for cloud_index: int in range(22):
+	for cloud_index: int in range(12):
 		var world_x: float = lerpf(
 			-105.0, 135.0,
 			WorldSeed.sample_unit(WORLD_SEED + 1013, cloud_index, 0)
@@ -314,9 +318,9 @@ func _build_clouds() -> void:
 			43.0, 57.0,
 			WorldSeed.sample_unit(WORLD_SEED + 1031, cloud_index, 0)
 		)
-		var width: float = lerpf(5.5, 11.0, WorldSeed.sample_unit(WORLD_SEED + 1039, cloud_index, 0))
-		var depth: float = lerpf(2.2, 5.0, WorldSeed.sample_unit(WORLD_SEED + 1051, cloud_index, 0))
-		var thickness: float = lerpf(0.65, 1.25, WorldSeed.sample_unit(WORLD_SEED + 1061, cloud_index, 0))
+		var width: float = lerpf(7.0, 13.5, WorldSeed.sample_unit(WORLD_SEED + 1039, cloud_index, 0))
+		var depth: float = lerpf(4.0, 7.0, WorldSeed.sample_unit(WORLD_SEED + 1051, cloud_index, 0))
+		var thickness: float = lerpf(1.65, 2.8, WorldSeed.sample_unit(WORLD_SEED + 1061, cloud_index, 0))
 		var rotation: float = WorldSeed.sample_unit(WORLD_SEED + 1069, cloud_index, 0) * TAU
 		var basis := Basis(Vector3.UP, rotation).scaled(Vector3(width, thickness, depth))
 		transforms.append(Transform3D(basis, Vector3(world_x, height, world_z)))
@@ -329,7 +333,7 @@ func _build_clouds() -> void:
 	mesh.rings = 4
 	var cloud_material := StandardMaterial3D.new()
 	cloud_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	cloud_material.albedo_color = Color(0.86, 0.92, 0.94, 0.72)
+	cloud_material.albedo_color = Color(0.88, 0.93, 0.95, 0.82)
 	cloud_material.roughness = 1.0
 	cloud_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mesh.material = cloud_material
