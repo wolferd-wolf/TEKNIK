@@ -45,9 +45,9 @@ static func surface_height(seed: int, world_x: int, world_z: int) -> int:
 	var ridge: float = pow(absf(ridge_source * 2.0 - 1.0), 1.7)
 	var upland_height: float = (
 		10.0
-		+ continental * 9.0
-		+ (rolling - 0.5) * 4.0
-		+ ridge * 5.0
+		+ continental * 8.0
+		+ (rolling - 0.5) * 5.0
+		+ ridge * 9.0
 	)
 
 	var distance_to_river: float = river_distance(seed, world_x, world_z)

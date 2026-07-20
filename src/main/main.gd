@@ -40,7 +40,7 @@ func _build_environment() -> void:
 	environment.background_mode = Environment.BG_SKY
 	environment.sky = sky
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	environment.ambient_light_energy = 0.38
+	environment.ambient_light_energy = 0.5
 	environment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	environment.tonemap_mode = Environment.TONE_MAPPER_ACES
 	environment.fog_enabled = true
@@ -56,17 +56,18 @@ func _build_environment() -> void:
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-47.0, -38.0, 0.0)
 	sun.light_color = Color("ffe1a6")
-	sun.light_energy = 1.24
+	sun.light_energy = 1.12
 	sun.shadow_enabled = true
+	sun.shadow_blur = 1.35
 	sun.directional_shadow_max_distance = 135.0
 	add_child(sun)
 
 	var camera := Camera3D.new()
-	camera.position = Vector3(-58.0, 22.0, 43.0)
-	camera.fov = 54.0
+	camera.position = Vector3(-72.0, 28.0, 50.0)
+	camera.fov = 50.0
 	camera.far = 280.0
 	add_child(camera)
-	camera.look_at(Vector3(20.0, 10.0, -10.0), Vector3.UP)
+	camera.look_at(Vector3(18.0, 11.0, -5.0), Vector3.UP)
 
 
 func _build_terrain() -> void:
@@ -95,12 +96,43 @@ func _build_terrain() -> void:
 
 
 func _build_water() -> void:
-	var world_size: float = float((CHUNK_RADIUS * 2 + 1) * VoxelChunk.SIZE)
-	var world_center: float = float(VoxelChunk.SIZE) * 0.5
-	var water_mesh := PlaneMesh.new()
-	water_mesh.size = Vector2(world_size, world_size)
-	water_mesh.subdivide_width = 24
-	water_mesh.subdivide_depth = 24
+	var world_min: int = -CHUNK_RADIUS * VoxelChunk.SIZE
+	var world_max: int = (CHUNK_RADIUS + 1) * VoxelChunk.SIZE
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var indices := PackedInt32Array()
+	var half_width: float = 5.35
+	var segment_index: int = 0
+	for world_x: int in range(world_min, world_max + 1, 2):
+		var center_z: float = TerrainGenerator.river_center_z(WORLD_SEED, world_x)
+		vertices.append(Vector3(
+			float(world_x),
+			float(TerrainGenerator.WATER_LEVEL) + 0.58,
+			center_z - half_width
+		))
+		vertices.append(Vector3(
+			float(world_x),
+			float(TerrainGenerator.WATER_LEVEL) + 0.58,
+			center_z + half_width
+		))
+		normals.append(Vector3.UP)
+		normals.append(Vector3.UP)
+		if segment_index > 0:
+			var previous: int = (segment_index - 1) * 2
+			var current: int = segment_index * 2
+			indices.append_array(PackedInt32Array([
+				previous, current, current + 1,
+				previous, current + 1, previous + 1,
+			]))
+		segment_index += 1
+
+	var arrays: Array = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var water_mesh := ArrayMesh.new()
+	water_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 
 	var water_material := StandardMaterial3D.new()
 	water_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -111,15 +143,10 @@ func _build_water() -> void:
 	water_material.emission_enabled = true
 	water_material.emission = Color("123d4d")
 	water_material.emission_energy_multiplier = 0.18
-	water_mesh.material = water_material
+	water_mesh.surface_set_material(0, water_material)
 
 	var water := MeshInstance3D.new()
 	water.mesh = water_mesh
-	water.position = Vector3(
-		world_center,
-		float(TerrainGenerator.WATER_LEVEL) + 0.62,
-		world_center
-	)
 	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(water)
 
@@ -127,7 +154,6 @@ func _build_water() -> void:
 func _build_forest() -> void:
 	var trunk_transforms: Array[Transform3D] = []
 	var lower_canopy_transforms: Array[Transform3D] = []
-	var upper_canopy_transforms: Array[Transform3D] = []
 	var world_min: int = -CHUNK_RADIUS * VoxelChunk.SIZE + 5
 	var world_max: int = (CHUNK_RADIUS + 1) * VoxelChunk.SIZE - 5
 
@@ -135,7 +161,7 @@ func _build_forest() -> void:
 		for grid_x: int in range(world_min, world_max, TREE_SPACING):
 			var cell_x: int = floori(float(grid_x) / float(TREE_SPACING))
 			var cell_z: int = floori(float(grid_z) / float(TREE_SPACING))
-			if WorldSeed.sample_unit(WORLD_SEED + 701, cell_x, cell_z) < 0.84:
+			if WorldSeed.sample_unit(WORLD_SEED + 701, cell_x, cell_z) < 0.88:
 				continue
 
 			var jitter_x: float = (WorldSeed.sample_unit(WORLD_SEED + 719, cell_x, cell_z) - 0.5) * 4.0
@@ -149,6 +175,8 @@ func _build_forest() -> void:
 				continue
 			if TerrainGenerator.surface_slope(WORLD_SEED, world_x, world_z) > 1:
 				continue
+			if Vector2(float(world_x) + 72.0, float(world_z) - 50.0).length() < 18.0:
+				continue
 
 			var scale: float = lerpf(
 				0.78,
@@ -159,13 +187,11 @@ func _build_forest() -> void:
 			var basis := Basis(Vector3.UP, rotation).scaled(Vector3.ONE * scale)
 			var ground := Vector3(float(world_x) + 0.5, float(height) + 1.0, float(world_z) + 0.5)
 			trunk_transforms.append(Transform3D(basis, ground + Vector3.UP * 1.35 * scale))
-			lower_canopy_transforms.append(Transform3D(basis, ground + Vector3.UP * 3.25 * scale))
-			upper_canopy_transforms.append(Transform3D(basis, ground + Vector3.UP * 4.65 * scale))
+			lower_canopy_transforms.append(Transform3D(basis, ground + Vector3.UP * 3.65 * scale))
 
 	_tree_count = trunk_transforms.size()
 	_add_tree_multimesh(_trunk_mesh(), trunk_transforms)
 	_add_tree_multimesh(_lower_canopy_mesh(), lower_canopy_transforms)
-	_add_tree_multimesh(_upper_canopy_mesh(), upper_canopy_transforms)
 	print("WORLD_QA trees=", _tree_count)
 
 
@@ -198,23 +224,12 @@ func _trunk_mesh() -> BoxMesh:
 
 func _lower_canopy_mesh() -> CylinderMesh:
 	var mesh := CylinderMesh.new()
-	mesh.top_radius = 0.28
-	mesh.bottom_radius = 1.55
-	mesh.height = 2.8
+	mesh.top_radius = 0.06
+	mesh.bottom_radius = 1.42
+	mesh.height = 3.8
 	mesh.radial_segments = 7
 	mesh.rings = 1
-	mesh.material = _material(Color("2f5940"), 0.96)
-	return mesh
-
-
-func _upper_canopy_mesh() -> CylinderMesh:
-	var mesh := CylinderMesh.new()
-	mesh.top_radius = 0.05
-	mesh.bottom_radius = 1.12
-	mesh.height = 2.35
-	mesh.radial_segments = 7
-	mesh.rings = 1
-	mesh.material = _material(Color("3d6b4e"), 0.96)
+	mesh.material = _material(Color("355f44"), 0.96)
 	return mesh
 
 

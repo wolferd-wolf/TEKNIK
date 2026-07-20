@@ -149,11 +149,11 @@ static func _append_quad(
 	var color: Color = _material_color(absi(face))
 	var face_light: float = 1.0
 	if axis == 1 and face > 0:
-		face_light = 1.08
+		face_light = 1.03
 	elif axis == 1:
-		face_light = 0.68
+		face_light = 0.76
 	else:
-		face_light = 0.86
+		face_light = 0.94
 	var variation: float = 0.96 + fposmod(
 		sin(origin.x * 12.9898 + origin.y * 37.719 + origin.z * 78.233) * 43758.5453,
 		1.0
