@@ -58,12 +58,15 @@ jobs:
       - name: Run deterministic tests
         run: godot --headless --path . --script res://tests/run_tests.gd
 
-      - name: Capture rendered QA screenshot
+      - name: Capture rendered QA screenshots
         run: |
           mkdir -p artifacts
-          xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy -- \
-            --qa-screenshot=artifacts/bootstrap.png
-          test -s artifacts/bootstrap.png
+          for view in hero river upland; do
+            xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy -- \
+              --qa-view="$view" \
+              --qa-screenshot="artifacts/world-$view.png"
+            test -s "artifacts/world-$view.png"
+          done
 
       - name: Publish world preview
         uses: actions/upload-artifact@v4
@@ -71,7 +74,7 @@ jobs:
           name: teknik-world-preview-${{ github.sha }}
           if-no-files-found: error
           retention-days: 30
-          path: artifacts/bootstrap.png
+          path: artifacts/world-*.png
 
       - name: Set up Android command-line tools
         uses: android-actions/setup-android@v3
@@ -133,7 +136,7 @@ jobs:
             echo '## TEKNIK automated QA'
             echo
             echo '- Deterministic simulation tests executed.'
-            echo '- Rendered bootstrap screenshot requested.'
+            echo '- Hero, river, and upland world screenshots requested.'
             echo '- Android ARM64 debug export requested.'
             echo '- Physical-device 50 FPS certification is not part of this cloud-runner job.'
           } >> "$GITHUB_STEP_SUMMARY"

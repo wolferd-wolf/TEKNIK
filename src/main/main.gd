@@ -36,7 +36,8 @@ func _ready() -> void:
 		"WORLD_QA build_ms=", Time.get_ticks_msec() - build_started_ms,
 		" render_instances=", _render_instance_count,
 		" grass=", _grass_count,
-		" clouds=", _cloud_count
+		" clouds=", _cloud_count,
+		" view=", _qa_view_name()
 	)
 
 	var screenshot_path: String = _qa_screenshot_path()
@@ -88,11 +89,7 @@ func _build_environment() -> void:
 	camera.fov = 50.0
 	camera.far = 280.0
 	add_child(camera)
-	camera.look_at(Vector3(
-		38.0,
-		float(TerrainGenerator.WATER_LEVEL) + 4.0,
-		TerrainGenerator.river_center_z(WORLD_SEED, 38)
-	), Vector3.UP)
+	camera.look_at(_camera_target(), Vector3.UP)
 
 
 func _build_terrain_ordered() -> void:
@@ -417,10 +414,42 @@ func _sample_world_voxel(world_position: Vector3i) -> int:
 
 
 func _camera_position() -> Vector3:
+	var view_name: String = _qa_view_name()
 	var world_x: int = -70
-	var world_z: int = roundi(TerrainGenerator.river_center_z(WORLD_SEED, world_x) + 16.0)
+	var world_z_offset: float = 16.0
+	var height_offset: float = 7.5
+	if view_name == "river":
+		world_x = -34
+		world_z_offset = -20.0
+		height_offset = 9.5
+	elif view_name == "upland":
+		world_x = 48
+		world_z_offset = 42.0
+		height_offset = 10.5
+	var world_z: int = roundi(
+		TerrainGenerator.river_center_z(WORLD_SEED, world_x) + world_z_offset
+	)
 	var ground_height: int = TerrainGenerator.surface_height(WORLD_SEED, world_x, world_z)
-	return Vector3(float(world_x), float(ground_height) + 7.5, float(world_z))
+	return Vector3(float(world_x), float(ground_height) + height_offset, float(world_z))
+
+
+func _camera_target() -> Vector3:
+	var view_name: String = _qa_view_name()
+	var target_x: int = 38
+	var river_offset: float = 0.0
+	var target_height: float = float(TerrainGenerator.WATER_LEVEL) + 4.0
+	if view_name == "river":
+		target_x = 54
+		target_height = float(TerrainGenerator.WATER_LEVEL) + 3.5
+	elif view_name == "upland":
+		target_x = -8
+		river_offset = 7.0
+		target_height = float(TerrainGenerator.WATER_LEVEL) + 6.0
+	return Vector3(
+		float(target_x),
+		target_height,
+		TerrainGenerator.river_center_z(WORLD_SEED, target_x) + river_offset
+	)
 
 
 func _trunk_mesh() -> BoxMesh:
@@ -456,6 +485,20 @@ func _qa_screenshot_path() -> String:
 		if argument == "--qa-screenshot" and index + 1 < arguments.size():
 			return arguments[index + 1]
 	return ""
+
+
+func _qa_view_name() -> String:
+	var arguments: PackedStringArray = OS.get_cmdline_user_args()
+	for index: int in range(arguments.size()):
+		var argument: String = arguments[index]
+		var requested: String = ""
+		if argument.begins_with("--qa-view="):
+			requested = argument.trim_prefix("--qa-view=")
+		elif argument == "--qa-view" and index + 1 < arguments.size():
+			requested = arguments[index + 1]
+		if requested in ["hero", "river", "upland"]:
+			return requested
+	return "hero"
 
 
 func _capture_qa_screenshot(path: String) -> void:
