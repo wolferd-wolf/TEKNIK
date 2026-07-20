@@ -65,6 +65,9 @@ jobs:
             --qa-screenshot=artifacts/bootstrap.png
           test -s artifacts/bootstrap.png
 
+      - name: Set up Android command-line tools
+        uses: android-actions/setup-android@v3
+
       - name: Install required Android SDK packages
         run: |
           yes | sdkmanager --licenses >/dev/null || true
