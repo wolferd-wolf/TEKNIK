@@ -20,21 +20,14 @@ static func generate_chunk(seed: int, chunk_coordinate: Vector3i) -> TeknikVoxel
 		for x: int in range(VoxelChunk.SIZE):
 			var world_x: int = world_origin.x + x
 			var world_z: int = world_origin.z + z
-			var surface_y: int = surface_height(seed, world_x, world_z)
+			var height: int = surface_height(seed, world_x, world_z)
 			var top_material: int = surface_material(seed, world_x, world_z)
-
 			for y: int in range(VoxelChunk.SIZE):
+				var local_position := Vector3i(x, y, z)
 				var world_y: int = world_origin.y + y
-				if world_y > surface_y:
-					continue
-				var material: int = STONE
-				if world_y == surface_y:
-					material = top_material
-				elif top_material == SAND and world_y >= surface_y - 3:
-					material = SAND
-				elif top_material != STONE and world_y >= surface_y - 2:
-					material = SOIL
-				chunk.set_voxel(Vector3i(x, y, z), material)
+				var material: int = _material_at_height(world_y, height, top_material)
+				if material != VoxelChunk.AIR:
+					chunk.set_voxel(local_position, material)
 
 	return chunk
 
@@ -58,7 +51,7 @@ static func surface_height(seed: int, world_x: int, world_z: int) -> int:
 	)
 
 	var distance_to_river: float = river_distance(seed, world_x, world_z)
-	var valley_blend: float = smoothstep(4.0, 34.0, distance_to_river)
+	var valley_blend: float = smoothstep(4.0, 20.0, distance_to_river)
 	var carved_height: float = lerpf(float(WATER_LEVEL - 2), upland_height, valley_blend)
 	if distance_to_river < 4.0:
 		carved_height = minf(carved_height, float(WATER_LEVEL - 2))
@@ -93,6 +86,26 @@ static func surface_material(seed: int, world_x: int, world_z: int) -> int:
 	var height: int = surface_height(seed, world_x, world_z)
 	if height <= WATER_LEVEL + 1:
 		return SAND
-	if height >= 21 or surface_slope(seed, world_x, world_z) >= 2:
+	if height >= 23 or surface_slope(seed, world_x, world_z) >= 3:
 		return STONE
 	return GRASS
+
+
+static func voxel_at(seed: int, world_position: Vector3i) -> int:
+	if world_position.y < 0:
+		return STONE
+	var height: int = surface_height(seed, world_position.x, world_position.z)
+	var top_material: int = surface_material(seed, world_position.x, world_position.z)
+	return _material_at_height(world_position.y, height, top_material)
+
+
+static func _material_at_height(world_y: int, height: int, top_material: int) -> int:
+	if world_y > height:
+		return VoxelChunk.AIR
+	if world_y == height:
+		return top_material
+	if top_material == SAND and world_y >= height - 3:
+		return SAND
+	if top_material != STONE and world_y >= height - 2:
+		return SOIL
+	return STONE

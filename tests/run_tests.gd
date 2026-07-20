@@ -64,6 +64,10 @@ func _test_voxel_chunk() -> void:
 	_expect(negative_chunk.count_solid() > 0, "negative world coordinates generate terrain")
 	var different_seed: TeknikVoxelChunk = TerrainGenerator.generate_chunk(100, Vector3i.ZERO)
 	_expect(generated_a.voxels != different_seed.voxels, "world seed changes generated terrain")
+	_expect(
+		TerrainGenerator.voxel_at(99, Vector3i(0, TerrainGenerator.MAX_SURFACE_HEIGHT + 1, 0)) == VoxelChunk.AIR,
+		"world sampler returns air above the terrain budget"
+	)
 
 	var max_step: int = 0
 	var heights_in_budget: bool = true

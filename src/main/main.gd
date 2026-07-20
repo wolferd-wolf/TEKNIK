@@ -26,8 +26,8 @@ func _ready() -> void:
 
 func _build_environment() -> void:
 	var sky_material := ProceduralSkyMaterial.new()
-	sky_material.sky_top_color = Color("3f7198")
-	sky_material.sky_horizon_color = Color("b8d2d8")
+	sky_material.sky_top_color = Color("3f739d")
+	sky_material.sky_horizon_color = Color("9ebbc4")
 	sky_material.ground_bottom_color = Color("273b3d")
 	sky_material.ground_horizon_color = Color("9db3aa")
 	sky_material.sun_angle_max = 18.0
@@ -40,14 +40,14 @@ func _build_environment() -> void:
 	environment.background_mode = Environment.BG_SKY
 	environment.sky = sky
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	environment.ambient_light_energy = 0.62
+	environment.ambient_light_energy = 0.38
 	environment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	environment.tonemap_mode = Environment.TONE_MAPPER_ACES
 	environment.fog_enabled = true
-	environment.fog_light_color = Color("b5cbd0")
-	environment.fog_light_energy = 0.82
-	environment.fog_density = 0.0038
-	environment.fog_sky_affect = 0.62
+	environment.fog_light_color = Color("9fb7bc")
+	environment.fog_light_energy = 0.52
+	environment.fog_density = 0.0018
+	environment.fog_sky_affect = 0.38
 
 	var world_environment := WorldEnvironment.new()
 	world_environment.environment = environment
@@ -56,17 +56,17 @@ func _build_environment() -> void:
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-47.0, -38.0, 0.0)
 	sun.light_color = Color("ffe1a6")
-	sun.light_energy = 1.48
+	sun.light_energy = 1.24
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 135.0
 	add_child(sun)
 
 	var camera := Camera3D.new()
-	camera.position = Vector3(-52.0, 38.0, 66.0)
-	camera.fov = 58.0
+	camera.position = Vector3(-58.0, 22.0, 43.0)
+	camera.fov = 54.0
 	camera.far = 280.0
 	add_child(camera)
-	camera.look_at(Vector3(22.0, 9.0, -18.0), Vector3.UP)
+	camera.look_at(Vector3(20.0, 10.0, -10.0), Vector3.UP)
 
 
 func _build_terrain() -> void:
@@ -74,7 +74,11 @@ func _build_terrain() -> void:
 		for chunk_x: int in range(-CHUNK_RADIUS, CHUNK_RADIUS + 1):
 			var coordinate := Vector3i(chunk_x, 0, chunk_z)
 			var chunk: TeknikVoxelChunk = TerrainGenerator.generate_chunk(WORLD_SEED, coordinate)
-			var report: Dictionary = GreedyMesher.build_mesh(chunk)
+			var report: Dictionary = GreedyMesher.build_mesh(
+				chunk,
+				coordinate * VoxelChunk.SIZE,
+				Callable(self, "_sample_world_voxel")
+			)
 			_total_quads += int(report.quads)
 
 			var terrain := MeshInstance3D.new()
@@ -100,7 +104,7 @@ func _build_water() -> void:
 
 	var water_material := StandardMaterial3D.new()
 	water_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	water_material.albedo_color = Color(0.12, 0.39, 0.52, 0.78)
+	water_material.albedo_color = Color(0.09, 0.36, 0.48, 0.68)
 	water_material.metallic = 0.18
 	water_material.roughness = 0.2
 	water_material.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -131,7 +135,7 @@ func _build_forest() -> void:
 		for grid_x: int in range(world_min, world_max, TREE_SPACING):
 			var cell_x: int = floori(float(grid_x) / float(TREE_SPACING))
 			var cell_z: int = floori(float(grid_z) / float(TREE_SPACING))
-			if WorldSeed.sample_unit(WORLD_SEED + 701, cell_x, cell_z) < 0.79:
+			if WorldSeed.sample_unit(WORLD_SEED + 701, cell_x, cell_z) < 0.84:
 				continue
 
 			var jitter_x: float = (WorldSeed.sample_unit(WORLD_SEED + 719, cell_x, cell_z) - 0.5) * 4.0
@@ -141,7 +145,7 @@ func _build_forest() -> void:
 			var height: int = TerrainGenerator.surface_height(WORLD_SEED, world_x, world_z)
 			if height <= TerrainGenerator.WATER_LEVEL + 2:
 				continue
-			if TerrainGenerator.river_distance(WORLD_SEED, world_x, world_z) < 15.0:
+			if TerrainGenerator.river_distance(WORLD_SEED, world_x, world_z) < 12.0:
 				continue
 			if TerrainGenerator.surface_slope(WORLD_SEED, world_x, world_z) > 1:
 				continue
@@ -181,6 +185,10 @@ func _add_tree_multimesh(mesh: Mesh, transforms: Array[Transform3D]) -> void:
 	add_child(instance)
 
 
+func _sample_world_voxel(world_position: Vector3i) -> int:
+	return TerrainGenerator.voxel_at(WORLD_SEED, world_position)
+
+
 func _trunk_mesh() -> BoxMesh:
 	var mesh := BoxMesh.new()
 	mesh.size = Vector3(0.62, 2.7, 0.62)
@@ -195,7 +203,7 @@ func _lower_canopy_mesh() -> CylinderMesh:
 	mesh.height = 2.8
 	mesh.radial_segments = 7
 	mesh.rings = 1
-	mesh.material = _material(Color("355f47"), 0.96)
+	mesh.material = _material(Color("2f5940"), 0.96)
 	return mesh
 
 
@@ -206,7 +214,7 @@ func _upper_canopy_mesh() -> CylinderMesh:
 	mesh.height = 2.35
 	mesh.radial_segments = 7
 	mesh.rings = 1
-	mesh.material = _material(Color("47775a"), 0.96)
+	mesh.material = _material(Color("3d6b4e"), 0.96)
 	return mesh
 
 

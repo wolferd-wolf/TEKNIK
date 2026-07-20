@@ -4,7 +4,11 @@ class_name TeknikGreedyMesher
 const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
 
 
-static func build_mesh(chunk: TeknikVoxelChunk) -> Dictionary:
+static func build_mesh(
+	chunk: TeknikVoxelChunk,
+	world_origin: Vector3i = Vector3i.ZERO,
+	world_sampler: Callable = Callable()
+) -> Dictionary:
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var colors := PackedColorArray()
@@ -29,16 +33,14 @@ static func build_mesh(chunk: TeknikVoxelChunk) -> Dictionary:
 				cursor[axis_v] = coordinate_v
 				for coordinate_u: int in range(dimensions[axis_u]):
 					cursor[axis_u] = coordinate_u
-					var current: int = VoxelChunk.AIR
-					var neighbor: int = VoxelChunk.AIR
-					if cursor[axis] >= 0:
-						current = chunk.get_voxel(Vector3i(cursor[0], cursor[1], cursor[2]))
-					if cursor[axis] < dimensions[axis] - 1:
-						neighbor = chunk.get_voxel(Vector3i(
-							cursor[0] + step[0],
-							cursor[1] + step[1],
-							cursor[2] + step[2]
-						))
+					var current_position := Vector3i(cursor[0], cursor[1], cursor[2])
+					var neighbor_position := current_position + Vector3i(step[0], step[1], step[2])
+					var current: int = _sample_voxel(
+						chunk, current_position, world_origin, world_sampler
+					)
+					var neighbor: int = _sample_voxel(
+						chunk, neighbor_position, world_origin, world_sampler
+					)
 
 					if (current == VoxelChunk.AIR) == (neighbor == VoxelChunk.AIR):
 						mask[mask_index] = 0
@@ -112,6 +114,19 @@ static func build_mesh(chunk: TeknikVoxelChunk) -> Dictionary:
 	}
 
 
+static func _sample_voxel(
+	chunk: TeknikVoxelChunk,
+	local_position: Vector3i,
+	world_origin: Vector3i,
+	world_sampler: Callable
+) -> int:
+	if VoxelChunk.in_bounds(local_position):
+		return chunk.get_voxel(local_position)
+	if world_sampler.is_valid():
+		return int(world_sampler.call(world_origin + local_position))
+	return VoxelChunk.AIR
+
+
 static func _append_quad(
 	vertices: PackedVector3Array,
 	normals: PackedVector3Array,
@@ -162,12 +177,12 @@ static func _append_quad(
 static func _material_color(material: int) -> Color:
 	match material:
 		1:
-			return Color("77818a")
+			return Color("65717a")
 		2:
-			return Color("73553b")
+			return Color("674a35")
 		3:
-			return Color("668f52")
+			return Color("527d42")
 		4:
-			return Color("b7a373")
+			return Color("aa9566")
 		_:
 			return Color("8c7e69")
