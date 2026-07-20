@@ -12,14 +12,26 @@ const TREE_SPACING: int = 6
 var _total_quads: int = 0
 var _tree_count: int = 0
 var _boulder_count: int = 0
+var _grass_count: int = 0
+var _cloud_count: int = 0
+var _render_instance_count: int = 0
 
 
 func _ready() -> void:
+	var build_started_ms: int = Time.get_ticks_msec()
 	_build_environment()
 	_build_terrain()
 	_build_water()
 	_build_forest()
 	_build_boulders()
+	_build_ground_detail()
+	_build_clouds()
+	print(
+		"WORLD_QA build_ms=", Time.get_ticks_msec() - build_started_ms,
+		" render_instances=", _render_instance_count,
+		" grass=", _grass_count,
+		" clouds=", _cloud_count
+	)
 
 	var screenshot_path: String = _qa_screenshot_path()
 	if not screenshot_path.is_empty():
@@ -98,6 +110,7 @@ func _build_terrain() -> void:
 			)
 			terrain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 			add_child(terrain)
+			_render_instance_count += 1
 
 	print("WORLD_QA chunks=", (CHUNK_RADIUS * 2 + 1) ** 2, " quads=", _total_quads)
 
@@ -156,6 +169,7 @@ func _build_water() -> void:
 	water.mesh = water_mesh
 	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(water)
+	_render_instance_count += 1
 
 
 func _build_forest() -> void:
@@ -246,7 +260,87 @@ func _build_boulders() -> void:
 	print("WORLD_QA boulders=", _boulder_count)
 
 
-func _add_tree_multimesh(mesh: Mesh, transforms: Array[Transform3D]) -> void:
+func _build_ground_detail() -> void:
+	var transforms: Array[Transform3D] = []
+	var world_min: int = -CHUNK_RADIUS * VoxelChunk.SIZE + 4
+	var world_max: int = (CHUNK_RADIUS + 1) * VoxelChunk.SIZE - 4
+	var camera_position: Vector3 = _camera_position()
+
+	for grid_z: int in range(world_min, world_max, 3):
+		for grid_x: int in range(world_min, world_max, 3):
+			var cell_x: int = floori(float(grid_x) / 3.0)
+			var cell_z: int = floori(float(grid_z) / 3.0)
+			if WorldSeed.sample_unit(WORLD_SEED + 947, cell_x, cell_z) < 0.87:
+				continue
+			var world_x: int = grid_x + roundi((WorldSeed.sample_unit(WORLD_SEED + 953, cell_x, cell_z) - 0.5) * 2.0)
+			var world_z: int = grid_z + roundi((WorldSeed.sample_unit(WORLD_SEED + 967, cell_x, cell_z) - 0.5) * 2.0)
+			if Vector2(
+				float(world_x) - camera_position.x,
+				float(world_z) - camera_position.z
+			).length() > 112.0:
+				continue
+			if TerrainGenerator.surface_material(WORLD_SEED, world_x, world_z) != TerrainGenerator.GRASS:
+				continue
+			if TerrainGenerator.surface_slope(WORLD_SEED, world_x, world_z) > 1:
+				continue
+			var height: int = TerrainGenerator.surface_height(WORLD_SEED, world_x, world_z)
+			var scale: float = lerpf(0.65, 1.2, WorldSeed.sample_unit(WORLD_SEED + 977, cell_x, cell_z))
+			var rotation: float = WorldSeed.sample_unit(WORLD_SEED + 991, cell_x, cell_z) * TAU
+			var basis := Basis(Vector3.UP, rotation).scaled(Vector3(scale, scale, scale))
+			transforms.append(Transform3D(
+				basis,
+				Vector3(float(world_x) + 0.5, float(height) + 1.0 + 0.3 * scale, float(world_z) + 0.5)
+			))
+
+	_grass_count = transforms.size()
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(0.14, 0.62, 0.14)
+	mesh.material = _material(Color("668b42"), 0.98)
+	_add_tree_multimesh(mesh, transforms, false)
+
+
+func _build_clouds() -> void:
+	var transforms: Array[Transform3D] = []
+	for cloud_index: int in range(22):
+		var world_x: float = lerpf(
+			-105.0, 135.0,
+			WorldSeed.sample_unit(WORLD_SEED + 1013, cloud_index, 0)
+		)
+		var world_z: float = lerpf(
+			-105.0, 105.0,
+			WorldSeed.sample_unit(WORLD_SEED + 1021, cloud_index, 0)
+		)
+		var height: float = lerpf(
+			43.0, 57.0,
+			WorldSeed.sample_unit(WORLD_SEED + 1031, cloud_index, 0)
+		)
+		var width: float = lerpf(5.5, 11.0, WorldSeed.sample_unit(WORLD_SEED + 1039, cloud_index, 0))
+		var depth: float = lerpf(2.2, 5.0, WorldSeed.sample_unit(WORLD_SEED + 1051, cloud_index, 0))
+		var thickness: float = lerpf(0.65, 1.25, WorldSeed.sample_unit(WORLD_SEED + 1061, cloud_index, 0))
+		var rotation: float = WorldSeed.sample_unit(WORLD_SEED + 1069, cloud_index, 0) * TAU
+		var basis := Basis(Vector3.UP, rotation).scaled(Vector3(width, thickness, depth))
+		transforms.append(Transform3D(basis, Vector3(world_x, height, world_z)))
+
+	_cloud_count = transforms.size()
+	var mesh := SphereMesh.new()
+	mesh.radius = 1.0
+	mesh.height = 1.4
+	mesh.radial_segments = 8
+	mesh.rings = 4
+	var cloud_material := StandardMaterial3D.new()
+	cloud_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	cloud_material.albedo_color = Color(0.86, 0.92, 0.94, 0.72)
+	cloud_material.roughness = 1.0
+	cloud_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mesh.material = cloud_material
+	_add_tree_multimesh(mesh, transforms, false)
+
+
+func _add_tree_multimesh(
+	mesh: Mesh,
+	transforms: Array[Transform3D],
+	cast_shadows: bool = true
+) -> void:
 	if transforms.is_empty():
 		return
 	var multimesh := MultiMesh.new()
@@ -258,8 +352,12 @@ func _add_tree_multimesh(mesh: Mesh, transforms: Array[Transform3D]) -> void:
 
 	var instance := MultiMeshInstance3D.new()
 	instance.multimesh = multimesh
-	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	if cast_shadows:
+		instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	else:
+		instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(instance)
+	_render_instance_count += 1
 
 
 func _sample_world_voxel(world_position: Vector3i) -> int:

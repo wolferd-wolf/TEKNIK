@@ -18,6 +18,7 @@ The active milestone is the procedural world foundation. Other gameplay systems 
 - a Godot Mobile-renderer project;
 - a deterministic seven-by-seven preview of 32×32×32 voxel chunks;
 - broad seeded landforms, a continuous river valley, shore material transitions, and restrained instanced forest placement;
+- mobile-budgeted MultiMesh ground detail, boulders, and a low-poly cloud layer;
 - greedy chunk meshes that collapse a solid chunk to six quads;
 - a texture-free original material palette, procedural sky, water, directional shadows, and distance fog;
 - an automated rendered screenshot path; and
