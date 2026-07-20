@@ -9,7 +9,6 @@ const ChunkStreamPlan = preload("res://src/world/chunk_stream_plan.gd")
 const WORLD_SEED: int = 73_421
 const CHUNK_RADIUS: int = 3
 const TREE_SPACING: int = 6
-const TERRAIN_FRAME_BUDGET_MS: int = 12
 
 var _total_quads: int = 0
 var _tree_count: int = 0
@@ -24,7 +23,7 @@ var _world_column_cache: Dictionary = {}
 func _ready() -> void:
 	var build_started_ms: int = Time.get_ticks_msec()
 	_build_environment()
-	await _build_terrain_streamed()
+	_build_terrain_ordered()
 	_build_water()
 	_build_forest()
 	_build_boulders()
@@ -93,7 +92,7 @@ func _build_environment() -> void:
 	), Vector3.UP)
 
 
-func _build_terrain_streamed() -> void:
+func _build_terrain_ordered() -> void:
 	var camera_position: Vector3 = _camera_position()
 	var priority_coordinate := Vector3i(
 		floori(camera_position.x / float(VoxelChunk.SIZE)),
@@ -103,10 +102,6 @@ func _build_terrain_streamed() -> void:
 	var coordinates: Array[Vector3i] = ChunkStreamPlan.ordered_square(
 		Vector3i.ZERO, CHUNK_RADIUS, priority_coordinate
 	)
-	var frame_slice_started_ms: int = Time.get_ticks_msec()
-	var longest_slice_ms: int = 0
-	var yielded_frames: int = 0
-
 	for coordinate: Vector3i in coordinates:
 		var chunk: TeknikVoxelChunk = TerrainGenerator.generate_chunk(WORLD_SEED, coordinate)
 		var report: Dictionary = GreedyMesher.build_mesh(
@@ -127,21 +122,11 @@ func _build_terrain_streamed() -> void:
 		add_child(terrain)
 		_render_instance_count += 1
 
-		var slice_ms: int = Time.get_ticks_msec() - frame_slice_started_ms
-		if slice_ms >= TERRAIN_FRAME_BUDGET_MS:
-			longest_slice_ms = maxi(longest_slice_ms, slice_ms)
-			yielded_frames += 1
-			await get_tree().process_frame
-			frame_slice_started_ms = Time.get_ticks_msec()
-
-	longest_slice_ms = maxi(longest_slice_ms, Time.get_ticks_msec() - frame_slice_started_ms)
 	_world_sample_cache.clear()
 	_world_column_cache.clear()
 	print(
 		"WORLD_QA chunks=", coordinates.size(),
-		" quads=", _total_quads,
-		" terrain_yields=", yielded_frames,
-		" max_slice_ms=", longest_slice_ms
+		" quads=", _total_quads
 	)
 
 
