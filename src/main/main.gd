@@ -11,6 +11,7 @@ const TREE_SPACING: int = 6
 
 var _total_quads: int = 0
 var _tree_count: int = 0
+var _boulder_count: int = 0
 
 
 func _ready() -> void:
@@ -18,6 +19,7 @@ func _ready() -> void:
 	_build_terrain()
 	_build_water()
 	_build_forest()
+	_build_boulders()
 
 	var screenshot_path: String = _qa_screenshot_path()
 	if not screenshot_path.is_empty():
@@ -41,7 +43,7 @@ func _build_environment() -> void:
 	environment.sky = sky
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	environment.ambient_light_color = Color("c4cfc3")
-	environment.ambient_light_energy = 0.46
+	environment.ambient_light_energy = 0.54
 	environment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	environment.tonemap_mode = Environment.TONE_MAPPER_ACES
 	environment.fog_enabled = true
@@ -57,7 +59,7 @@ func _build_environment() -> void:
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-47.0, -38.0, 0.0)
 	sun.light_color = Color("ffe1a6")
-	sun.light_energy = 1.12
+	sun.light_energy = 1.26
 	sun.shadow_enabled = true
 	sun.shadow_blur = 1.35
 	sun.directional_shadow_max_distance = 135.0
@@ -141,7 +143,7 @@ func _build_water() -> void:
 
 	var water_material := StandardMaterial3D.new()
 	water_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	water_material.albedo_color = Color(0.09, 0.36, 0.48, 0.68)
+	water_material.albedo_color = Color(0.08, 0.38, 0.52, 0.8)
 	water_material.metallic = 0.18
 	water_material.roughness = 0.2
 	water_material.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -202,6 +204,46 @@ func _build_forest() -> void:
 	_add_tree_multimesh(_trunk_mesh(), trunk_transforms)
 	_add_tree_multimesh(_lower_canopy_mesh(), lower_canopy_transforms)
 	print("WORLD_QA trees=", _tree_count)
+
+
+func _build_boulders() -> void:
+	var transforms: Array[Transform3D] = []
+	var world_min: int = -CHUNK_RADIUS * VoxelChunk.SIZE + 6
+	var world_max: int = (CHUNK_RADIUS + 1) * VoxelChunk.SIZE - 6
+	var camera_position: Vector3 = _camera_position()
+
+	for grid_z: int in range(world_min, world_max, 10):
+		for grid_x: int in range(world_min, world_max, 10):
+			var cell_x: int = floori(float(grid_x) / 10.0)
+			var cell_z: int = floori(float(grid_z) / 10.0)
+			if WorldSeed.sample_unit(WORLD_SEED + 811, cell_x, cell_z) < 0.84:
+				continue
+			var world_x: int = grid_x + roundi((WorldSeed.sample_unit(WORLD_SEED + 823, cell_x, cell_z) - 0.5) * 6.0)
+			var world_z: int = grid_z + roundi((WorldSeed.sample_unit(WORLD_SEED + 839, cell_x, cell_z) - 0.5) * 6.0)
+			if TerrainGenerator.river_distance(WORLD_SEED, world_x, world_z) < 8.0:
+				continue
+			if Vector2(
+				float(world_x) - camera_position.x,
+				float(world_z) - camera_position.z
+			).length() < 8.0:
+				continue
+			var height: int = TerrainGenerator.surface_height(WORLD_SEED, world_x, world_z)
+			var width: float = lerpf(0.65, 1.55, WorldSeed.sample_unit(WORLD_SEED + 853, cell_x, cell_z))
+			var depth: float = lerpf(0.7, 1.4, WorldSeed.sample_unit(WORLD_SEED + 877, cell_x, cell_z))
+			var rise: float = lerpf(0.45, 1.1, WorldSeed.sample_unit(WORLD_SEED + 881, cell_x, cell_z))
+			var rotation: float = WorldSeed.sample_unit(WORLD_SEED + 907, cell_x, cell_z) * TAU
+			var basis := Basis(Vector3.UP, rotation).scaled(Vector3(width, rise, depth))
+			transforms.append(Transform3D(
+				basis,
+				Vector3(float(world_x) + 0.5, float(height) + 1.0 + rise * 0.42, float(world_z) + 0.5)
+			))
+
+	_boulder_count = transforms.size()
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3.ONE
+	mesh.material = _material(Color("697471"), 0.98)
+	_add_tree_multimesh(mesh, transforms)
+	print("WORLD_QA boulders=", _boulder_count)
 
 
 func _add_tree_multimesh(mesh: Mesh, transforms: Array[Transform3D]) -> void:

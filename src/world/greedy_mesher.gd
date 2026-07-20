@@ -104,11 +104,7 @@ static func build_mesh(
 		var material := StandardMaterial3D.new()
 		material.vertex_color_use_as_albedo = true
 		material.roughness = 0.94
-		# The correctness mesh is deliberately two-sided until all generated face
-		# windings have dedicated renderer tests. Hidden voxel faces are already
-		# removed by the mesher, so this prevents visible world holes without
-		# reintroducing per-block geometry.
-		material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		material.cull_mode = BaseMaterial3D.CULL_BACK
 		mesh.surface_set_material(0, material)
 
 	return {
@@ -173,10 +169,12 @@ static func _append_quad(
 		normals.append(normal)
 		colors.append(color)
 
+	# Godot treats clockwise triangles as front-facing. The geometric cross
+	# product therefore points opposite the stored outward lighting normal.
 	if face > 0:
-		indices.append_array(PackedInt32Array([base, base + 1, base + 2, base, base + 2, base + 3]))
-	else:
 		indices.append_array(PackedInt32Array([base, base + 3, base + 2, base, base + 2, base + 1]))
+	else:
+		indices.append_array(PackedInt32Array([base, base + 1, base + 2, base, base + 2, base + 3]))
 
 
 static func _material_color(material: int) -> Color:
@@ -186,7 +184,7 @@ static func _material_color(material: int) -> Color:
 		2:
 			return Color("704c32")
 		3:
-			return Color("5f8c45")
+			return Color("6b9a4d")
 		4:
 			return Color("aa9566")
 		_:
