@@ -1,203 +1,219 @@
 extends Node3D
 
 const WorldSeed = preload("res://src/world/world_seed.gd")
-const KineticNetwork = preload("res://src/simulation/kinetic_network.gd")
 const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
 const TerrainGenerator = preload("res://src/world/voxel_terrain_generator.gd")
 const GreedyMesher = preload("res://src/world/greedy_mesher.gd")
-const PREVIEW_SEED: int = 73_421
 
-var _gear_roots: Array[Node3D] = []
-var _fps_label: Label
-var _fps_elapsed: float = 0.0
-var _kinetic_report: Dictionary
-var _voxel_report: Dictionary
-var _qa_capture_mode: bool = false
+const WORLD_SEED: int = 73_421
+const CHUNK_RADIUS: int = 3
+const TREE_SPACING: int = 6
+
+var _total_quads: int = 0
+var _tree_count: int = 0
 
 
 func _ready() -> void:
 	_build_environment()
-	_build_preview_terrain()
-	_build_mechanical_fixture()
-	_build_hud()
+	_build_terrain()
+	_build_water()
+	_build_forest()
 
 	var screenshot_path: String = _qa_screenshot_path()
 	if not screenshot_path.is_empty():
-		_qa_capture_mode = true
-		_fps_label.text = "CI SOFTWARE RENDER   |   PERFORMANCE NOT MEASURED"
 		call_deferred("_capture_qa_screenshot", screenshot_path)
 
 
-func _process(delta: float) -> void:
-	if _gear_roots.size() >= 3:
-		_gear_roots[0].rotate_y(delta * 0.62)
-		_gear_roots[1].rotate_y(-delta * 0.93)
-		_gear_roots[2].rotate_y(delta * 0.46)
-
-	_fps_elapsed += delta
-	if not _qa_capture_mode and _fps_elapsed >= 0.25 and is_instance_valid(_fps_label):
-		_fps_elapsed = 0.0
-		_fps_label.text = "RENDER  %3d FPS   |   PHYSICS  30 Hz" % Engine.get_frames_per_second()
-
-
 func _build_environment() -> void:
-	var world_environment := WorldEnvironment.new()
+	var sky_material := ProceduralSkyMaterial.new()
+	sky_material.sky_top_color = Color("3f7198")
+	sky_material.sky_horizon_color = Color("b8d2d8")
+	sky_material.ground_bottom_color = Color("273b3d")
+	sky_material.ground_horizon_color = Color("9db3aa")
+	sky_material.sun_angle_max = 18.0
+	sky_material.sun_curve = 0.08
+
+	var sky := Sky.new()
+	sky.sky_material = sky_material
+
 	var environment := Environment.new()
-	environment.background_mode = Environment.BG_COLOR
-	environment.background_color = Color("07111d")
-	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	environment.ambient_light_color = Color("86a9c2")
-	environment.ambient_light_energy = 0.52
+	environment.background_mode = Environment.BG_SKY
+	environment.sky = sky
+	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	environment.ambient_light_energy = 0.62
+	environment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
+	environment.tonemap_mode = Environment.TONE_MAPPER_ACES
+	environment.fog_enabled = true
+	environment.fog_light_color = Color("b5cbd0")
+	environment.fog_light_energy = 0.82
+	environment.fog_density = 0.0038
+	environment.fog_sky_affect = 0.62
+
+	var world_environment := WorldEnvironment.new()
 	world_environment.environment = environment
 	add_child(world_environment)
 
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-54.0, -31.0, 0.0)
-	sun.light_color = Color("ffe0a3")
-	sun.light_energy = 1.35
+	sun.rotation_degrees = Vector3(-47.0, -38.0, 0.0)
+	sun.light_color = Color("ffe1a6")
+	sun.light_energy = 1.48
 	sun.shadow_enabled = true
+	sun.directional_shadow_max_distance = 135.0
 	add_child(sun)
 
 	var camera := Camera3D.new()
-	camera.position = Vector3(18.0, 18.0, 23.0)
-	camera.fov = 52.0
+	camera.position = Vector3(-52.0, 38.0, 66.0)
+	camera.fov = 58.0
+	camera.far = 280.0
 	add_child(camera)
-	camera.look_at(Vector3(0.0, 2.8, 0.0), Vector3.UP)
+	camera.look_at(Vector3(22.0, 9.0, -18.0), Vector3.UP)
 
 
-func _build_preview_terrain() -> void:
-	var chunk: TeknikVoxelChunk = TerrainGenerator.generate_chunk(PREVIEW_SEED, Vector3i.ZERO)
-	_voxel_report = GreedyMesher.build_mesh(chunk)
-	var terrain := MeshInstance3D.new()
-	terrain.mesh = _voxel_report.mesh
-	terrain.position = Vector3(-VoxelChunk.SIZE * 0.5, 0.0, -VoxelChunk.SIZE * 0.5)
-	add_child(terrain)
+func _build_terrain() -> void:
+	for chunk_z: int in range(-CHUNK_RADIUS, CHUNK_RADIUS + 1):
+		for chunk_x: int in range(-CHUNK_RADIUS, CHUNK_RADIUS + 1):
+			var coordinate := Vector3i(chunk_x, 0, chunk_z)
+			var chunk: TeknikVoxelChunk = TerrainGenerator.generate_chunk(WORLD_SEED, coordinate)
+			var report: Dictionary = GreedyMesher.build_mesh(chunk)
+			_total_quads += int(report.quads)
+
+			var terrain := MeshInstance3D.new()
+			terrain.mesh = report.mesh
+			terrain.position = Vector3(
+				chunk_x * VoxelChunk.SIZE,
+				0.0,
+				chunk_z * VoxelChunk.SIZE
+			)
+			terrain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+			add_child(terrain)
+
+	print("WORLD_QA chunks=", (CHUNK_RADIUS * 2 + 1) ** 2, " quads=", _total_quads)
 
 
-func _build_mechanical_fixture() -> void:
-	_add_box(self, Vector3(9.5, 0.55, 5.8), Vector3(0.0, 3.05, 0.0), Color("263947"))
-	_add_box(self, Vector3(8.8, 0.18, 5.15), Vector3(0.0, 3.42, 0.0), Color("111c27"))
+func _build_water() -> void:
+	var world_size: float = float((CHUNK_RADIUS * 2 + 1) * VoxelChunk.SIZE)
+	var world_center: float = float(VoxelChunk.SIZE) * 0.5
+	var water_mesh := PlaneMesh.new()
+	water_mesh.size = Vector2(world_size, world_size)
+	water_mesh.subdivide_width = 24
+	water_mesh.subdivide_depth = 24
 
-	var network := KineticNetwork.new()
-	network.configure_source(32.0, 8.0)
-	network.add_consumer(&"ore_crusher", 1.5, 2.25)
-	network.add_consumer(&"belt_line", -0.75, 1.1)
-	network.add_consumer(&"alternator", 0.5, 1.7)
-	_kinetic_report = network.report()
+	var water_material := StandardMaterial3D.new()
+	water_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	water_material.albedo_color = Color(0.12, 0.39, 0.52, 0.78)
+	water_material.metallic = 0.18
+	water_material.roughness = 0.2
+	water_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	water_material.emission_enabled = true
+	water_material.emission = Color("123d4d")
+	water_material.emission_energy_multiplier = 0.18
+	water_mesh.material = water_material
 
-	_create_gear(Vector3(-2.55, 4.25, 0.2), 1.55, 16, Color("be7437"))
-	_create_gear(Vector3(0.45, 4.28, 0.2), 1.15, 14, Color("d4a94f"))
-	_create_gear(Vector3(2.85, 4.25, 0.15), 1.25, 14, Color("668b95"))
-
-	_add_box(self, Vector3(0.55, 2.8, 0.55), Vector3(-2.55, 4.45, 0.2), Color("76523a"))
-	_add_box(self, Vector3(0.48, 2.6, 0.48), Vector3(0.45, 4.42, 0.2), Color("76523a"))
-	_add_box(self, Vector3(0.48, 2.6, 0.48), Vector3(2.85, 4.42, 0.15), Color("76523a"))
-
-
-func _create_gear(position_3d: Vector3, radius: float, teeth: int, color: Color) -> void:
-	var root := Node3D.new()
-	root.position = position_3d
-	add_child(root)
-	_gear_roots.append(root)
-
-	var core := CylinderMesh.new()
-	core.top_radius = radius * 0.73
-	core.bottom_radius = radius * 0.73
-	core.height = 0.46
-	core.radial_segments = teeth
-	core.material = _material(color)
-	var core_instance := MeshInstance3D.new()
-	core_instance.mesh = core
-	root.add_child(core_instance)
-
-	for tooth_index: int in range(teeth):
-		var angle: float = TAU * float(tooth_index) / float(teeth)
-		var tooth_position := Vector3(cos(angle) * radius, 0.0, sin(angle) * radius)
-		var tooth := _add_box(root, Vector3(radius * 0.35, 0.55, radius * 0.24), tooth_position, color.lightened(0.08))
-		tooth.rotation.y = -angle
-
-	var hub := CylinderMesh.new()
-	hub.top_radius = radius * 0.19
-	hub.bottom_radius = radius * 0.19
-	hub.height = 0.72
-	hub.radial_segments = 16
-	hub.material = _material(Color("18232b"))
-	var hub_instance := MeshInstance3D.new()
-	hub_instance.mesh = hub
-	root.add_child(hub_instance)
+	var water := MeshInstance3D.new()
+	water.mesh = water_mesh
+	water.position = Vector3(
+		world_center,
+		float(TerrainGenerator.WATER_LEVEL) + 0.62,
+		world_center
+	)
+	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(water)
 
 
-func _build_hud() -> void:
-	var layer := CanvasLayer.new()
-	add_child(layer)
+func _build_forest() -> void:
+	var trunk_transforms: Array[Transform3D] = []
+	var lower_canopy_transforms: Array[Transform3D] = []
+	var upper_canopy_transforms: Array[Transform3D] = []
+	var world_min: int = -CHUNK_RADIUS * VoxelChunk.SIZE + 5
+	var world_max: int = (CHUNK_RADIUS + 1) * VoxelChunk.SIZE - 5
 
-	var panel := ColorRect.new()
-	panel.position = Vector2(24.0, 24.0)
-	panel.size = Vector2(520.0, 158.0)
-	panel.color = Color(0.025, 0.045, 0.067, 0.9)
-	layer.add_child(panel)
+	for grid_z: int in range(world_min, world_max, TREE_SPACING):
+		for grid_x: int in range(world_min, world_max, TREE_SPACING):
+			var cell_x: int = floori(float(grid_x) / float(TREE_SPACING))
+			var cell_z: int = floori(float(grid_z) / float(TREE_SPACING))
+			if WorldSeed.sample_unit(WORLD_SEED + 701, cell_x, cell_z) < 0.79:
+				continue
 
-	var title := Label.new()
-	title.position = Vector2(22.0, 14.0)
-	title.text = "TEKNIK  /  FOUNDATION BUILD"
-	title.add_theme_font_size_override("font_size", 25)
-	title.add_theme_color_override("font_color", Color("f2bf69"))
-	panel.add_child(title)
+			var jitter_x: float = (WorldSeed.sample_unit(WORLD_SEED + 719, cell_x, cell_z) - 0.5) * 4.0
+			var jitter_z: float = (WorldSeed.sample_unit(WORLD_SEED + 733, cell_x, cell_z) - 0.5) * 4.0
+			var world_x: int = roundi(float(grid_x) + jitter_x)
+			var world_z: int = roundi(float(grid_z) + jitter_z)
+			var height: int = TerrainGenerator.surface_height(WORLD_SEED, world_x, world_z)
+			if height <= TerrainGenerator.WATER_LEVEL + 2:
+				continue
+			if TerrainGenerator.river_distance(WORLD_SEED, world_x, world_z) < 15.0:
+				continue
+			if TerrainGenerator.surface_slope(WORLD_SEED, world_x, world_z) > 1:
+				continue
 
-	var subtitle := Label.new()
-	subtitle.position = Vector2(23.0, 51.0)
-	subtitle.text = "SEED %d   |   32³ CHUNK   |   %d GREEDY QUADS" % [PREVIEW_SEED, int(_voxel_report.quads)]
-	subtitle.add_theme_font_size_override("font_size", 15)
-	subtitle.add_theme_color_override("font_color", Color("9fb7c4"))
-	panel.add_child(subtitle)
+			var scale: float = lerpf(
+				0.78,
+				1.28,
+				WorldSeed.sample_unit(WORLD_SEED + 751, cell_x, cell_z)
+			)
+			var rotation: float = WorldSeed.sample_unit(WORLD_SEED + 769, cell_x, cell_z) * TAU
+			var basis := Basis(Vector3.UP, rotation).scaled(Vector3.ONE * scale)
+			var ground := Vector3(float(world_x) + 0.5, float(height) + 1.0, float(world_z) + 0.5)
+			trunk_transforms.append(Transform3D(basis, ground + Vector3.UP * 1.35 * scale))
+			lower_canopy_transforms.append(Transform3D(basis, ground + Vector3.UP * 3.25 * scale))
+			upper_canopy_transforms.append(Transform3D(basis, ground + Vector3.UP * 4.65 * scale))
 
-	var stress := Label.new()
-	stress.position = Vector2(23.0, 81.0)
-	stress.text = "KINETIC  %d RPM   |   STRESS  %.1f / %.1f SU" % [
-		int(_kinetic_report.source_rpm),
-		float(_kinetic_report.stress),
-		float(_kinetic_report.capacity),
-	]
-	stress.add_theme_font_size_override("font_size", 16)
-	stress.add_theme_color_override("font_color", Color("dbe7e5"))
-	panel.add_child(stress)
-
-	_fps_label = Label.new()
-	_fps_label.position = Vector2(23.0, 113.0)
-	_fps_label.text = "RENDER  --- FPS   |   PHYSICS  30 Hz"
-	_fps_label.add_theme_font_size_override("font_size", 16)
-	_fps_label.add_theme_color_override("font_color", Color("7fd7ad"))
-	panel.add_child(_fps_label)
-
-	var footer := Label.new()
-	footer.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	footer.offset_left = 24.0
-	footer.offset_right = -24.0
-	footer.offset_top = -52.0
-	footer.offset_bottom = -20.0
-	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	footer.text = "AUTOMATED QA  •  ORIGINAL PROTOTYPE  •  SURVIVAL SANDBOX"
-	footer.add_theme_font_size_override("font_size", 14)
-	footer.add_theme_color_override("font_color", Color("a9bac4"))
-	layer.add_child(footer)
+	_tree_count = trunk_transforms.size()
+	_add_tree_multimesh(_trunk_mesh(), trunk_transforms)
+	_add_tree_multimesh(_lower_canopy_mesh(), lower_canopy_transforms)
+	_add_tree_multimesh(_upper_canopy_mesh(), upper_canopy_transforms)
+	print("WORLD_QA trees=", _tree_count)
 
 
-func _add_box(parent: Node, size: Vector3, position_3d: Vector3, color: Color) -> MeshInstance3D:
+func _add_tree_multimesh(mesh: Mesh, transforms: Array[Transform3D]) -> void:
+	if transforms.is_empty():
+		return
+	var multimesh := MultiMesh.new()
+	multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	multimesh.mesh = mesh
+	multimesh.instance_count = transforms.size()
+	for index: int in range(transforms.size()):
+		multimesh.set_instance_transform(index, transforms[index])
+
+	var instance := MultiMeshInstance3D.new()
+	instance.multimesh = multimesh
+	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	add_child(instance)
+
+
+func _trunk_mesh() -> BoxMesh:
 	var mesh := BoxMesh.new()
-	mesh.size = size
-	mesh.material = _material(color)
-	var instance := MeshInstance3D.new()
-	instance.mesh = mesh
-	instance.position = position_3d
-	parent.add_child(instance)
-	return instance
+	mesh.size = Vector3(0.62, 2.7, 0.62)
+	mesh.material = _material(Color("614632"), 0.92)
+	return mesh
 
 
-func _material(color: Color) -> StandardMaterial3D:
+func _lower_canopy_mesh() -> CylinderMesh:
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = 0.28
+	mesh.bottom_radius = 1.55
+	mesh.height = 2.8
+	mesh.radial_segments = 7
+	mesh.rings = 1
+	mesh.material = _material(Color("355f47"), 0.96)
+	return mesh
+
+
+func _upper_canopy_mesh() -> CylinderMesh:
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = 0.05
+	mesh.bottom_radius = 1.12
+	mesh.height = 2.35
+	mesh.radial_segments = 7
+	mesh.rings = 1
+	mesh.material = _material(Color("47775a"), 0.96)
+	return mesh
+
+
+func _material(color: Color, roughness: float) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = color
-	material.roughness = 0.78
-	material.metallic = 0.18
+	material.roughness = roughness
 	return material
 
 
@@ -213,7 +229,7 @@ func _qa_screenshot_path() -> String:
 
 
 func _capture_qa_screenshot(path: String) -> void:
-	for frame: int in range(12):
+	for frame: int in range(20):
 		await get_tree().process_frame
 	await RenderingServer.frame_post_draw
 

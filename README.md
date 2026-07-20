@@ -13,17 +13,17 @@ TEKNIK is an original, paid, single-player Android engineering sandbox built wit
 
 ## Current milestone
 
-The repository is at the technical-bootstrap stage. The first runnable scene proves:
+The active milestone is the procedural world foundation. Other gameplay systems remain secondary until the world presentation is coherent, navigable, and visually convincing. The runnable scene currently targets:
 
 - a Godot Mobile-renderer project;
-- deterministic seeded data generation;
-- deterministic 32×32×32 voxel chunk storage;
-- a greedy meshing correctness implementation that collapses a solid chunk to six quads;
-- a data-oriented kinetic stress calculation;
+- a deterministic seven-by-seven preview of 32×32×32 voxel chunks;
+- broad seeded landforms, a continuous river valley, shore material transitions, and restrained instanced forest placement;
+- greedy chunk meshes that collapse a solid chunk to six quads;
+- a texture-free original material palette, procedural sky, water, directional shadows, and distance fog;
 - an automated rendered screenshot path; and
 - headless tests plus an Android debug export in GitHub Actions.
 
-The mechanical display in the bootstrap scene is a QA fixture, not final art or final gameplay.
+The three original visual targets used to judge this work are in [`docs/visual-targets`](docs/visual-targets). They are aspirational art-direction references; the automated screenshot is the evidence for what the current real-time build actually renders.
 
 ## Local validation
 

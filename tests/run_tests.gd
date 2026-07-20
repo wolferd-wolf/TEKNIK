@@ -32,6 +32,8 @@ func _test_world_seed() -> void:
 	_expect(first != neighbor, "neighboring coordinates vary")
 	var sample: float = WorldSeed.sample_preview_height(42, 4, 7)
 	_expect(sample >= 0.0 and sample <= 1.0, "height sample stays normalized")
+	var adjacent: float = WorldSeed.sample_preview_height(42, 5, 7)
+	_expect(absf(sample - adjacent) < 0.12, "neighboring height noise remains coherent")
 
 
 func _test_kinetic_network() -> void:
@@ -58,6 +60,29 @@ func _test_voxel_chunk() -> void:
 	var generated_b: TeknikVoxelChunk = TerrainGenerator.generate_chunk(99, Vector3i.ZERO)
 	_expect(generated_a.voxels == generated_b.voxels, "voxel terrain is deterministic")
 	_expect(generated_a.count_solid() > 0, "voxel terrain contains solid material")
+	var negative_chunk: TeknikVoxelChunk = TerrainGenerator.generate_chunk(99, Vector3i(-1, 0, -1))
+	_expect(negative_chunk.count_solid() > 0, "negative world coordinates generate terrain")
+	var different_seed: TeknikVoxelChunk = TerrainGenerator.generate_chunk(100, Vector3i.ZERO)
+	_expect(generated_a.voxels != different_seed.voxels, "world seed changes generated terrain")
+
+	var max_step: int = 0
+	var heights_in_budget: bool = true
+	for z: int in range(-48, 49):
+		for x: int in range(-48, 49):
+			var height: int = TerrainGenerator.surface_height(99, x, z)
+			heights_in_budget = heights_in_budget and (
+				height >= 2 and height <= TerrainGenerator.MAX_SURFACE_HEIGHT
+			)
+			max_step = maxi(max_step, absi(height - TerrainGenerator.surface_height(99, x + 1, z)))
+			max_step = maxi(max_step, absi(height - TerrainGenerator.surface_height(99, x, z + 1)))
+	_expect(heights_in_budget, "terrain height stays inside the foundation vertical budget")
+	_expect(max_step <= 2, "terrain avoids needle-like neighboring height jumps")
+	for x: int in range(-96, 97, 12):
+		var river_z: int = roundi(TerrainGenerator.river_center_z(99, x))
+		_expect(
+			TerrainGenerator.surface_height(99, x, river_z) <= TerrainGenerator.WATER_LEVEL - 2,
+			"river channel remains continuously carved below water"
+		)
 
 
 func _test_greedy_mesher() -> void:

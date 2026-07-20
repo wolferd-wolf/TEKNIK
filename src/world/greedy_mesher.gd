@@ -132,6 +132,23 @@ static func _append_quad(
 	var normal := Vector3.ZERO
 	normal[axis] = 1.0 if face > 0 else -1.0
 	var color: Color = _material_color(absi(face))
+	var face_light: float = 1.0
+	if axis == 1 and face > 0:
+		face_light = 1.08
+	elif axis == 1:
+		face_light = 0.68
+	else:
+		face_light = 0.86
+	var variation: float = 0.96 + fposmod(
+		sin(origin.x * 12.9898 + origin.y * 37.719 + origin.z * 78.233) * 43758.5453,
+		1.0
+	) * 0.07
+	color = Color(
+		color.r * face_light * variation,
+		color.g * face_light * variation,
+		color.b * face_light * variation,
+		1.0
+	)
 	for vertex_index: int in range(4):
 		normals.append(normal)
 		colors.append(color)
@@ -145,11 +162,12 @@ static func _append_quad(
 static func _material_color(material: int) -> Color:
 	match material:
 		1:
-			return Color("40505a")
+			return Color("77818a")
 		2:
-			return Color("5d4939")
+			return Color("73553b")
 		3:
-			return Color("4d725b")
+			return Color("668f52")
+		4:
+			return Color("b7a373")
 		_:
 			return Color("8c7e69")
-
