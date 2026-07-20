@@ -5,6 +5,7 @@ const KineticNetwork = preload("res://src/simulation/kinetic_network.gd")
 const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
 const TerrainGenerator = preload("res://src/world/voxel_terrain_generator.gd")
 const GreedyMesher = preload("res://src/world/greedy_mesher.gd")
+const ChunkStreamPlan = preload("res://src/world/chunk_stream_plan.gd")
 
 var _failures: int = 0
 
@@ -13,6 +14,7 @@ func _init() -> void:
 	_test_world_seed()
 	_test_voxel_chunk()
 	_test_greedy_mesher()
+	_test_chunk_stream_plan()
 	_test_kinetic_network()
 	_test_product_constraints()
 
@@ -68,6 +70,12 @@ func _test_voxel_chunk() -> void:
 		TerrainGenerator.voxel_at(99, Vector3i(0, TerrainGenerator.MAX_SURFACE_HEIGHT + 1, 0)) == VoxelChunk.AIR,
 		"world sampler returns air above the terrain budget"
 	)
+	var cached_column: Vector2i = TerrainGenerator.sample_column(99, 7, -11)
+	_expect(
+		TerrainGenerator.material_from_column(cached_column.x, cached_column)
+		== TerrainGenerator.voxel_at(99, Vector3i(7, cached_column.x, -11)),
+		"cached terrain columns preserve voxel sampling"
+	)
 
 	var max_step: int = 0
 	var heights_in_budget: bool = true
@@ -101,6 +109,26 @@ func _test_greedy_mesher() -> void:
 	var solid := VoxelChunk.new(1)
 	var solid_mesh: Dictionary = GreedyMesher.build_mesh(solid)
 	_expect(int(solid_mesh.quads) == 6, "solid chunk collapses to six boundary quads")
+
+
+func _test_chunk_stream_plan() -> void:
+	var priority := Vector3i(-2, 0, 1)
+	var plan: Array[Vector3i] = ChunkStreamPlan.ordered_square(Vector3i.ZERO, 3, priority)
+	_expect(plan.size() == 49, "chunk stream plan covers the active square")
+	_expect(plan[0] == priority, "chunk stream plan loads nearest terrain first")
+	var unique: Dictionary = {}
+	for coordinate: Vector3i in plan:
+		unique[coordinate] = true
+	_expect(unique.size() == plan.size(), "chunk stream plan contains no duplicates")
+	var active: Array[Vector3i] = [
+		Vector3i.ZERO, Vector3i(4, 0, 0), Vector3i(-2, 0, -5)
+	]
+	var outside: Array[Vector3i] = ChunkStreamPlan.outside_square(
+		active,
+		Vector3i.ZERO,
+		3
+	)
+	_expect(outside == [Vector3i(4, 0, 0), Vector3i(-2, 0, -5)], "stream plan identifies chunks to unload")
 
 
 func _test_product_constraints() -> void:

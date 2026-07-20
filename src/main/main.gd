@@ -4,10 +4,12 @@ const WorldSeed = preload("res://src/world/world_seed.gd")
 const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
 const TerrainGenerator = preload("res://src/world/voxel_terrain_generator.gd")
 const GreedyMesher = preload("res://src/world/greedy_mesher.gd")
+const ChunkStreamPlan = preload("res://src/world/chunk_stream_plan.gd")
 
 const WORLD_SEED: int = 73_421
 const CHUNK_RADIUS: int = 3
 const TREE_SPACING: int = 6
+const TERRAIN_FRAME_BUDGET_MS: int = 12
 
 var _total_quads: int = 0
 var _tree_count: int = 0
@@ -15,12 +17,14 @@ var _boulder_count: int = 0
 var _grass_count: int = 0
 var _cloud_count: int = 0
 var _render_instance_count: int = 0
+var _world_sample_cache: Dictionary = {}
+var _world_column_cache: Dictionary = {}
 
 
 func _ready() -> void:
 	var build_started_ms: int = Time.get_ticks_msec()
 	_build_environment()
-	_build_terrain()
+	await _build_terrain_streamed()
 	_build_water()
 	_build_forest()
 	_build_boulders()
@@ -89,30 +93,56 @@ func _build_environment() -> void:
 	), Vector3.UP)
 
 
-func _build_terrain() -> void:
-	for chunk_z: int in range(-CHUNK_RADIUS, CHUNK_RADIUS + 1):
-		for chunk_x: int in range(-CHUNK_RADIUS, CHUNK_RADIUS + 1):
-			var coordinate := Vector3i(chunk_x, 0, chunk_z)
-			var chunk: TeknikVoxelChunk = TerrainGenerator.generate_chunk(WORLD_SEED, coordinate)
-			var report: Dictionary = GreedyMesher.build_mesh(
-				chunk,
-				coordinate * VoxelChunk.SIZE,
-				Callable(self, "_sample_world_voxel")
-			)
-			_total_quads += int(report.quads)
+func _build_terrain_streamed() -> void:
+	var camera_position: Vector3 = _camera_position()
+	var priority_coordinate := Vector3i(
+		floori(camera_position.x / float(VoxelChunk.SIZE)),
+		0,
+		floori(camera_position.z / float(VoxelChunk.SIZE))
+	)
+	var coordinates: Array[Vector3i] = ChunkStreamPlan.ordered_square(
+		Vector3i.ZERO, CHUNK_RADIUS, priority_coordinate
+	)
+	var frame_slice_started_ms: int = Time.get_ticks_msec()
+	var longest_slice_ms: int = 0
+	var yielded_frames: int = 0
 
-			var terrain := MeshInstance3D.new()
-			terrain.mesh = report.mesh
-			terrain.position = Vector3(
-				chunk_x * VoxelChunk.SIZE,
-				0.0,
-				chunk_z * VoxelChunk.SIZE
-			)
-			terrain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
-			add_child(terrain)
-			_render_instance_count += 1
+	for coordinate: Vector3i in coordinates:
+		var chunk: TeknikVoxelChunk = TerrainGenerator.generate_chunk(WORLD_SEED, coordinate)
+		var report: Dictionary = GreedyMesher.build_mesh(
+			chunk,
+			coordinate * VoxelChunk.SIZE,
+			Callable(self, "_sample_world_voxel")
+		)
+		_total_quads += int(report.quads)
 
-	print("WORLD_QA chunks=", (CHUNK_RADIUS * 2 + 1) ** 2, " quads=", _total_quads)
+		var terrain := MeshInstance3D.new()
+		terrain.mesh = report.mesh
+		terrain.position = Vector3(
+			coordinate.x * VoxelChunk.SIZE,
+			0.0,
+			coordinate.z * VoxelChunk.SIZE
+		)
+		terrain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+		add_child(terrain)
+		_render_instance_count += 1
+
+		var slice_ms: int = Time.get_ticks_msec() - frame_slice_started_ms
+		if slice_ms >= TERRAIN_FRAME_BUDGET_MS:
+			longest_slice_ms = maxi(longest_slice_ms, slice_ms)
+			yielded_frames += 1
+			await get_tree().process_frame
+			frame_slice_started_ms = Time.get_ticks_msec()
+
+	longest_slice_ms = maxi(longest_slice_ms, Time.get_ticks_msec() - frame_slice_started_ms)
+	_world_sample_cache.clear()
+	_world_column_cache.clear()
+	print(
+		"WORLD_QA chunks=", coordinates.size(),
+		" quads=", _total_quads,
+		" terrain_yields=", yielded_frames,
+		" max_slice_ms=", longest_slice_ms
+	)
 
 
 func _build_water() -> void:
@@ -365,7 +395,19 @@ func _add_tree_multimesh(
 
 
 func _sample_world_voxel(world_position: Vector3i) -> int:
-	return TerrainGenerator.voxel_at(WORLD_SEED, world_position)
+	if _world_sample_cache.has(world_position):
+		return int(_world_sample_cache[world_position])
+	if world_position.y < 0:
+		return TerrainGenerator.STONE
+	var column_key := Vector2i(world_position.x, world_position.z)
+	if not _world_column_cache.has(column_key):
+		_world_column_cache[column_key] = TerrainGenerator.sample_column(
+			WORLD_SEED, world_position.x, world_position.z
+		)
+	var column: Vector2i = _world_column_cache[column_key]
+	var material: int = TerrainGenerator.material_from_column(world_position.y, column)
+	_world_sample_cache[world_position] = material
+	return material
 
 
 func _camera_position() -> Vector3:

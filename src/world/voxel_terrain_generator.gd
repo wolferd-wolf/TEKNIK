@@ -20,9 +20,14 @@ static func generate_chunk(seed: int, chunk_coordinate: Vector3i) -> TeknikVoxel
 		for x: int in range(VoxelChunk.SIZE):
 			var world_x: int = world_origin.x + x
 			var world_z: int = world_origin.z + z
-			var height: int = surface_height(seed, world_x, world_z)
-			var top_material: int = surface_material(seed, world_x, world_z)
-			for y: int in range(VoxelChunk.SIZE):
+			var column: Vector2i = sample_column(seed, world_x, world_z)
+			var height: int = column.x
+			var top_material: int = column.y
+			var highest_solid_local_y: int = mini(
+				VoxelChunk.SIZE - 1,
+				height - world_origin.y
+			)
+			for y: int in range(maxi(0, highest_solid_local_y + 1)):
 				var local_position := Vector3i(x, y, z)
 				var world_y: int = world_origin.y + y
 				var material: int = _material_at_height(world_y, height, top_material)
@@ -84,6 +89,24 @@ static func surface_slope(seed: int, world_x: int, world_z: int) -> int:
 
 static func surface_material(seed: int, world_x: int, world_z: int) -> int:
 	var height: int = surface_height(seed, world_x, world_z)
+	return _surface_material_for_height(seed, world_x, world_z, height)
+
+
+static func sample_column(seed: int, world_x: int, world_z: int) -> Vector2i:
+	var height: int = surface_height(seed, world_x, world_z)
+	return Vector2i(height, _surface_material_for_height(seed, world_x, world_z, height))
+
+
+static func material_from_column(world_y: int, column: Vector2i) -> int:
+	return _material_at_height(world_y, column.x, column.y)
+
+
+static func _surface_material_for_height(
+	seed: int,
+	world_x: int,
+	world_z: int,
+	height: int
+) -> int:
 	if height <= WATER_LEVEL + 1:
 		return SAND
 	if height >= 22 and surface_slope(seed, world_x, world_z) >= 2:
@@ -94,9 +117,8 @@ static func surface_material(seed: int, world_x: int, world_z: int) -> int:
 static func voxel_at(seed: int, world_position: Vector3i) -> int:
 	if world_position.y < 0:
 		return STONE
-	var height: int = surface_height(seed, world_position.x, world_position.z)
-	var top_material: int = surface_material(seed, world_position.x, world_position.z)
-	return _material_at_height(world_position.y, height, top_material)
+	var column: Vector2i = sample_column(seed, world_position.x, world_position.z)
+	return material_from_column(world_position.y, column)
 
 
 static func _material_at_height(world_y: int, height: int, top_material: int) -> int:
