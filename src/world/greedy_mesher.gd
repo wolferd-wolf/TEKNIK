@@ -180,12 +180,12 @@ static func _append_quad(
 static func _material_color(material: int) -> Color:
 	match material:
 		1:
-			return Color("717a78")
+			return Color("626c6b")
 		2:
-			return Color("704c32")
+			return Color("614735")
 		3:
-			return Color("6b9a4d")
+			return Color("4e723f")
 		4:
-			return Color("aa9566")
+			return Color("9a895f")
 		_:
 			return Color("8c7e69")

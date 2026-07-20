@@ -28,8 +28,8 @@ func _ready() -> void:
 
 func _build_environment() -> void:
 	var sky_material := ProceduralSkyMaterial.new()
-	sky_material.sky_top_color = Color("3f739d")
-	sky_material.sky_horizon_color = Color("9ebbc4")
+	sky_material.sky_top_color = Color("356689")
+	sky_material.sky_horizon_color = Color("8faeb8")
 	sky_material.ground_bottom_color = Color("273b3d")
 	sky_material.ground_horizon_color = Color("9db3aa")
 	sky_material.sun_angle_max = 18.0
@@ -43,12 +43,12 @@ func _build_environment() -> void:
 	environment.sky = sky
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	environment.ambient_light_color = Color("c4cfc3")
-	environment.ambient_light_energy = 0.54
+	environment.ambient_light_energy = 0.28
 	environment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	environment.tonemap_mode = Environment.TONE_MAPPER_ACES
 	environment.fog_enabled = true
 	environment.fog_light_color = Color("9fb7bc")
-	environment.fog_light_energy = 0.52
+	environment.fog_light_energy = 0.36
 	environment.fog_density = 0.0011
 	environment.fog_sky_affect = 0.38
 
@@ -59,7 +59,7 @@ func _build_environment() -> void:
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-47.0, -38.0, 0.0)
 	sun.light_color = Color("ffe1a6")
-	sun.light_energy = 1.26
+	sun.light_energy = 0.82
 	sun.shadow_enabled = true
 	sun.shadow_blur = 1.35
 	sun.directional_shadow_max_distance = 135.0
@@ -143,13 +143,13 @@ func _build_water() -> void:
 
 	var water_material := StandardMaterial3D.new()
 	water_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	water_material.albedo_color = Color(0.08, 0.38, 0.52, 0.8)
+	water_material.albedo_color = Color(0.055, 0.29, 0.4, 0.82)
 	water_material.metallic = 0.18
 	water_material.roughness = 0.2
 	water_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	water_material.emission_enabled = true
 	water_material.emission = Color("123d4d")
-	water_material.emission_energy_multiplier = 0.18
+	water_material.emission_energy_multiplier = 0.08
 	water_mesh.surface_set_material(0, water_material)
 
 	var water := MeshInstance3D.new()
