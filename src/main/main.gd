@@ -10,7 +10,7 @@ const ChunkStreamState = preload("res://src/world/chunk_stream_state.gd")
 const WORLD_SEED: int = 73_421
 const CHUNK_RADIUS: int = 3
 const TREE_SPACING: int = 6
-const DISTANT_WORLD_RADIUS: int = 224
+const DISTANT_WORLD_RADIUS: int = 320
 const DISTANT_TERRAIN_STEP: int = 4
 
 var _total_quads: int = 0
@@ -72,7 +72,7 @@ func _build_environment() -> void:
 	environment.fog_enabled = true
 	environment.fog_light_color = Color("9fb7bc")
 	environment.fog_light_energy = 0.36
-	environment.fog_density = 0.0011
+	environment.fog_density = 0.0022
 	environment.fog_sky_affect = 0.38
 
 	var world_environment := WorldEnvironment.new()
@@ -243,8 +243,8 @@ func _build_distant_terrain() -> void:
 				var height: int = TerrainGenerator.surface_height(WORLD_SEED, corner.x, corner.y)
 				vertices.append(Vector3(float(corner.x), float(height) + 0.04, float(corner.y)))
 				normals.append(Vector3.UP)
-				var elevation_tint: float = clampf((float(height) - 8.0) / 28.0, 0.0, 0.22)
-				colors.append(Color("527643").lightened(elevation_tint))
+				var elevation_tint: float = clampf((float(height) - 8.0) / 42.0, 0.0, 0.1)
+				colors.append(Color("455f42").lightened(elevation_tint))
 			indices.append_array(PackedInt32Array([
 				base, base + 3, base + 2,
 				base, base + 2, base + 1,
