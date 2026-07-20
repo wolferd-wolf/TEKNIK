@@ -10,6 +10,8 @@ const ChunkStreamState = preload("res://src/world/chunk_stream_state.gd")
 const WORLD_SEED: int = 73_421
 const CHUNK_RADIUS: int = 3
 const TREE_SPACING: int = 6
+const DISTANT_WORLD_RADIUS: int = 224
+const DISTANT_TERRAIN_STEP: int = 4
 
 var _total_quads: int = 0
 var _tree_count: int = 0
@@ -17,6 +19,7 @@ var _boulder_count: int = 0
 var _grass_count: int = 0
 var _cloud_count: int = 0
 var _render_instance_count: int = 0
+var _distant_quads: int = 0
 var _world_sample_cache: Dictionary = {}
 var _world_column_cache: Dictionary = {}
 var _chunk_stream: TeknikChunkStreamState = ChunkStreamState.new()
@@ -27,6 +30,7 @@ func _ready() -> void:
 	var build_started_ms: int = Time.get_ticks_msec()
 	_build_environment()
 	_build_terrain_ordered()
+	_build_distant_terrain()
 	_build_water()
 	_build_forest()
 	_build_boulders()
@@ -149,8 +153,8 @@ func _refresh_terrain(center: Vector3i, priority: Vector3i) -> void:
 
 
 func _build_water() -> void:
-	var world_min: int = -CHUNK_RADIUS * VoxelChunk.SIZE
-	var world_max: int = (CHUNK_RADIUS + 1) * VoxelChunk.SIZE
+	var world_min: int = -DISTANT_WORLD_RADIUS
+	var world_max: int = DISTANT_WORLD_RADIUS
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var indices := PackedInt32Array()
@@ -203,6 +207,70 @@ func _build_water() -> void:
 	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(water)
 	_render_instance_count += 1
+
+
+func _build_distant_terrain() -> void:
+	var active_min: int = -CHUNK_RADIUS * VoxelChunk.SIZE
+	var active_max: int = (CHUNK_RADIUS + 1) * VoxelChunk.SIZE
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var colors := PackedColorArray()
+	var indices := PackedInt32Array()
+
+	for world_z: int in range(
+		-DISTANT_WORLD_RADIUS,
+		DISTANT_WORLD_RADIUS,
+		DISTANT_TERRAIN_STEP
+	):
+		for world_x: int in range(
+			-DISTANT_WORLD_RADIUS,
+			DISTANT_WORLD_RADIUS,
+			DISTANT_TERRAIN_STEP
+		):
+			if (
+				world_x >= active_min and world_x < active_max
+				and world_z >= active_min and world_z < active_max
+			):
+				continue
+			var base: int = vertices.size()
+			var corners: Array[Vector2i] = [
+				Vector2i(world_x, world_z),
+				Vector2i(world_x + DISTANT_TERRAIN_STEP, world_z),
+				Vector2i(world_x + DISTANT_TERRAIN_STEP, world_z + DISTANT_TERRAIN_STEP),
+				Vector2i(world_x, world_z + DISTANT_TERRAIN_STEP),
+			]
+			for corner: Vector2i in corners:
+				var height: int = TerrainGenerator.surface_height(WORLD_SEED, corner.x, corner.y)
+				vertices.append(Vector3(float(corner.x), float(height) + 0.04, float(corner.y)))
+				normals.append(Vector3.UP)
+				var elevation_tint: float = clampf((float(height) - 8.0) / 28.0, 0.0, 0.22)
+				colors.append(Color("527643").lightened(elevation_tint))
+			indices.append_array(PackedInt32Array([
+				base, base + 3, base + 2,
+				base, base + 2, base + 1,
+			]))
+			_distant_quads += 1
+
+	var arrays: Array = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var material := StandardMaterial3D.new()
+	material.vertex_color_use_as_albedo = true
+	material.roughness = 0.98
+	material.cull_mode = BaseMaterial3D.CULL_BACK
+	mesh.surface_set_material(0, material)
+
+	var distant := MeshInstance3D.new()
+	distant.mesh = mesh
+	distant.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(distant)
+	_render_instance_count += 1
+	print("WORLD_QA distant_quads=", _distant_quads)
 
 
 func _build_forest() -> void:

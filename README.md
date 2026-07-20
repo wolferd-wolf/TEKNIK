@@ -22,6 +22,7 @@ The active milestone is the procedural world foundation. Other gameplay systems 
 - deterministic nearest-first chunk scheduling and unload planning;
 - active chunk-residency deltas that retain unchanged terrain while the window shifts;
 - three deterministic CI camera views for world-composition regression review;
+- a one-draw-call coarse distant-terrain ring that hides full-detail chunk boundaries;
 - temporary chunk-edge sample caching to avoid redundant procedural-noise work;
 - greedy chunk meshes that collapse a solid chunk to six quads;
 - a texture-free original material palette, procedural sky, water, directional shadows, and distance fog;
