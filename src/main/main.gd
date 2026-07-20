@@ -8,6 +8,7 @@ var _gear_roots: Array[Node3D] = []
 var _fps_label: Label
 var _fps_elapsed: float = 0.0
 var _kinetic_report: Dictionary
+var _qa_capture_mode: bool = false
 
 
 func _ready() -> void:
@@ -18,6 +19,8 @@ func _ready() -> void:
 
 	var screenshot_path: String = _qa_screenshot_path()
 	if not screenshot_path.is_empty():
+		_qa_capture_mode = true
+		_fps_label.text = "CI SOFTWARE RENDER   |   PERFORMANCE NOT MEASURED"
 		call_deferred("_capture_qa_screenshot", screenshot_path)
 
 
@@ -28,7 +31,7 @@ func _process(delta: float) -> void:
 		_gear_roots[2].rotate_y(delta * 0.46)
 
 	_fps_elapsed += delta
-	if _fps_elapsed >= 0.25 and is_instance_valid(_fps_label):
+	if not _qa_capture_mode and _fps_elapsed >= 0.25 and is_instance_valid(_fps_label):
 		_fps_elapsed = 0.0
 		_fps_label.text = "RENDER  %3d FPS   |   PHYSICS  30 Hz" % Engine.get_frames_per_second()
 
@@ -244,4 +247,3 @@ func _capture_qa_screenshot(path: String) -> void:
 	else:
 		push_error("Failed to save QA screenshot: %s" % error_string(result))
 		get_tree().quit(1)
-
