@@ -20,6 +20,7 @@ The active milestone is the procedural world foundation. Other gameplay systems 
 - broad seeded landforms, a continuous river valley, shore material transitions, and restrained instanced forest placement;
 - mobile-budgeted MultiMesh ground detail, boulders, and a low-poly cloud layer;
 - deterministic nearest-first chunk scheduling and unload planning;
+- active chunk-residency deltas that retain unchanged terrain while the window shifts;
 - temporary chunk-edge sample caching to avoid redundant procedural-noise work;
 - greedy chunk meshes that collapse a solid chunk to six quads;
 - a texture-free original material palette, procedural sky, water, directional shadows, and distance fog;

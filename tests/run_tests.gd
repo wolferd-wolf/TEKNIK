@@ -6,6 +6,7 @@ const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
 const TerrainGenerator = preload("res://src/world/voxel_terrain_generator.gd")
 const GreedyMesher = preload("res://src/world/greedy_mesher.gd")
 const ChunkStreamPlan = preload("res://src/world/chunk_stream_plan.gd")
+const ChunkStreamState = preload("res://src/world/chunk_stream_state.gd")
 
 var _failures: int = 0
 
@@ -15,6 +16,7 @@ func _init() -> void:
 	_test_voxel_chunk()
 	_test_greedy_mesher()
 	_test_chunk_stream_plan()
+	_test_chunk_stream_state()
 	_test_kinetic_network()
 	_test_product_constraints()
 
@@ -129,6 +131,29 @@ func _test_chunk_stream_plan() -> void:
 		3
 	)
 	_expect(outside == [Vector3i(4, 0, 0), Vector3i(-2, 0, -5)], "stream plan identifies chunks to unload")
+
+
+func _test_chunk_stream_state() -> void:
+	var state: TeknikChunkStreamState = ChunkStreamState.new()
+	var initial: Dictionary = state.reconcile(Vector3i.ZERO, 3, Vector3i.ZERO)
+	var initial_load: Array[Vector3i] = initial.load
+	_expect(initial_load.size() == 49, "empty residency state requests the complete active window")
+	for coordinate: Vector3i in initial_load:
+		state.mark_loaded(coordinate)
+	_expect(state.active_count() == 49, "residency state tracks loaded chunks")
+
+	var shifted: Dictionary = state.reconcile(Vector3i(1, 0, 0), 3, Vector3i(1, 0, 0))
+	var shifted_load: Array[Vector3i] = shifted.load
+	var shifted_unload: Array[Vector3i] = shifted.unload
+	_expect(shifted_load.size() == 7, "one-chunk movement loads only the new edge")
+	_expect(shifted_unload.size() == 7, "one-chunk movement unloads only the old edge")
+	for coordinate: Vector3i in shifted_unload:
+		state.mark_unloaded(coordinate)
+	for coordinate: Vector3i in shifted_load:
+		state.mark_loaded(coordinate)
+	_expect(state.active_count() == 49, "shifted residency preserves the chunk budget")
+	_expect(state.has(Vector3i(4, 0, 0)), "shifted residency contains the new leading edge")
+	_expect(not state.has(Vector3i(-3, 0, 0)), "shifted residency releases the trailing edge")
 
 
 func _test_product_constraints() -> void:

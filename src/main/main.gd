@@ -5,6 +5,7 @@ const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
 const TerrainGenerator = preload("res://src/world/voxel_terrain_generator.gd")
 const GreedyMesher = preload("res://src/world/greedy_mesher.gd")
 const ChunkStreamPlan = preload("res://src/world/chunk_stream_plan.gd")
+const ChunkStreamState = preload("res://src/world/chunk_stream_state.gd")
 
 const WORLD_SEED: int = 73_421
 const CHUNK_RADIUS: int = 3
@@ -18,6 +19,8 @@ var _cloud_count: int = 0
 var _render_instance_count: int = 0
 var _world_sample_cache: Dictionary = {}
 var _world_column_cache: Dictionary = {}
+var _chunk_stream: TeknikChunkStreamState = ChunkStreamState.new()
+var _terrain_nodes: Dictionary = {}
 
 
 func _ready() -> void:
@@ -99,10 +102,23 @@ func _build_terrain_ordered() -> void:
 		0,
 		floori(camera_position.z / float(VoxelChunk.SIZE))
 	)
-	var coordinates: Array[Vector3i] = ChunkStreamPlan.ordered_square(
-		Vector3i.ZERO, CHUNK_RADIUS, priority_coordinate
-	)
-	for coordinate: Vector3i in coordinates:
+	_refresh_terrain(Vector3i.ZERO, priority_coordinate)
+
+
+func _refresh_terrain(center: Vector3i, priority: Vector3i) -> void:
+	var delta: Dictionary = _chunk_stream.reconcile(center, CHUNK_RADIUS, priority)
+	var to_unload: Array[Vector3i] = delta.unload
+	for coordinate: Vector3i in to_unload:
+		var terrain: MeshInstance3D = _terrain_nodes.get(coordinate)
+		if terrain != null:
+			_total_quads -= int(terrain.get_meta("quad_count", 0))
+			terrain.queue_free()
+			_terrain_nodes.erase(coordinate)
+			_render_instance_count -= 1
+		_chunk_stream.mark_unloaded(coordinate)
+
+	var to_load: Array[Vector3i] = delta.load
+	for coordinate: Vector3i in to_load:
 		var chunk: TeknikVoxelChunk = TerrainGenerator.generate_chunk(WORLD_SEED, coordinate)
 		var report: Dictionary = GreedyMesher.build_mesh(
 			chunk,
@@ -119,13 +135,18 @@ func _build_terrain_ordered() -> void:
 			coordinate.z * VoxelChunk.SIZE
 		)
 		terrain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+		terrain.set_meta("quad_count", int(report.quads))
 		add_child(terrain)
+		_terrain_nodes[coordinate] = terrain
+		_chunk_stream.mark_loaded(coordinate)
 		_render_instance_count += 1
 
 	_world_sample_cache.clear()
 	_world_column_cache.clear()
 	print(
-		"WORLD_QA chunks=", coordinates.size(),
+		"WORLD_QA chunks=", _chunk_stream.active_count(),
+		" loaded=", to_load.size(),
+		" unloaded=", to_unload.size(),
 		" quads=", _total_quads
 	)
 
