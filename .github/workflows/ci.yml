@@ -15,7 +15,7 @@ concurrency:
 jobs:
   validate-build-capture:
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 55
     env:
       GODOT_VERSION: "4.7.1"
       GODOT_RELEASE: "4.7.1-stable"
@@ -63,6 +63,8 @@ jobs:
           godot --headless --path . --script res://tests/run_surface_language_tests.gd
           godot --headless --path . --script res://tests/run_world_edit_store_tests.gd
           godot --headless --path . --script res://tests/run_chunk_edit_worker_tests.gd
+          godot --headless --path . --script res://tests/run_chunk_build_pool_tests.gd
+          godot --headless --path . --script res://tests/run_spawn_planner_tests.gd
           godot --headless --path . --script res://tests/run_world_interaction_tests.gd
           godot --headless --path . --script res://tests/run_block_placement_tests.gd
           godot --headless --path . --script res://tests/run_terrain_collision_profile_tests.gd
@@ -88,6 +90,7 @@ jobs:
         run: |
           rm -rf "$HOME/.local/share/godot/app_userdata/TEKNIK/logs"
           rm -f "$HOME/.local/share/godot/app_userdata/TEKNIK/teknik-world-edits.json"
+          rm -f "$HOME/.local/share/godot/app_userdata/TEKNIK/teknik-player-state.json"
           xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy \
             --fixed-fps 30 \
             --write-movie artifacts/teknik-gameplay.avi -- \
@@ -102,8 +105,30 @@ jobs:
           duration="$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 artifacts/teknik-gameplay.mp4)"
           awk -v value="$duration" 'BEGIN { exit !(value >= 10.0) }'
           test -s "$HOME/.local/share/godot/app_userdata/TEKNIK/logs/teknik-latest.jsonl"
-          cp -R "$HOME/.local/share/godot/app_userdata/TEKNIK/logs" artifacts/runtime-logs
+          cp -R "$HOME/.local/share/godot/app_userdata/TEKNIK/logs" artifacts/runtime-logs-building
           rm -f artifacts/teknik-gameplay.avi
+
+      - name: Play across streamed chunk boundaries
+        run: |
+          rm -rf "$HOME/.local/share/godot/app_userdata/TEKNIK/logs"
+          rm -f "$HOME/.local/share/godot/app_userdata/TEKNIK/teknik-world-edits.json"
+          rm -f "$HOME/.local/share/godot/app_userdata/TEKNIK/teknik-player-state.json"
+          xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy \
+            --fixed-fps 30 \
+            --write-movie artifacts/teknik-playability.avi -- \
+            --qa-playability \
+            --qa-playability-poster=artifacts/playability-finish.png
+          test -s artifacts/teknik-playability.avi
+          test -s artifacts/playability-finish.png
+          ffmpeg -y -i artifacts/teknik-playability.avi \
+            -c:v libx264 -preset medium -crf 23 -pix_fmt yuv420p -movflags +faststart \
+            artifacts/teknik-playability.mp4
+          test -s artifacts/teknik-playability.mp4
+          duration="$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 artifacts/teknik-playability.mp4)"
+          awk -v value="$duration" 'BEGIN { exit !(value >= 25.0) }'
+          test -s "$HOME/.local/share/godot/app_userdata/TEKNIK/logs/teknik-latest.jsonl"
+          cp -R "$HOME/.local/share/godot/app_userdata/TEKNIK/logs" artifacts/runtime-logs-playability
+          rm -f artifacts/teknik-playability.avi
 
       - name: Publish world preview
         uses: actions/upload-artifact@v4
@@ -114,8 +139,11 @@ jobs:
           path: |
             artifacts/world-*.png
             artifacts/gameplay-house.png
+            artifacts/playability-finish.png
             artifacts/teknik-gameplay.mp4
-            artifacts/runtime-logs/
+            artifacts/teknik-playability.mp4
+            artifacts/runtime-logs-building/
+            artifacts/runtime-logs-playability/
 
       - name: Set up Android command-line tools
         uses: android-actions/setup-android@v3
@@ -176,10 +204,10 @@ jobs:
           {
             echo '## TEKNIK automated QA'
             echo
-            echo '- Deterministic simulation, streaming, telemetry, persistent-edit, placement, lightweight collision-profile, and runtime-log tests executed.'
-            echo '- Runtime chunks use heightfields plus merged primitive placed-block runs; no streamed terrain trimesh collision is requested.'
-            echo '- Hero, river, upland, and one-chunk-shift screenshots requested for visual regression testing.'
-            echo '- A real in-engine gameplay recording walks, breaks terrain, builds a house, and emits a structured support log.'
-            echo '- Android ARM64 debug export requested.'
-            echo '- Vivo T3x hitch certification still requires the physical phone trace.'
+            echo '- Procedural spawn, parallel worker-pool, cached boundary sampling, persistence, placement, collision-profile, and runtime-log tests executed.'
+            echo '- The shipping test walks at normal physics speed across at least 190 metres of streamed terrain.'
+            echo '- The build fails if the player falls below the world, requires fall recovery, or cannot complete the traversal.'
+            echo '- Hero, river, upland, shifted-world, house-building, and traversal media are published for manual inspection.'
+            echo '- Android ARM64 debug export requested only after traversal succeeds.'
+            echo '- Physical Vivo T3x throughput still requires the resulting phone trace.'
           } >> "$GITHUB_STEP_SUMMARY"
