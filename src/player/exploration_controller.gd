@@ -2,6 +2,7 @@ class_name TeknikExplorationController
 extends CharacterBody3D
 
 signal break_requested(origin: Vector3, direction: Vector3)
+signal place_requested(origin: Vector3, direction: Vector3)
 
 const MobileControls = preload("res://src/player/mobile_controls.gd")
 
@@ -33,8 +34,11 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and _look_enabled:
 		_apply_look(event.relative, MOUSE_SENSITIVITY)
-	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
-		_emit_break_request()
+	elif event is InputEventMouseButton and event.pressed:
+		if event.button_index == MOUSE_BUTTON_LEFT:
+			_emit_break_request()
+		elif event.button_index == MOUSE_BUTTON_RIGHT:
+			_emit_place_request()
 	elif event.is_action_pressed("ui_cancel"):
 		_look_enabled = not _look_enabled
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if _look_enabled else Input.MOUSE_MODE_VISIBLE
@@ -70,6 +74,12 @@ func _emit_break_request() -> void:
 	if _camera == null:
 		return
 	break_requested.emit(_camera.global_position, -_camera.global_transform.basis.z.normalized())
+
+
+func _emit_place_request() -> void:
+	if _camera == null:
+		return
+	place_requested.emit(_camera.global_position, -_camera.global_transform.basis.z.normalized())
 
 
 func _apply_look(relative: Vector2, sensitivity: float) -> void:
@@ -113,6 +123,7 @@ func _build_mobile_controls() -> void:
 	_mobile_controls.look_dragged.connect(_on_mobile_look_dragged)
 	_mobile_controls.jump_pressed.connect(_on_mobile_jump_pressed)
 	_mobile_controls.break_pressed.connect(_emit_break_request)
+	_mobile_controls.place_pressed.connect(_emit_place_request)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
