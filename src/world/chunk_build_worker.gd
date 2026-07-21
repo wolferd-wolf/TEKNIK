@@ -69,10 +69,11 @@ func _build() -> Dictionary:
 			return TerrainGenerator.surface_color(_seed, material, world_position)
 	)
 	var collision_started_usec: int = Time.get_ticks_usec()
-	report["collision_profile"] = TerrainCollisionProfile.build(
+	report["collision_profile"] = TerrainCollisionProfile.build_from_chunk(
 		_seed,
 		_coordinate,
-		_edit_snapshots
+		_edit_snapshots,
+		chunk
 	)
 	report["collision_profile_usec"] = Time.get_ticks_usec() - collision_started_usec
 	report["coordinate"] = _coordinate
