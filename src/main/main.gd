@@ -6,6 +6,7 @@ const TerrainGenerator = preload("res://src/world/voxel_terrain_generator.gd")
 const GreedyMesher = preload("res://src/world/greedy_mesher.gd")
 const ChunkStreamPlan = preload("res://src/world/chunk_stream_plan.gd")
 const ChunkStreamState = preload("res://src/world/chunk_stream_state.gd")
+const WorldWindowPlan = preload("res://src/world/world_window_plan.gd")
 
 const WORLD_SEED: int = 73_421
 const CHUNK_RADIUS: int = 3
@@ -24,6 +25,9 @@ var _world_sample_cache: Dictionary = {}
 var _world_column_cache: Dictionary = {}
 var _chunk_stream: TeknikChunkStreamState = ChunkStreamState.new()
 var _terrain_nodes: Dictionary = {}
+var _world_center: Vector3i = Vector3i.ZERO
+var _feature_root: Node3D
+var _streamed_feature_instances: int = 0
 
 
 func _ready() -> void:
@@ -31,10 +35,6 @@ func _ready() -> void:
 	_build_environment()
 	_build_terrain_ordered()
 	_build_distant_terrain()
-	_build_water()
-	_build_forest()
-	_build_boulders()
-	_build_ground_detail()
 	_build_clouds()
 	print(
 		"WORLD_QA build_ms=", Time.get_ticks_msec() - build_started_ms,
@@ -103,7 +103,33 @@ func _build_terrain_ordered() -> void:
 		0,
 		floori(camera_position.z / float(VoxelChunk.SIZE))
 	)
-	_refresh_terrain(Vector3i.ZERO, priority_coordinate)
+	_refresh_world_window(Vector3i.ZERO, priority_coordinate)
+
+
+func _refresh_world_window(center: Vector3i, priority: Vector3i) -> void:
+	_refresh_terrain(center, priority)
+	if _feature_root == null or center != _world_center:
+		_world_center = center
+		_rebuild_streamed_features()
+
+
+func _rebuild_streamed_features() -> void:
+	if _feature_root != null:
+		remove_child(_feature_root)
+		_feature_root.queue_free()
+		_render_instance_count -= _streamed_feature_instances
+	_streamed_feature_instances = 0
+	_feature_root = Node3D.new()
+	_feature_root.name = "StreamedWorldFeatures"
+	add_child(_feature_root)
+	_build_water()
+	_build_forest()
+	_build_boulders()
+	_build_ground_detail()
+	print(
+		"WORLD_QA feature_center=", _world_center,
+		" feature_instances=", _streamed_feature_instances
+	)
 
 
 func _refresh_terrain(center: Vector3i, priority: Vector3i) -> void:
@@ -154,8 +180,13 @@ func _refresh_terrain(center: Vector3i, priority: Vector3i) -> void:
 
 
 func _build_water() -> void:
-	var world_min: int = -DISTANT_WORLD_RADIUS
-	var world_max: int = DISTANT_WORLD_RADIUS
+	var water_bounds: Vector2i = WorldWindowPlan.distant_x_bounds(
+		_world_center,
+		VoxelChunk.SIZE,
+		DISTANT_WORLD_RADIUS
+	)
+	var world_min: int = water_bounds.x
+	var world_max: int = water_bounds.y
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var indices := PackedInt32Array()
@@ -206,8 +237,9 @@ func _build_water() -> void:
 	var water := MeshInstance3D.new()
 	water.mesh = water_mesh
 	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(water)
+	_feature_root.add_child(water)
 	_render_instance_count += 1
+	_streamed_feature_instances += 1
 
 
 func _build_distant_terrain() -> void:
@@ -281,11 +313,16 @@ func _build_distant_terrain() -> void:
 func _build_forest() -> void:
 	var trunk_transforms: Array[Transform3D] = []
 	var lower_canopy_transforms: Array[Transform3D] = []
-	var world_min: int = -CHUNK_RADIUS * VoxelChunk.SIZE + 5
-	var world_max: int = (CHUNK_RADIUS + 1) * VoxelChunk.SIZE - 5
+	var world_rect: Rect2i = WorldWindowPlan.active_world_rect(
+		_world_center, CHUNK_RADIUS, VoxelChunk.SIZE, 5
+	)
+	var world_min_x: int = world_rect.position.x
+	var world_max_x: int = world_rect.end.x
+	var world_min_z: int = world_rect.position.y
+	var world_max_z: int = world_rect.end.y
 
-	for grid_z: int in range(world_min, world_max, TREE_SPACING):
-		for grid_x: int in range(world_min, world_max, TREE_SPACING):
+	for grid_z: int in range(world_min_z, world_max_z, TREE_SPACING):
+		for grid_x: int in range(world_min_x, world_max_x, TREE_SPACING):
 			var cell_x: int = floori(float(grid_x) / float(TREE_SPACING))
 			var cell_z: int = floori(float(grid_z) / float(TREE_SPACING))
 			var jitter_x: float = (WorldSeed.sample_unit(WORLD_SEED + 719, cell_x, cell_z) - 0.5) * 4.0
@@ -348,12 +385,13 @@ func _build_forest() -> void:
 
 func _build_boulders() -> void:
 	var transforms: Array[Transform3D] = []
-	var world_min: int = -CHUNK_RADIUS * VoxelChunk.SIZE + 6
-	var world_max: int = (CHUNK_RADIUS + 1) * VoxelChunk.SIZE - 6
+	var world_rect: Rect2i = WorldWindowPlan.active_world_rect(
+		_world_center, CHUNK_RADIUS, VoxelChunk.SIZE, 6
+	)
 	var camera_position: Vector3 = _camera_position()
 
-	for grid_z: int in range(world_min, world_max, 10):
-		for grid_x: int in range(world_min, world_max, 10):
+	for grid_z: int in range(world_rect.position.y, world_rect.end.y, 10):
+		for grid_x: int in range(world_rect.position.x, world_rect.end.x, 10):
 			var cell_x: int = floori(float(grid_x) / 10.0)
 			var cell_z: int = floori(float(grid_z) / 10.0)
 			var world_x: int = grid_x + roundi((WorldSeed.sample_unit(WORLD_SEED + 823, cell_x, cell_z) - 0.5) * 6.0)
@@ -397,12 +435,13 @@ func _build_boulders() -> void:
 
 func _build_ground_detail() -> void:
 	var transforms: Array[Transform3D] = []
-	var world_min: int = -CHUNK_RADIUS * VoxelChunk.SIZE + 4
-	var world_max: int = (CHUNK_RADIUS + 1) * VoxelChunk.SIZE - 4
+	var world_rect: Rect2i = WorldWindowPlan.active_world_rect(
+		_world_center, CHUNK_RADIUS, VoxelChunk.SIZE, 4
+	)
 	var camera_position: Vector3 = _camera_position()
 
-	for grid_z: int in range(world_min, world_max, 3):
-		for grid_x: int in range(world_min, world_max, 3):
+	for grid_z: int in range(world_rect.position.y, world_rect.end.y, 3):
+		for grid_x: int in range(world_rect.position.x, world_rect.end.x, 3):
 			var cell_x: int = floori(float(grid_x) / 3.0)
 			var cell_z: int = floori(float(grid_z) / 3.0)
 			var world_x: int = grid_x + roundi((WorldSeed.sample_unit(WORLD_SEED + 953, cell_x, cell_z) - 0.5) * 2.0)
@@ -480,13 +519,14 @@ func _build_clouds() -> void:
 	cloud_material.roughness = 1.0
 	cloud_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mesh.material = cloud_material
-	_add_tree_multimesh(mesh, transforms, false)
+	_add_tree_multimesh(mesh, transforms, false, false)
 
 
 func _add_tree_multimesh(
 	mesh: Mesh,
 	transforms: Array[Transform3D],
-	cast_shadows: bool = true
+	cast_shadows: bool = true,
+	streamed: bool = true
 ) -> void:
 	if transforms.is_empty():
 		return
@@ -503,7 +543,11 @@ func _add_tree_multimesh(
 		instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	else:
 		instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(instance)
+	if streamed:
+		_feature_root.add_child(instance)
+		_streamed_feature_instances += 1
+	else:
+		add_child(instance)
 	_render_instance_count += 1
 
 

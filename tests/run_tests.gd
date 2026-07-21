@@ -7,6 +7,7 @@ const TerrainGenerator = preload("res://src/world/voxel_terrain_generator.gd")
 const GreedyMesher = preload("res://src/world/greedy_mesher.gd")
 const ChunkStreamPlan = preload("res://src/world/chunk_stream_plan.gd")
 const ChunkStreamState = preload("res://src/world/chunk_stream_state.gd")
+const WorldWindowPlan = preload("res://src/world/world_window_plan.gd")
 
 var _failures: int = 0
 
@@ -17,6 +18,7 @@ func _init() -> void:
 	_test_greedy_mesher()
 	_test_chunk_stream_plan()
 	_test_chunk_stream_state()
+	_test_world_window_plan()
 	_test_kinetic_network()
 	_test_product_constraints()
 
@@ -209,6 +211,32 @@ func _test_chunk_stream_state() -> void:
 	_expect(state.active_count() == 49, "shifted residency preserves the chunk budget")
 	_expect(state.has(Vector3i(4, 0, 0)), "shifted residency contains the new leading edge")
 	_expect(not state.has(Vector3i(-3, 0, 0)), "shifted residency releases the trailing edge")
+
+
+func _test_world_window_plan() -> void:
+	var origin_rect: Rect2i = WorldWindowPlan.active_world_rect(
+		Vector3i.ZERO, 3, VoxelChunk.SIZE, 5
+	)
+	var shifted_rect: Rect2i = WorldWindowPlan.active_world_rect(
+		Vector3i(1, 0, -1), 3, VoxelChunk.SIZE, 5
+	)
+	_expect(origin_rect.size == Vector2i(214, 214), "feature window respects active chunk margins")
+	_expect(
+		shifted_rect.position - origin_rect.position == Vector2i(32, -32),
+		"feature window follows chunk residency exactly"
+	)
+	_expect(shifted_rect.size == origin_rect.size, "feature window keeps a fixed mobile budget")
+	var water_origin: Vector2i = WorldWindowPlan.distant_x_bounds(
+		Vector3i.ZERO, VoxelChunk.SIZE, 320
+	)
+	var water_shifted: Vector2i = WorldWindowPlan.distant_x_bounds(
+		Vector3i(1, 0, 0), VoxelChunk.SIZE, 320
+	)
+	_expect(water_origin == Vector2i(-320, 320), "water window covers the distant horizon")
+	_expect(
+		water_shifted - water_origin == Vector2i(32, 32),
+		"water window advances with terrain residency"
+	)
 
 
 func _test_product_constraints() -> void:
