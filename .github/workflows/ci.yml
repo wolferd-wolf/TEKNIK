@@ -15,11 +15,12 @@ concurrency:
 jobs:
   validate-build-capture:
     runs-on: ubuntu-24.04
-    timeout-minutes: 55
+    timeout-minutes: 75
     env:
       GODOT_VERSION: "4.7.1"
       GODOT_RELEASE: "4.7.1-stable"
       GODOT_BIN: /usr/local/bin/godot
+      GODOT_CPP_REF: master
 
     steps:
       - name: Check out source
@@ -31,10 +32,15 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl unzip xvfb ffmpeg libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
+          sudo apt-get install -y \
+            build-essential clang lld scons git curl unzip xvfb ffmpeg \
+            libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
 
       - name: Install Godot and export templates
         run: |
@@ -52,11 +58,41 @@ jobs:
           cp -R /tmp/export-templates/templates/. "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
           godot --version
 
-      - name: Import project
+      - name: Build Rust core and Linux C++ bridge
+        run: |
+          mkdir -p artifacts /tmp/godot-api
+          cargo test --manifest-path native/rust/Cargo.toml --release
+          cargo build --manifest-path native/rust/Cargo.toml --release
+
+          (
+            cd /tmp/godot-api
+            godot --headless --dump-extension-api
+          )
+          cp /tmp/godot-api/extension_api.json extension_api.json
+
+          git clone --depth 1 --branch "$GODOT_CPP_REF" \
+            https://github.com/godotengine/godot-cpp.git native/godot-cpp
+          git -C native/godot-cpp rev-parse HEAD | tee artifacts/godot-cpp-commit.txt
+
+          (
+            cd native
+            scons -j2 \
+              platform=linux \
+              arch=x86_64 \
+              target=template_debug \
+              custom_api_file="$GITHUB_WORKSPACE/extension_api.json" \
+              rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/release"
+          )
+          test -s native/bin/libteknik_native.linux.template_debug.x86_64.so
+          ldd native/bin/libteknik_native.linux.template_debug.x86_64.so
+
+      - name: Import project with native extension
         run: godot --headless --path . --editor --quit
 
-      - name: Run deterministic tests
+      - name: Run native parity and deterministic tests
         run: |
+          godot --headless --path . --script res://tests/run_native_chunk_parity_tests.gd
+          godot --headless --path . --script res://tests/run_native_worker_integration_tests.gd
           godot --headless --path . --script res://tests/run_tests.gd
           godot --headless --path . --script res://tests/run_stream_budget_tests.gd
           godot --headless --path . --script res://tests/run_performance_telemetry_tests.gd
@@ -133,7 +169,7 @@ jobs:
       - name: Publish world preview
         uses: actions/upload-artifact@v4
         with:
-          name: teknik-world-preview-${{ github.sha }}
+          name: teknik-native-world-preview-${{ github.sha }}
           if-no-files-found: error
           retention-days: 30
           path: |
@@ -144,6 +180,7 @@ jobs:
             artifacts/teknik-playability.mp4
             artifacts/runtime-logs-building/
             artifacts/runtime-logs-playability/
+            artifacts/godot-cpp-commit.txt
 
       - name: Set up Android command-line tools
         uses: android-actions/setup-android@v3
@@ -158,6 +195,31 @@ jobs:
             "cmdline-tools;latest" \
             "cmake;3.10.2.4988404" \
             "ndk;28.1.13356709"
+
+      - name: Cross-compile Rust C++ extension for Android ARM64
+        run: |
+          export NDK_ROOT="$ANDROID_HOME/ndk/28.1.13356709"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+          rustup target add aarch64-linux-android
+          cargo build \
+            --manifest-path native/rust/Cargo.toml \
+            --release \
+            --target aarch64-linux-android
+
+          (
+            cd native
+            ANDROID_NDK_ROOT="$NDK_ROOT" ANDROID_HOME="$ANDROID_HOME" scons -j2 \
+              platform=android \
+              arch=arm64 \
+              target=template_debug \
+              android_api_level=24 \
+              custom_api_file="$GITHUB_WORKSPACE/extension_api.json" \
+              rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/aarch64-linux-android/release"
+          )
+          test -s native/bin/libteknik_native.android.template_debug.arm64.so
+          file native/bin/libteknik_native.android.template_debug.arm64.so
+          readelf -h native/bin/libteknik_native.android.template_debug.arm64.so | tee artifacts/android-native-elf.txt
 
       - name: Configure Godot Android export
         run: |
@@ -182,32 +244,35 @@ jobs:
               -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-      - name: Export Android debug APK
+      - name: Export Android debug APK with native extension
         run: |
           godot --headless --path . --export-debug "Android" build/TEKNIK-debug.apk
           test -s build/TEKNIK-debug.apk
+          unzip -l build/TEKNIK-debug.apk | tee artifacts/apk-contents.txt
+          grep -q "lib/arm64-v8a/.*teknik_native.*\.so" artifacts/apk-contents.txt
 
       - name: Publish QA artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: teknik-${{ github.sha }}
+          name: teknik-native-${{ github.sha }}
           if-no-files-found: warn
           retention-days: 30
           path: |
             artifacts/
             build/*.apk
+            native/bin/*.so
 
       - name: Write job summary
         if: always()
         run: |
           {
-            echo '## TEKNIK automated QA'
+            echo '## TEKNIK Rust + C++ native migration QA'
             echo
-            echo '- Procedural spawn, parallel worker-pool, cached boundary sampling, persistence, placement, collision-profile, and runtime-log tests executed.'
-            echo '- The shipping test walks at normal physics speed across at least 190 metres of streamed terrain.'
-            echo '- The build fails if the player falls below the world, requires fall recovery, or cannot complete the traversal.'
-            echo '- Hero, river, upland, shifted-world, house-building, and traversal media are published for manual inspection.'
-            echo '- Android ARM64 debug export requested only after traversal succeeds.'
-            echo '- Physical Vivo T3x throughput still requires the resulting phone trace.'
+            echo '- Rust unit tests and exact Godot parity tests executed.'
+            echo '- The threaded runtime fails CI if it falls back to GDScript.'
+            echo '- Procedural spawn, persistence, placement, collision, logging, house building, and 190-metre traversal remain required.'
+            echo '- Rust is linked into one official C++ GDExtension library.'
+            echo '- Android ARM64 export is rejected unless the native shared library is present inside the APK.'
+            echo '- Physical Vivo T3x validation remains required after cloud parity and traversal pass.'
           } >> "$GITHUB_STEP_SUMMARY"
