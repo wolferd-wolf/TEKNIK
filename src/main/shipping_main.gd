@@ -1,6 +1,12 @@
 extends "res://src/main/playable_main.gd"
 
 const PlayabilityTraversalDirector = preload("res://src/qa/playability_traversal_director.gd")
+const ShippingNativeChunkBackend = preload("res://src/world/native_chunk_backend.gd")
+
+var _native_initial_chunk_count: int = 0
+var _native_streamed_chunk_count: int = 0
+var _native_fallback_count: int = 0
+var _native_core_version: String = "unavailable"
 
 
 func _ready() -> void:
@@ -27,53 +33,89 @@ func _refresh_terrain(center: Vector3i, priority: Vector3i) -> void:
 
 
 func _build_initial_chunk(coordinate: Vector3i) -> void:
-	var chunk: TeknikVoxelChunk = PlayableTerrainGenerator.generate_chunk(WORLD_SEED, coordinate)
-	_world_edits.apply_to_chunk(coordinate, chunk)
-	var world_origin: Vector3i = coordinate * PlayableVoxelChunk.SIZE
-	var boundary_columns: Dictionary = {}
-	var report: Dictionary = PlayableGreedyMesher.build_arrays(
-		chunk,
-		world_origin,
-		func(world_position: Vector3i) -> int:
-			if world_position.y < world_origin.y:
-				return PlayableTerrainGenerator.STONE
-			if world_position.y >= world_origin.y + PlayableVoxelChunk.SIZE:
-				return PlayableVoxelChunk.AIR
-			var owner := Vector3i(
-				floori(float(world_position.x) / float(PlayableVoxelChunk.SIZE)),
-				coordinate.y,
-				floori(float(world_position.z) / float(PlayableVoxelChunk.SIZE))
-			)
-			if owner == coordinate:
-				return chunk.get_voxel(world_position - world_origin)
-			var key := Vector2i(world_position.x, world_position.z)
-			var column: Vector2i
-			if boundary_columns.has(key):
-				column = boundary_columns[key]
-			else:
-				column = PlayableTerrainGenerator.sample_column(WORLD_SEED, world_position.x, world_position.z)
-				boundary_columns[key] = column
-			var generated: int = PlayableTerrainGenerator.material_from_column(world_position.y, column)
-			return _world_edits.get_override(world_position, generated),
-		func(material: int, world_position: Vector3i) -> Color:
-			return PlayableTerrainGenerator.fast_surface_color(WORLD_SEED, material, world_position)
-	)
+	var backend := ShippingNativeChunkBackend.new()
+	if not backend.is_available():
+		_native_fallback_count += 1
+		super._build_initial_chunk(coordinate)
+		return
+
+	_native_core_version = backend.core_version()
+	var snapshots: Dictionary = _world_edits.snapshot_neighborhood(coordinate)
+	var report: Dictionary = backend.build_chunk(WORLD_SEED, coordinate, snapshots)
+	var voxels: PackedByteArray = report.get("voxels", PackedByteArray())
+	if not bool(report.get("success", false)) or voxels.size() != PlayableVoxelChunk.VOLUME:
+		_native_fallback_count += 1
+		_runtime_log.event("error", "native", "initial_chunk_fallback", {
+			"coordinate": str(coordinate),
+			"error": str(report.get("error", "invalid native voxel buffer")),
+		})
+		super._build_initial_chunk(coordinate)
+		return
+
+	var chunk: TeknikVoxelChunk = PlayableVoxelChunk.new()
+	chunk.voxels = voxels
+	chunk.revision = 1 + int(int(report.get("applied_edits", 0)) > 0)
 	var terrain := MeshInstance3D.new()
 	terrain.mesh = PlayableGreedyMesher.mesh_from_arrays(report.arrays)
-	terrain.position = Vector3(coordinate.x * PlayableVoxelChunk.SIZE, 0.0, coordinate.z * PlayableVoxelChunk.SIZE)
+	terrain.position = Vector3(
+		coordinate.x * PlayableVoxelChunk.SIZE,
+		0.0,
+		coordinate.z * PlayableVoxelChunk.SIZE
+	)
 	terrain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	terrain.set_meta("quad_count", int(report.quads))
 	terrain.set_meta("collision_profile", PlayableCollisionProfile.build_from_chunk(
 		WORLD_SEED,
 		coordinate,
-		_world_edits.snapshot_neighborhood(coordinate),
+		snapshots,
 		chunk
 	))
+	terrain.set_meta("native_backend", true)
+	terrain.set_meta("native_core_version", _native_core_version)
 	add_child(terrain)
 	_terrain_nodes[coordinate] = terrain
 	_chunk_stream.mark_loaded(coordinate)
 	_total_quads += int(report.quads)
 	_render_instance_count += 1
+	_native_initial_chunk_count += 1
+	_runtime_log.event("info", "native", "initial_chunk_built", {
+		"coordinate": str(coordinate),
+		"core": _native_core_version,
+		"generation_usec": int(report.get("generation_usec", 0)),
+		"mesh_usec": int(report.get("mesh_worker_usec", 0)),
+		"quads": int(report.get("quads", 0)),
+	})
+
+
+func _commit_terrain_chunk(report: Dictionary) -> void:
+	if bool(report.get("native_backend", false)):
+		_native_streamed_chunk_count += 1
+		_native_core_version = str(report.get("native_core_version", _native_core_version))
+	else:
+		_native_fallback_count += 1
+		_runtime_log.event("error", "native", "streamed_chunk_fallback", {
+			"coordinate": str(report.get("coordinate", Vector3i.ZERO)),
+			"reason": str(report.get("native_fallback_reason", "unknown")),
+		})
+	super._commit_terrain_chunk(report)
+
+
+func qa_playability_snapshot() -> Dictionary:
+	var snapshot: Dictionary = super.qa_playability_snapshot()
+	snapshot["native_initial_chunks"] = _native_initial_chunk_count
+	snapshot["native_streamed_chunks"] = _native_streamed_chunk_count
+	snapshot["native_fallbacks"] = _native_fallback_count
+	snapshot["native_core_version"] = _native_core_version
+	return snapshot
+
+
+func _diagnostic_context() -> Dictionary:
+	var context: Dictionary = super._diagnostic_context()
+	context["native_initial_chunks"] = _native_initial_chunk_count
+	context["native_streamed_chunks"] = _native_streamed_chunk_count
+	context["native_fallbacks"] = _native_fallback_count
+	context["native_core_version"] = _native_core_version
+	return context
 
 
 func _next_build_coordinate() -> Vector3i:
