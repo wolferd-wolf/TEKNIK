@@ -29,15 +29,25 @@ static func terrain_landmark_profile(seed: int, world_x: int, world_z: int) -> V
 
 
 static func terrain_surface_profile(seed: int, world_x: int, world_z: int) -> Vector3:
-	var climate: Vector2 = climate_at(seed, world_x, world_z)
 	var height: int = surface_height(seed, world_x, world_z)
+	var landmark: Vector3 = terrain_landmark_profile(seed, world_x, world_z)
+	return _terrain_surface_profile_from(seed, world_x, world_z, height, landmark)
+
+
+static func _terrain_surface_profile_from(
+	seed: int,
+	world_x: int,
+	world_z: int,
+	height: int,
+	landmark: Vector3
+) -> Vector3:
+	var climate: Vector2 = climate_at(seed, world_x, world_z)
 	var elevation: float = clampf((float(height) - 9.0) / float(MAX_SURFACE_HEIGHT - 9), 0.0, 1.0)
 	var river_gap: float = river_distance(seed, world_x, world_z)
 	var wet_margin: float = (1.0 - smoothstep(5.0, 17.0, river_gap)) * smoothstep(0.26, 0.82, climate.x)
 	var meadow_noise: float = WorldSeed.sample_value_noise(seed + 1999, float(world_x), float(world_z), 24.0)
 	var meadow: float = smoothstep(0.46, 0.76, meadow_noise) * smoothstep(0.32, 0.78, climate.x) * (1.0 - elevation * 0.58)
 	var scree_noise: float = WorldSeed.sample_value_noise(seed + 2081, float(world_x), float(world_z), 19.0)
-	var landmark: Vector3 = terrain_landmark_profile(seed, world_x, world_z)
 	var ruggedness: float = clampf(landmark.x * 0.45 + landmark.z * 0.90 + elevation * 0.18, 0.0, 1.0)
 	var scree: float = smoothstep(0.55, 0.84, scree_noise) * ruggedness
 	return Vector3(meadow, wet_margin, scree)
@@ -64,7 +74,9 @@ static func surface_color(seed: int, material: int, world_position: Vector3i) ->
 	var climate: Vector2 = climate_at(seed, world_position.x, world_position.z)
 	var elevation: float = clampf((float(world_position.y) - 8.0) / float(MAX_SURFACE_HEIGHT - 8), 0.0, 1.0)
 	var landmark: Vector3 = terrain_landmark_profile(seed, world_position.x, world_position.z)
-	var surface: Vector3 = terrain_surface_profile(seed, world_position.x, world_position.z)
+	var surface: Vector3 = _terrain_surface_profile_from(
+		seed, world_position.x, world_position.z, world_position.y, landmark
+	)
 	var micro: float = WorldSeed.sample_value_noise(seed + 2143, float(world_position.x), float(world_position.z), 8.0)
 	var micro_tint: float = (micro - 0.5) * 0.10
 	match material:
@@ -185,7 +197,7 @@ static func _surface_material_for_height(seed: int, world_x: int, world_z: int, 
 		return SAND
 	var slope: int = surface_slope(seed, world_x, world_z)
 	var landmark: Vector3 = terrain_landmark_profile(seed, world_x, world_z)
-	var surface: Vector3 = terrain_surface_profile(seed, world_x, world_z)
+	var surface: Vector3 = _terrain_surface_profile_from(seed, world_x, world_z, height, landmark)
 	if slope >= 2 and (height >= 15 or landmark.z > 0.38 or surface.z > 0.42):
 		return STONE
 	if height >= 24 and landmark.x > 0.62:
