@@ -7,6 +7,7 @@ const ExplorationController = preload("res://src/player/exploration_controller.g
 const PerformanceTelemetry = preload("res://src/diagnostics/performance_telemetry.gd")
 const WorldEditStore = preload("res://src/world/world_edit_store.gd")
 const InteractionMath = preload("res://src/world/world_interaction_math.gd")
+const GameplayCaptureDirector = preload("res://src/qa/gameplay_capture_director.gd")
 
 const STREAM_LOADS_PER_FRAME: int = 1
 const STREAM_UNLOADS_PER_FRAME: int = 1
@@ -50,6 +51,11 @@ func _ready() -> void:
 		if _terrain_nodes.has(coordinate):
 			_queue_chunk_rebuild(coordinate)
 	print("WORLD_EDIT loaded_overrides=", _world_edits.override_count(), " edited_chunks=", _world_edits.chunk_count())
+	if "--qa-gameplay" in OS.get_cmdline_user_args() and _player != null:
+		var director: TeknikGameplayCaptureDirector = GameplayCaptureDirector.new()
+		director.name = "GameplayCaptureDirector"
+		add_child(director)
+		director.begin(self, _player)
 
 
 func _process(delta: float) -> void:
@@ -238,6 +244,26 @@ func _apply_voxel_edit(voxel: Vector3i, material: int, action: String) -> void:
 		_queue_chunk_rebuild(coordinate)
 	_edit_save_due_ms = Time.get_ticks_msec() + EDIT_SAVE_DELAY_MS
 	print("WORLD_EDIT ", action, "=", voxel, " material=", material, " affected_chunks=", affected.size(), " total_overrides=", _world_edits.override_count())
+
+
+func qa_apply_voxel_edit(voxel: Vector3i, material: int, action: String) -> void:
+	_apply_voxel_edit(voxel, material, action)
+
+
+func qa_world_idle() -> bool:
+	return not _chunk_work_budget.has_work() and _edit_rebuild_queue.is_empty() and not _chunk_build_worker.is_busy() and not _chunk_build_worker.is_ready() and _collision_add_queue.is_empty() and _collision_remove_queue.is_empty()
+
+
+func qa_save_edits_now() -> void:
+	_save_edits_now()
+
+
+func qa_world_seed() -> int:
+	return WORLD_SEED
+
+
+func qa_place_material() -> int:
+	return PLACE_MATERIAL
 
 
 func _save_edits_if_due() -> void:
