@@ -21,6 +21,10 @@ The active milestone is the procedural world foundation. Other gameplay systems 
 - mobile-budgeted MultiMesh ground detail, boulders, and a low-poly cloud layer;
 - deterministic nearest-first chunk scheduling and unload planning;
 - active chunk-residency deltas that retain unchanged terrain while the window shifts;
+- threaded voxel generation and greedy mesh-array preparation;
+- main-thread-only mesh resource and scene-tree mutation;
+- a nearby three-by-three terrain collision window that follows exploration;
+- a grounded first-person CharacterBody3D controller with walking, jumping, gravity, and mouse look;
 - three deterministic CI camera views for world-composition regression review;
 - a one-draw-call coarse distant-terrain ring that hides full-detail chunk boundaries;
 - deterministic moisture, temperature, and elevation tinting without added draw calls;
@@ -28,7 +32,7 @@ The active milestone is the procedural world foundation. Other gameplay systems 
 - greedy chunk meshes that collapse a solid chunk to six quads;
 - a texture-free original material palette, procedural sky, water, directional shadows, and distance fog;
 - an automated rendered screenshot path; and
-- headless tests plus an Android debug export in GitHub Actions.
+- headless tests plus an Android ARM64 debug export in GitHub Actions.
 
 The three original visual targets used to judge this work are in [`docs/visual-targets`](docs/visual-targets). They are aspirational art-direction references; the automated screenshot is the evidence for what the current real-time build actually renders.
 
@@ -39,6 +43,7 @@ With Godot 4.7.1 available as `godot`:
 ```bash
 godot --headless --path . --editor --quit
 godot --headless --path . --script res://tests/run_tests.gd
+godot --headless --path . --script res://tests/run_stream_budget_tests.gd
 ```
 
 Rendered QA capture on Linux:
@@ -51,8 +56,8 @@ xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Du
 
 The `TEKNIK CI` workflow uploads:
 
-- the Android debug APK;
-- the deterministic bootstrap screenshot; and
+- the Android ARM64 debug APK;
+- hero, river, upland, and shifted-streaming screenshots; and
 - test/build logs exposed by GitHub Actions.
 
 Debug-only QA hooks are excluded from the product design and do not constitute a creative mode.
