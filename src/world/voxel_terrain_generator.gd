@@ -10,6 +10,8 @@ const GRASS: int = 3
 const SAND: int = 4
 const WATER_LEVEL: int = 7
 const MAX_SURFACE_HEIGHT: int = 29
+const COLUMN_BORDER: int = 1
+const COLUMN_GRID_SIZE: int = VoxelChunk.SIZE + COLUMN_BORDER * 2
 
 
 static func climate_at(seed: int, world_x: int, world_z: int) -> Vector2:
@@ -112,27 +114,86 @@ static func surface_color(seed: int, material: int, world_position: Vector3i) ->
 			return Color("8c7e69")
 
 
+static func fast_surface_color(seed: int, material: int, world_position: Vector3i) -> Color:
+	var elevation: float = clampf((float(world_position.y) - 8.0) / float(MAX_SURFACE_HEIGHT - 8), 0.0, 1.0)
+	var micro: float = WorldSeed.sample_unit(seed + 2143, world_position.x * 3 + world_position.y, world_position.z * 3 - world_position.y)
+	var tint: float = (micro - 0.5) * 0.09
+	var color: Color
+	match material:
+		GRASS:
+			color = Color("4d7543").lerp(Color("456653"), elevation * 0.38)
+		SOIL:
+			color = Color("604536").lerp(Color("493f38"), elevation * 0.34)
+		SAND:
+			var wetness: float = 1.0 - smoothstep(5.0, 18.0, river_distance(seed, world_position.x, world_position.z))
+			color = Color("a58c5c").lerp(Color("746b54"), wetness * 0.62)
+		STONE:
+			var strata: float = fposmod(float(world_position.y) + micro * 2.0, 5.0) / 5.0
+			color = Color("5d6865").lerp(Color("7c8580"), elevation * 0.36 + absf(strata - 0.5) * 0.12)
+		_:
+			color = Color("8c7e69")
+	return color.lightened(maxf(0.0, tint)).darkened(maxf(0.0, -tint))
+
+
 static func generate_chunk(seed: int, chunk_coordinate: Vector3i) -> TeknikVoxelChunk:
 	var chunk := VoxelChunk.new()
 	var world_origin: Vector3i = chunk_coordinate * VoxelChunk.SIZE
+	var heights := PackedInt32Array()
+	var ridges := PackedFloat32Array()
+	var escarpments := PackedFloat32Array()
+	var river_gaps := PackedFloat32Array()
+	var grid_volume: int = COLUMN_GRID_SIZE * COLUMN_GRID_SIZE
+	heights.resize(grid_volume)
+	ridges.resize(grid_volume)
+	escarpments.resize(grid_volume)
+	river_gaps.resize(grid_volume)
+
+	for grid_z: int in range(COLUMN_GRID_SIZE):
+		for grid_x: int in range(COLUMN_GRID_SIZE):
+			var world_x: int = world_origin.x + grid_x - COLUMN_BORDER
+			var world_z: int = world_origin.z + grid_z - COLUMN_BORDER
+			var profile: Vector4 = _terrain_height_profile(seed, world_x, world_z)
+			var grid_index: int = grid_z * COLUMN_GRID_SIZE + grid_x
+			heights[grid_index] = int(profile.x)
+			ridges[grid_index] = profile.y
+			escarpments[grid_index] = profile.z
+			river_gaps[grid_index] = profile.w
+
 	for z: int in range(VoxelChunk.SIZE):
 		for x: int in range(VoxelChunk.SIZE):
-			var world_x: int = world_origin.x + x
-			var world_z: int = world_origin.z + z
-			var column: Vector2i = sample_column(seed, world_x, world_z)
-			var height: int = column.x
-			var top_material: int = column.y
+			var grid_x: int = x + COLUMN_BORDER
+			var grid_z: int = z + COLUMN_BORDER
+			var grid_index: int = grid_z * COLUMN_GRID_SIZE + grid_x
+			var height: int = heights[grid_index]
+			var slope: int = 0
+			slope = maxi(slope, absi(height - heights[grid_index - 1]))
+			slope = maxi(slope, absi(height - heights[grid_index + 1]))
+			slope = maxi(slope, absi(height - heights[grid_index - COLUMN_GRID_SIZE]))
+			slope = maxi(slope, absi(height - heights[grid_index + COLUMN_GRID_SIZE]))
+			var top_material: int = _surface_material_from_cached(
+				height,
+				slope,
+				ridges[grid_index],
+				escarpments[grid_index],
+				river_gaps[grid_index]
+			)
 			var highest_solid_local_y: int = mini(VoxelChunk.SIZE - 1, height - world_origin.y)
-			for y: int in range(maxi(0, highest_solid_local_y + 1)):
-				var local_position := Vector3i(x, y, z)
+			if highest_solid_local_y < 0:
+				continue
+			for y: int in range(highest_solid_local_y + 1):
 				var world_y: int = world_origin.y + y
 				var material: int = _material_at_height(world_y, height, top_material)
 				if material != VoxelChunk.AIR:
-					chunk.set_voxel(local_position, material)
+					chunk.voxels[VoxelChunk.index_of(Vector3i(x, y, z))] = material
+	chunk.revision = 1
 	return chunk
 
 
 static func surface_height(seed: int, world_x: int, world_z: int) -> int:
+	return int(_terrain_height_profile(seed, world_x, world_z).x)
+
+
+static func _terrain_height_profile(seed: int, world_x: int, world_z: int) -> Vector4:
 	var continental: float = WorldSeed.sample_value_noise(seed + 19, float(world_x), float(world_z), 88.0)
 	var rolling: float = WorldSeed.sample_value_noise(seed + 131, float(world_x), float(world_z), 34.0)
 	var detail: float = WorldSeed.sample_value_noise(seed + 227, float(world_x), float(world_z), 17.0)
@@ -154,7 +215,12 @@ static func surface_height(seed: int, world_x: int, world_z: int) -> int:
 	var carved_height: float = lerpf(bank_height, upland_height, outer_bank)
 	if distance_to_river < 3.5:
 		carved_height = minf(carved_height, channel_floor)
-	return clampi(roundi(carved_height), 2, MAX_SURFACE_HEIGHT)
+	return Vector4(
+		float(clampi(roundi(carved_height), 2, MAX_SURFACE_HEIGHT)),
+		landmark.x,
+		landmark.z,
+		distance_to_river
+	)
 
 
 static func river_center_z(seed: int, world_x: int) -> float:
@@ -197,10 +263,21 @@ static func _surface_material_for_height(seed: int, world_x: int, world_z: int, 
 		return SAND
 	var slope: int = surface_slope(seed, world_x, world_z)
 	var landmark: Vector3 = terrain_landmark_profile(seed, world_x, world_z)
-	var surface: Vector3 = _terrain_surface_profile_from(seed, world_x, world_z, height, landmark)
-	if slope >= 2 and (height >= 15 or landmark.z > 0.38 or surface.z > 0.42):
+	return _surface_material_from_cached(height, slope, landmark.x, landmark.z, river_gap)
+
+
+static func _surface_material_from_cached(
+	height: int,
+	slope: int,
+	ridge: float,
+	escarpment: float,
+	river_gap: float
+) -> int:
+	if height <= WATER_LEVEL + 1 or (river_gap < 10.5 and height <= WATER_LEVEL + 3):
+		return SAND
+	if slope >= 2 and (height >= 15 or escarpment > 0.38):
 		return STONE
-	if height >= 24 and landmark.x > 0.62:
+	if height >= 24 and ridge > 0.62:
 		return STONE
 	return GRASS
 
