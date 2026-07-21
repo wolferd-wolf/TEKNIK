@@ -4,6 +4,7 @@ extends RefCounted
 const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
 const TerrainGenerator = preload("res://src/world/voxel_terrain_generator.gd")
 const GreedyMesher = preload("res://src/world/greedy_mesher.gd")
+const TerrainCollisionProfile = preload("res://src/world/terrain_collision_profile.gd")
 
 var _thread := Thread.new()
 var _busy: bool = false
@@ -67,6 +68,13 @@ func _build() -> Dictionary:
 		func(material: int, world_position: Vector3i) -> Color:
 			return TerrainGenerator.surface_color(_seed, material, world_position)
 	)
+	var collision_started_usec: int = Time.get_ticks_usec()
+	report["collision_profile"] = TerrainCollisionProfile.build(
+		_seed,
+		_coordinate,
+		_edit_snapshots
+	)
+	report["collision_profile_usec"] = Time.get_ticks_usec() - collision_started_usec
 	report["coordinate"] = _coordinate
 	report["applied_edits"] = applied_edits
 	return report
