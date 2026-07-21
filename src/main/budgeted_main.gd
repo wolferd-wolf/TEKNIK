@@ -15,7 +15,8 @@ const COLLISION_ADDS_PER_FRAME: int = 1
 const COLLISION_REMOVES_PER_FRAME: int = 2
 const TELEMETRY_REPORT_INTERVAL_MS: int = 10_000
 const EDIT_SAVE_DELAY_MS: int = 1200
-const BREAK_DISTANCE: float = 7.0
+const INTERACTION_DISTANCE: float = 7.0
+const PLACE_MATERIAL: int = 1
 const EDIT_SAVE_PATH: String = "user://teknik-world-edits.json"
 
 var _chunk_work_budget: TeknikChunkWorkBudget = ChunkWorkBudget.new()
@@ -78,7 +79,6 @@ func _refresh_terrain(center: Vector3i, priority: Vector3i) -> void:
 	_stream_plan_started_ms = Time.get_ticks_msec()
 	_stream_loaded_total = 0
 	_stream_unloaded_total = 0
-	print("WORLD_STREAM queued_center=", center, " loads=", to_load.size(), " unloads=", to_unload.size(), " threaded_cpu=true")
 
 
 func _process_chunk_work() -> void:
@@ -118,7 +118,7 @@ func _process_chunk_work() -> void:
 		_world_sample_cache.clear()
 		_world_column_cache.clear()
 	if not _chunk_work_budget.has_work() and _edit_rebuild_queue.is_empty() and not _chunk_build_worker.is_busy() and _stream_plan_started_ms > 0:
-		print("WORLD_STREAM complete_center=", _stream_plan_center, " elapsed_ms=", Time.get_ticks_msec() - _stream_plan_started_ms, " loaded_total=", _stream_loaded_total, " unloaded_total=", _stream_unloaded_total, " quads=", _total_quads, " render_instances=", _render_instance_count)
+		print("WORLD_STREAM complete_center=", _stream_plan_center, " elapsed_ms=", Time.get_ticks_msec() - _stream_plan_started_ms, " loaded_total=", _stream_loaded_total, " unloaded_total=", _stream_unloaded_total)
 		_stream_plan_started_ms = 0
 
 
@@ -182,17 +182,21 @@ func _build_player_controller() -> void:
 	add_child(_player)
 	_player.set_camera_active(true)
 	_player.break_requested.connect(_on_break_requested)
+	_player.place_requested.connect(_on_place_requested)
 	_exploration_anchor = _player
-	print("WORLD_PLAYER spawn=", _player.position, " collision_radius=", COLLISION_RADIUS)
+
+
+func _raycast_world(origin: Vector3, direction: Vector3) -> Dictionary:
+	if _player == null:
+		return {}
+	var query := PhysicsRayQueryParameters3D.create(origin, origin + direction * INTERACTION_DISTANCE)
+	query.exclude = [_player.get_rid()]
+	query.collide_with_areas = false
+	return get_world_3d().direct_space_state.intersect_ray(query)
 
 
 func _on_break_requested(origin: Vector3, direction: Vector3) -> void:
-	if _player == null:
-		return
-	var query := PhysicsRayQueryParameters3D.create(origin, origin + direction * BREAK_DISTANCE)
-	query.exclude = [_player.get_rid()]
-	query.collide_with_areas = false
-	var hit: Dictionary = get_world_3d().direct_space_state.intersect_ray(query)
+	var hit: Dictionary = _raycast_world(origin, direction)
 	if hit.is_empty():
 		return
 	var voxel: Vector3i = InteractionMath.removal_voxel(hit.position, hit.normal)
@@ -200,12 +204,40 @@ func _on_break_requested(origin: Vector3, direction: Vector3) -> void:
 	var current: int = _world_edits.get_override(voxel, generated)
 	if current == VoxelChunk.AIR:
 		return
-	if not _world_edits.set_override(voxel, VoxelChunk.AIR):
+	_apply_voxel_edit(voxel, VoxelChunk.AIR, "removed")
+
+
+func _on_place_requested(origin: Vector3, direction: Vector3) -> void:
+	var hit: Dictionary = _raycast_world(origin, direction)
+	if hit.is_empty():
 		return
-	for coordinate: Vector3i in InteractionMath.affected_chunk_coordinates(voxel, VoxelChunk.SIZE):
+	var voxel: Vector3i = InteractionMath.placement_voxel(hit.position, hit.normal)
+	var generated: int = TerrainGenerator.voxel_at(WORLD_SEED, voxel)
+	var current: int = _world_edits.get_override(voxel, generated)
+	if current != VoxelChunk.AIR or _placement_intersects_player(voxel):
+		return
+	_apply_voxel_edit(voxel, PLACE_MATERIAL, "placed")
+
+
+func _placement_intersects_player(voxel: Vector3i) -> bool:
+	if _player == null:
+		return false
+	var block_bounds := AABB(Vector3(voxel), Vector3.ONE)
+	var player_bounds := AABB(
+		_player.global_position + Vector3(-0.42, 0.0, -0.42),
+		Vector3(0.84, 1.75, 0.84)
+	)
+	return block_bounds.intersects(player_bounds)
+
+
+func _apply_voxel_edit(voxel: Vector3i, material: int, action: String) -> void:
+	if not _world_edits.set_override(voxel, material):
+		return
+	var affected: Array[Vector3i] = InteractionMath.affected_chunk_coordinates(voxel, VoxelChunk.SIZE)
+	for coordinate: Vector3i in affected:
 		_queue_chunk_rebuild(coordinate)
 	_edit_save_due_ms = Time.get_ticks_msec() + EDIT_SAVE_DELAY_MS
-	print("WORLD_EDIT removed=", voxel, " affected_chunks=", InteractionMath.affected_chunk_coordinates(voxel, VoxelChunk.SIZE).size(), " total_overrides=", _world_edits.override_count())
+	print("WORLD_EDIT ", action, "=", voxel, " material=", material, " affected_chunks=", affected.size(), " total_overrides=", _world_edits.override_count())
 
 
 func _save_edits_if_due() -> void:
