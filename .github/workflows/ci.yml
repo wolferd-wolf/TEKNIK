@@ -89,14 +89,15 @@ jobs:
 
       - name: Build Rust core and Linux C++ bridge
         run: |
-          mkdir -p artifacts /tmp/godot-api
-          cargo test --manifest-path native/rust/Cargo.toml --release
-          cargo build --manifest-path native/rust/Cargo.toml --release
+          set -o pipefail
+          mkdir -p artifacts/test-logs /tmp/godot-api
+          cargo test --manifest-path native/rust/Cargo.toml --release 2>&1 | tee artifacts/test-logs/rust-unit.log
+          cargo build --manifest-path native/rust/Cargo.toml --release 2>&1 | tee artifacts/test-logs/rust-build.log
 
           (
             cd /tmp/godot-api
             godot --headless --dump-extension-api
-          )
+          ) 2>&1 | tee artifacts/test-logs/godot-extension-api.log
           cp /tmp/godot-api/extension_api.json extension_api.json
 
           (
@@ -107,29 +108,39 @@ jobs:
               target=template_debug \
               custom_api_file="$GITHUB_WORKSPACE/extension_api.json" \
               rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/release"
-          )
+          ) 2>&1 | tee artifacts/test-logs/native-linux-build.log
           test -s native/bin/libteknik_native.linux.template_debug.x86_64.so
-          ldd native/bin/libteknik_native.linux.template_debug.x86_64.so
+          ldd native/bin/libteknik_native.linux.template_debug.x86_64.so | tee artifacts/test-logs/native-linux-ldd.log
 
       - name: Import project with native extension
-        run: godot --headless --path . --editor --quit
+        run: |
+          set -o pipefail
+          godot --headless --path . --editor --quit 2>&1 | tee artifacts/test-logs/godot-import.log
 
       - name: Run native parity and deterministic tests
         run: |
-          godot --headless --path . --script res://tests/run_native_chunk_parity_tests.gd
-          godot --headless --path . --script res://tests/run_native_worker_integration_tests.gd
-          godot --headless --path . --script res://tests/run_tests.gd
-          godot --headless --path . --script res://tests/run_stream_budget_tests.gd
-          godot --headless --path . --script res://tests/run_performance_telemetry_tests.gd
-          godot --headless --path . --script res://tests/run_surface_language_tests.gd
-          godot --headless --path . --script res://tests/run_world_edit_store_tests.gd
-          godot --headless --path . --script res://tests/run_chunk_edit_worker_tests.gd
-          godot --headless --path . --script res://tests/run_chunk_build_pool_tests.gd
-          godot --headless --path . --script res://tests/run_spawn_planner_tests.gd
-          godot --headless --path . --script res://tests/run_world_interaction_tests.gd
-          godot --headless --path . --script res://tests/run_block_placement_tests.gd
-          godot --headless --path . --script res://tests/run_terrain_collision_profile_tests.gd
-          godot --headless --path . --script res://tests/run_runtime_log_tests.gd
+          set -o pipefail
+          mkdir -p artifacts/test-logs
+          run_test() {
+            local name="$1"
+            local script="$2"
+            echo "=== ${name} ==="
+            godot --headless --path . --script "${script}" 2>&1 | tee "artifacts/test-logs/${name}.log"
+          }
+          run_test native-chunk-parity res://tests/run_native_chunk_parity_tests.gd
+          run_test native-worker-integration res://tests/run_native_worker_integration_tests.gd
+          run_test core res://tests/run_tests.gd
+          run_test stream-budget res://tests/run_stream_budget_tests.gd
+          run_test performance-telemetry res://tests/run_performance_telemetry_tests.gd
+          run_test surface-language res://tests/run_surface_language_tests.gd
+          run_test world-edit-store res://tests/run_world_edit_store_tests.gd
+          run_test chunk-edit-worker res://tests/run_chunk_edit_worker_tests.gd
+          run_test chunk-build-pool res://tests/run_chunk_build_pool_tests.gd
+          run_test spawn-planner res://tests/run_spawn_planner_tests.gd
+          run_test world-interaction res://tests/run_world_interaction_tests.gd
+          run_test block-placement res://tests/run_block_placement_tests.gd
+          run_test terrain-collision-profile res://tests/run_terrain_collision_profile_tests.gd
+          run_test runtime-log res://tests/run_runtime_log_tests.gd
 
       - name: Capture rendered QA screenshots
         run: |
@@ -306,7 +317,7 @@ jobs:
           godot --headless --path . --export-debug "Android Emulator" build/TEKNIK-emulator-debug.apk
           test -s build/TEKNIK-emulator-debug.apk
           unzip -l build/TEKNIK-emulator-debug.apk | tee artifacts/emulator-apk-contents.txt
-          grep -q "lib/x86_64/.*teknik_native.*\\.so" artifacts/emulator-apk-contents.txt
+          grep -q "lib/x86_64/.*teknik_native.*\.so" artifacts/emulator-apk-contents.txt
 
       - name: Publish QA artifacts
         if: always()
@@ -327,6 +338,7 @@ jobs:
             echo '## TEKNIK Rust + C++ native migration QA'
             echo
             echo '- Rust unit tests and exact Godot parity tests executed.'
+            echo '- Individual native and deterministic test logs are preserved in the QA artifact.'
             echo '- The threaded runtime fails CI if it falls back to GDScript.'
             echo '- All 25 startup safety chunks must use Rust, and the traversal requires native streamed chunks with zero fallback.'
             echo '- Procedural spawn, persistence, placement, collision, logging, house building, and 190-metre traversal remain required.'
@@ -389,7 +401,7 @@ jobs:
 
             adb shell dumpsys gfxinfo com.wolferdwolf.teknik > emulator-artifacts/android-emulator-gfxinfo.txt
             adb logcat -d > emulator-artifacts/android-emulator-logcat.txt
-            if grep -Eiq "FATAL EXCEPTION|ANR in com\\.wolferdwolf\\.teknik" emulator-artifacts/android-emulator-logcat.txt; then
+            if grep -Eiq "FATAL EXCEPTION|ANR in com\.wolferdwolf\.teknik" emulator-artifacts/android-emulator-logcat.txt; then
               echo "Android emulator detected a TEKNIK crash or ANR" >&2
               exit 1
             fi
