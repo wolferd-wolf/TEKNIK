@@ -135,7 +135,7 @@ func _test_greedy_mesher() -> void:
 			tint_calls[0] += 1
 			return Color.MAGENTA
 	)
-	_expect(tint_calls[0] == int(tinted.quads), "greedy mesher samples one climate color per quad")
+	_expect(tint_calls[0] == int(tinted.vertices), "greedy mesher samples climate color at every vertex")
 
 
 func _test_chunk_stream_plan() -> void:

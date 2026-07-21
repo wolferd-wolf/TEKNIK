@@ -147,23 +147,17 @@ static func _append_quad(
 	color_sampler: Callable
 ) -> void:
 	var base: int = vertices.size()
-	vertices.append(origin)
-	vertices.append(origin + delta_u)
-	vertices.append(origin + delta_u + delta_v)
-	vertices.append(origin + delta_v)
+	var local_positions: Array[Vector3] = [
+		origin,
+		origin + delta_u,
+		origin + delta_u + delta_v,
+		origin + delta_v,
+	]
+	for local_position: Vector3 in local_positions:
+		vertices.append(local_position)
 
 	var normal := Vector3.ZERO
 	normal[axis] = 1.0 if face > 0 else -1.0
-	var sample_position := Vector3i(
-		roundi(float(world_origin.x) + origin.x + (delta_u.x + delta_v.x) * 0.5),
-		roundi(float(world_origin.y) + origin.y + (delta_u.y + delta_v.y) * 0.5),
-		roundi(float(world_origin.z) + origin.z + (delta_u.z + delta_v.z) * 0.5)
-	)
-	var color: Color = _material_color(absi(face))
-	if color_sampler.is_valid():
-		var sampled_color: Variant = color_sampler.call(absi(face), sample_position)
-		if sampled_color is Color:
-			color = sampled_color
 	var face_light: float = 1.0
 	if axis == 1 and face > 0:
 		face_light = 1.03
@@ -171,23 +165,32 @@ static func _append_quad(
 		face_light = 0.76
 	else:
 		face_light = 0.94
-	var variation: float = 0.96 + fposmod(
-		sin(
-			float(sample_position.x) * 12.9898
-			+ float(sample_position.y) * 37.719
-			+ float(sample_position.z) * 78.233
-		) * 43758.5453,
-		1.0
-	) * 0.07
-	color = Color(
-		color.r * face_light * variation,
-		color.g * face_light * variation,
-		color.b * face_light * variation,
-		1.0
-	)
-	for vertex_index: int in range(4):
+	for local_position: Vector3 in local_positions:
+		var sample_position := Vector3i(
+			roundi(float(world_origin.x) + local_position.x),
+			roundi(float(world_origin.y) + local_position.y),
+			roundi(float(world_origin.z) + local_position.z)
+		)
+		var color: Color = _material_color(absi(face))
+		if color_sampler.is_valid():
+			var sampled_color: Variant = color_sampler.call(absi(face), sample_position)
+			if sampled_color is Color:
+				color = sampled_color
+		var variation: float = 0.96 + fposmod(
+			sin(
+				float(sample_position.x) * 12.9898
+				+ float(sample_position.y) * 37.719
+				+ float(sample_position.z) * 78.233
+			) * 43758.5453,
+			1.0
+		) * 0.07
 		normals.append(normal)
-		colors.append(color)
+		colors.append(Color(
+			color.r * face_light * variation,
+			color.g * face_light * variation,
+			color.b * face_light * variation,
+			1.0
+		))
 
 	# Godot treats clockwise triangles as front-facing. The geometric cross
 	# product therefore points opposite the stored outward lighting normal.
