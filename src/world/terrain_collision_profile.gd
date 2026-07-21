@@ -11,24 +11,42 @@ static func build(
 	coordinate: Vector3i,
 	edit_snapshots: Dictionary
 ) -> Dictionary:
+	return _build_profile(seed, coordinate, edit_snapshots, null)
+
+
+static func build_from_chunk(
+	seed: int,
+	coordinate: Vector3i,
+	edit_snapshots: Dictionary,
+	chunk: TeknikVoxelChunk
+) -> Dictionary:
+	return _build_profile(seed, coordinate, edit_snapshots, chunk)
+
+
+static func _build_profile(
+	seed: int,
+	coordinate: Vector3i,
+	edit_snapshots: Dictionary,
+	chunk: TeknikVoxelChunk
+) -> Dictionary:
 	var world_origin: Vector3i = coordinate * VoxelChunk.SIZE
 	var height_data := PackedFloat32Array()
 	height_data.resize(GRID_SIZE * GRID_SIZE)
 	for z: int in range(GRID_SIZE):
 		for x: int in range(GRID_SIZE):
-			var world_x: int = world_origin.x + x
-			var world_z: int = world_origin.z + z
-			var top_world_y: int = mini(
-				TerrainGenerator.surface_height(seed, world_x, world_z),
-				world_origin.y + VoxelChunk.SIZE - 1
-			)
-			while top_world_y >= world_origin.y and _has_air_override(
-				edit_snapshots,
-				Vector3i(world_x, top_world_y, world_z)
-			):
-				top_world_y -= 1
+			var top_local_y: int = -1
+			if chunk != null and x < VoxelChunk.SIZE and z < VoxelChunk.SIZE:
+				top_local_y = _top_solid_local_y(chunk, x, z)
+			else:
+				top_local_y = _sample_top_local_y(
+					seed,
+					coordinate,
+					edit_snapshots,
+					world_origin.x + x,
+					world_origin.z + z
+				)
 			var index: int = z * GRID_SIZE + x
-			height_data[index] = NAN if top_world_y < world_origin.y else float(top_world_y + 1 - world_origin.y)
+			height_data[index] = NAN if top_local_y < 0 else float(top_local_y + 1)
 
 	return {
 		"height_data": height_data,
@@ -77,6 +95,33 @@ static func create_body(profile: Dictionary, body_name: String) -> StaticBody3D:
 static func shape_count(profile: Dictionary) -> int:
 	var runs: Array = profile.get("box_runs", [])
 	return 1 + runs.size()
+
+
+static func _top_solid_local_y(chunk: TeknikVoxelChunk, local_x: int, local_z: int) -> int:
+	for local_y: int in range(VoxelChunk.SIZE - 1, -1, -1):
+		if chunk.get_voxel(Vector3i(local_x, local_y, local_z)) != VoxelChunk.AIR:
+			return local_y
+	return -1
+
+
+static func _sample_top_local_y(
+	seed: int,
+	coordinate: Vector3i,
+	edit_snapshots: Dictionary,
+	world_x: int,
+	world_z: int
+) -> int:
+	var world_origin_y: int = coordinate.y * VoxelChunk.SIZE
+	var top_world_y: int = mini(
+		TerrainGenerator.surface_height(seed, world_x, world_z),
+		world_origin_y + VoxelChunk.SIZE - 1
+	)
+	while top_world_y >= world_origin_y and _has_air_override(
+		edit_snapshots,
+		Vector3i(world_x, top_world_y, world_z)
+	):
+		top_world_y -= 1
+	return top_world_y - world_origin_y
 
 
 static func _has_air_override(edit_snapshots: Dictionary, world_position: Vector3i) -> bool:
