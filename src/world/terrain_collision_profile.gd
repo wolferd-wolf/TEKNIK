@@ -75,7 +75,8 @@ static func create_body(profile: Dictionary, body_name: String) -> StaticBody3D:
 
 
 static func shape_count(profile: Dictionary) -> int:
-	return 1 + (profile.get("box_runs", []) as Array).size()
+	var runs: Array = profile.get("box_runs", [])
+	return 1 + runs.size()
 
 
 static func _has_air_override(edit_snapshots: Dictionary, world_position: Vector3i) -> bool:
@@ -107,29 +108,29 @@ static func _placed_box_runs(
 		var material: int = int(edits[index])
 		if material == VoxelChunk.AIR:
 			continue
-		var local_y: int = index / (VoxelChunk.SIZE * VoxelChunk.SIZE)
+		var local_y: int = floori(float(index) / float(VoxelChunk.SIZE * VoxelChunk.SIZE))
 		var remainder: int = index % (VoxelChunk.SIZE * VoxelChunk.SIZE)
-		var local_z: int = remainder / VoxelChunk.SIZE
+		var local_z: int = floori(float(remainder) / float(VoxelChunk.SIZE))
 		var local_x: int = remainder % VoxelChunk.SIZE
 		var world_position: Vector3i = world_origin + Vector3i(local_x, local_y, local_z)
 		if TerrainGenerator.voxel_at(seed, world_position) != VoxelChunk.AIR:
 			continue
 		var key := Vector2i(local_x, local_z)
-		var heights: Array[int] = columns.get(key, [])
+		var heights: Array = columns.get(key, [])
 		heights.append(local_y)
 		columns[key] = heights
 
 	var result: Array[Dictionary] = []
 	for key_variant: Variant in columns.keys():
 		var key: Vector2i = key_variant
-		var heights: Array[int] = columns[key]
+		var heights: Array = columns[key]
 		heights.sort()
 		if heights.is_empty():
 			continue
-		var run_start: int = heights[0]
-		var run_end: int = heights[0]
+		var run_start: int = int(heights[0])
+		var run_end: int = int(heights[0])
 		for height_index: int in range(1, heights.size()):
-			var height: int = heights[height_index]
+			var height: int = int(heights[height_index])
 			if height == run_end + 1:
 				run_end = height
 			else:
