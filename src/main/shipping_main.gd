@@ -12,6 +12,20 @@ func _ready() -> void:
 		director.begin(self, _player)
 
 
+func _refresh_terrain(center: Vector3i, priority: Vector3i) -> void:
+	if not _qa_screenshot_path().is_empty() and _terrain_nodes.is_empty() and _chunk_stream.active_count() == 0:
+		var coordinates: Array[Vector3i] = ChunkStreamPlanPlayable.ordered_square(
+			center,
+			CHUNK_RADIUS,
+			priority
+		)
+		for coordinate: Vector3i in coordinates:
+			_build_initial_chunk(coordinate)
+		_set_desired_chunks(center, CHUNK_RADIUS, priority)
+		return
+	super._refresh_terrain(center, priority)
+
+
 func _next_build_coordinate() -> Vector3i:
 	while not _emergency_load_queue.is_empty():
 		var emergency: Vector3i = _emergency_load_queue.pop_front()
