@@ -60,6 +60,7 @@ jobs:
           godot --headless --path . --script res://tests/run_tests.gd
           godot --headless --path . --script res://tests/run_stream_budget_tests.gd
           godot --headless --path . --script res://tests/run_performance_telemetry_tests.gd
+          godot --headless --path . --script res://tests/run_surface_language_tests.gd
 
       - name: Capture rendered QA screenshots
         run: |
@@ -144,7 +145,7 @@ jobs:
           {
             echo '## TEKNIK automated QA'
             echo
-            echo '- Deterministic simulation, streaming, collision-window, and telemetry tests executed.'
+            echo '- Deterministic simulation, streaming, collision-window, telemetry, and terrain-surface tests executed.'
             echo '- Hero, river, upland, and one-chunk-shift screenshots requested for visual regression testing.'
             echo '- No slideshow or synthetic video is generated.'
             echo '- Android ARM64 debug export requested.'
