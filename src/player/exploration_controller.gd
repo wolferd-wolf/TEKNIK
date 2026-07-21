@@ -101,7 +101,7 @@ func look_at_world(target: Vector3) -> void:
 	if horizontal.length_squared() > 0.0001:
 		rotation.y = atan2(-delta.x, -delta.z)
 	if _camera_pivot != null:
-		_camera_pivot.rotation.x = clampf(-atan2(delta.y, horizontal.length()), deg_to_rad(-75.0), deg_to_rad(70.0))
+		_camera_pivot.rotation.x = clampf(atan2(delta.y, horizontal.length()), deg_to_rad(-75.0), deg_to_rad(70.0))
 
 
 func _emit_break_request() -> void:
