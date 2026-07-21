@@ -26,6 +26,56 @@ func _refresh_terrain(center: Vector3i, priority: Vector3i) -> void:
 	super._refresh_terrain(center, priority)
 
 
+func _build_initial_chunk(coordinate: Vector3i) -> void:
+	var chunk: TeknikVoxelChunk = PlayableTerrainGenerator.generate_chunk(WORLD_SEED, coordinate)
+	_world_edits.apply_to_chunk(coordinate, chunk)
+	var world_origin: Vector3i = coordinate * PlayableVoxelChunk.SIZE
+	var boundary_columns: Dictionary = {}
+	var report: Dictionary = PlayableGreedyMesher.build_arrays(
+		chunk,
+		world_origin,
+		func(world_position: Vector3i) -> int:
+			if world_position.y < world_origin.y:
+				return PlayableTerrainGenerator.STONE
+			if world_position.y >= world_origin.y + PlayableVoxelChunk.SIZE:
+				return PlayableVoxelChunk.AIR
+			var owner := Vector3i(
+				floori(float(world_position.x) / float(PlayableVoxelChunk.SIZE)),
+				coordinate.y,
+				floori(float(world_position.z) / float(PlayableVoxelChunk.SIZE))
+			)
+			if owner == coordinate:
+				return chunk.get_voxel(world_position - world_origin)
+			var key := Vector2i(world_position.x, world_position.z)
+			var column: Vector2i
+			if boundary_columns.has(key):
+				column = boundary_columns[key]
+			else:
+				column = PlayableTerrainGenerator.sample_column(WORLD_SEED, world_position.x, world_position.z)
+				boundary_columns[key] = column
+			var generated: int = PlayableTerrainGenerator.material_from_column(world_position.y, column)
+			return _world_edits.get_override(world_position, generated),
+		func(material: int, world_position: Vector3i) -> Color:
+			return PlayableTerrainGenerator.fast_surface_color(WORLD_SEED, material, world_position)
+	)
+	var terrain := MeshInstance3D.new()
+	terrain.mesh = PlayableGreedyMesher.mesh_from_arrays(report.arrays)
+	terrain.position = Vector3(coordinate.x * PlayableVoxelChunk.SIZE, 0.0, coordinate.z * PlayableVoxelChunk.SIZE)
+	terrain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	terrain.set_meta("quad_count", int(report.quads))
+	terrain.set_meta("collision_profile", PlayableCollisionProfile.build_from_chunk(
+		WORLD_SEED,
+		coordinate,
+		_world_edits.snapshot_neighborhood(coordinate),
+		chunk
+	))
+	add_child(terrain)
+	_terrain_nodes[coordinate] = terrain
+	_chunk_stream.mark_loaded(coordinate)
+	_total_quads += int(report.quads)
+	_render_instance_count += 1
+
+
 func _next_build_coordinate() -> Vector3i:
 	while not _emergency_load_queue.is_empty():
 		var emergency: Vector3i = _emergency_load_queue.pop_front()
