@@ -13,11 +13,15 @@
 #include <godot_cpp/variant/utility_functions.hpp>
 
 #include <cstdint>
+#include <cstring>
 #include <vector>
 
 using namespace godot;
 
 namespace {
+
+constexpr size_t DIRECTION_COUNT = 6;
+constexpr size_t VOXEL_COUNT = 32 * 32 * 32;
 
 struct ResultGuard {
     TeknikChunkResult *result = nullptr;
@@ -50,7 +54,7 @@ std::vector<TeknikEdit> flatten_edits(const Dictionary &snapshots) {
                 continue;
             }
             const int64_t voxel_index = voxel_index_variant;
-            if (voxel_index < 0 || voxel_index >= 32 * 32 * 32) {
+            if (voxel_index < 0 || voxel_index >= static_cast<int64_t>(VOXEL_COUNT)) {
                 continue;
             }
             const int64_t material = static_cast<int64_t>(edits[voxel_index_variant]);
@@ -64,6 +68,34 @@ std::vector<TeknikEdit> flatten_edits(const Dictionary &snapshots) {
         }
     }
     return flattened;
+}
+
+int32_t preserve_u32_bits(uint32_t value) {
+    int32_t signed_value = 0;
+    static_assert(sizeof(signed_value) == sizeof(value));
+    std::memcpy(&signed_value, &value, sizeof(value));
+    return signed_value;
+}
+
+PackedInt32Array copy_packed_faces(const TeknikPackedFace *source, size_t face_count) {
+    PackedInt32Array words;
+    words.resize(static_cast<int64_t>(face_count * 2));
+    int32_t *target = words.ptrw();
+    for (size_t index = 0; index < face_count; ++index) {
+        target[index * 2] = preserve_u32_bits(source[index].geometry);
+        target[index * 2 + 1] = preserve_u32_bits(source[index].appearance);
+    }
+    return words;
+}
+
+PackedInt32Array copy_u32_array(const uint32_t *source, size_t count) {
+    PackedInt32Array values;
+    values.resize(static_cast<int64_t>(count));
+    int32_t *target = values.ptrw();
+    for (size_t index = 0; index < count; ++index) {
+        target[index] = static_cast<int32_t>(source[index]);
+    }
+    return values;
 }
 
 } // namespace
@@ -103,9 +135,37 @@ Dictionary TeknikNativeChunkBuilder::build_chunk(
     const size_t normal_count = teknik_result_normal_count(guard.result);
     const size_t color_count = teknik_result_color_count(guard.result);
     const size_t index_count = teknik_result_index_count(guard.result);
-    if (voxel_count != 32 * 32 * 32 || normal_count != vertex_count || color_count != vertex_count) {
+    const size_t packed_face_count = teknik_result_packed_face_count(guard.result);
+    const size_t directional_face_count = teknik_result_directional_face_count(guard.result);
+    const size_t direction_offset_count = teknik_result_direction_offset_count(guard.result);
+    const size_t direction_count_count = teknik_result_direction_count_count(guard.result);
+    const uint32_t quad_count = teknik_result_quad_count(guard.result);
+    if (voxel_count != VOXEL_COUNT
+        || normal_count != vertex_count
+        || color_count != vertex_count
+        || packed_face_count != quad_count
+        || directional_face_count != packed_face_count
+        || direction_offset_count != DIRECTION_COUNT
+        || direction_count_count != DIRECTION_COUNT) {
         report["success"] = false;
-        report["error"] = "Rust chunk core returned inconsistent array sizes";
+        report["error"] = "Rust chunk core returned inconsistent legacy or packed array sizes";
+        return report;
+    }
+
+    const uint32_t *source_direction_offsets = teknik_result_direction_offsets(guard.result);
+    const uint32_t *source_direction_counts = teknik_result_direction_counts(guard.result);
+    size_t partitioned_faces = 0;
+    for (size_t direction = 0; direction < DIRECTION_COUNT; ++direction) {
+        if (source_direction_offsets[direction] != partitioned_faces) {
+            report["success"] = false;
+            report["error"] = "Rust packed direction offsets are not contiguous";
+            return report;
+        }
+        partitioned_faces += source_direction_counts[direction];
+    }
+    if (partitioned_faces != packed_face_count) {
+        report["success"] = false;
+        report["error"] = "Rust packed direction counts do not cover every face";
         return report;
     }
 
@@ -154,15 +214,47 @@ Dictionary TeknikNativeChunkBuilder::build_chunk(
     arrays[Mesh::ARRAY_COLOR] = colors;
     arrays[Mesh::ARRAY_INDEX] = indices;
 
+    const TeknikPackedFace *source_packed_faces = teknik_result_packed_faces(guard.result);
+    const TeknikPackedFace *source_directional_faces = teknik_result_directional_faces(guard.result);
+    PackedInt32Array packed_faces = copy_packed_faces(source_packed_faces, packed_face_count);
+    PackedInt32Array directional_faces = copy_packed_faces(
+        source_directional_faces,
+        directional_face_count
+    );
+    PackedInt32Array direction_offsets = copy_u32_array(
+        source_direction_offsets,
+        direction_offset_count
+    );
+    PackedInt32Array direction_counts = copy_u32_array(
+        source_direction_counts,
+        direction_count_count
+    );
+
+    const int64_t packed_face_bytes = static_cast<int64_t>(packed_face_count * sizeof(TeknikPackedFace));
+    const int64_t legacy_mesh_bytes = static_cast<int64_t>(
+        vertex_count * (sizeof(TeknikVec3) * 2 + sizeof(TeknikColor4))
+        + index_count * sizeof(int32_t)
+    );
+
     report["success"] = true;
     report["native_backend"] = true;
     report["native_core_version"] = core_version();
     report["coordinate"] = coordinate;
     report["voxels"] = voxels;
     report["arrays"] = arrays;
-    report["quads"] = static_cast<int64_t>(teknik_result_quad_count(guard.result));
+    report["quads"] = static_cast<int64_t>(quad_count);
     report["vertices"] = static_cast<int64_t>(vertex_count);
     report["triangles"] = static_cast<int64_t>(index_count / 3);
+    report["packed_faces"] = packed_faces;
+    report["packed_directional_faces"] = directional_faces;
+    report["packed_direction_offsets"] = direction_offsets;
+    report["packed_direction_counts"] = direction_counts;
+    report["packed_face_count"] = static_cast<int64_t>(packed_face_count);
+    report["packed_face_bytes"] = packed_face_bytes;
+    report["legacy_mesh_bytes"] = legacy_mesh_bytes;
+    report["packed_compression_ratio"] = packed_face_bytes > 0
+        ? static_cast<double>(legacy_mesh_bytes) / static_cast<double>(packed_face_bytes)
+        : 0.0;
     report["applied_edits"] = static_cast<int64_t>(
         teknik_result_applied_edit_count(guard.result)
     );
@@ -177,6 +269,9 @@ Dictionary TeknikNativeChunkBuilder::build_chunk(
     );
     report["voxel_checksum"] = static_cast<int64_t>(
         teknik_result_voxel_checksum(guard.result)
+    );
+    report["packed_face_checksum"] = static_cast<int64_t>(
+        teknik_result_packed_face_checksum(guard.result)
     );
     return report;
 }
