@@ -5,6 +5,7 @@ const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
 const TerrainGenerator = preload("res://src/world/voxel_terrain_generator.gd")
 const GreedyMesher = preload("res://src/world/greedy_mesher.gd")
 const TerrainCollisionProfile = preload("res://src/world/terrain_collision_profile.gd")
+const NativeChunkBackend = preload("res://src/world/native_chunk_backend.gd")
 
 var _thread := Thread.new()
 var _busy: bool = false
@@ -47,6 +48,49 @@ func collect() -> Dictionary:
 
 
 func _build() -> Dictionary:
+	var native_backend := NativeChunkBackend.new()
+	if native_backend.is_available():
+		var native_report: Dictionary = native_backend.build_chunk(
+			_seed,
+			_coordinate,
+			_edit_snapshots
+		)
+		if bool(native_report.get("success", false)):
+			var native_voxels: PackedByteArray = native_report.get(
+				"voxels",
+				PackedByteArray()
+			)
+			if native_voxels.size() == VoxelChunk.VOLUME:
+				var chunk := VoxelChunk.new()
+				chunk.voxels = native_voxels
+				chunk.revision = 1 + int(native_report.get("applied_edits", 0) > 0)
+				var collision_started_usec: int = Time.get_ticks_usec()
+				native_report["collision_profile"] = TerrainCollisionProfile.build_from_chunk(
+					_seed,
+					_coordinate,
+					_edit_snapshots,
+					chunk
+				)
+				native_report["collision_profile_usec"] = (
+					Time.get_ticks_usec() - collision_started_usec
+				)
+				native_report["coordinate"] = _coordinate
+				native_report.erase("voxels")
+				return native_report
+			native_report["error"] = "Native voxel buffer had an invalid size"
+		var fallback: Dictionary = _build_gdscript()
+		fallback["native_backend"] = false
+		fallback["native_fallback_reason"] = str(native_report.get("error", "unknown"))
+		fallback["native_core_version"] = native_backend.core_version()
+		return fallback
+
+	var report: Dictionary = _build_gdscript()
+	report["native_backend"] = false
+	report["native_fallback_reason"] = "native_extension_unavailable"
+	return report
+
+
+func _build_gdscript() -> Dictionary:
 	var generation_started_usec: int = Time.get_ticks_usec()
 	var chunk: TeknikVoxelChunk = TerrainGenerator.generate_chunk(_seed, _coordinate)
 	var generation_usec: int = Time.get_ticks_usec() - generation_started_usec
@@ -75,9 +119,16 @@ func _build() -> Dictionary:
 			if boundary_columns.has(column_key):
 				column = boundary_columns[column_key]
 			else:
-				column = TerrainGenerator.sample_column(_seed, world_position.x, world_position.z)
+				column = TerrainGenerator.sample_column(
+					_seed,
+					world_position.x,
+					world_position.z
+				)
 				boundary_columns[column_key] = column
-			var generated: int = TerrainGenerator.material_from_column(world_position.y, column)
+			var generated: int = TerrainGenerator.material_from_column(
+				world_position.y,
+				column
+			)
 			var edits: Dictionary = _edit_snapshots.get(neighbor_coordinate, {})
 			if edits.is_empty():
 				return generated
