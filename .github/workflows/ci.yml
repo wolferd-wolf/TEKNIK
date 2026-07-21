@@ -15,7 +15,7 @@ concurrency:
 jobs:
   validate-build-capture:
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 40
     env:
       GODOT_VERSION: "4.7.1"
       GODOT_RELEASE: "4.7.1-stable"
@@ -34,7 +34,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl unzip xvfb libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
+          sudo apt-get install -y curl unzip xvfb ffmpeg libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
 
       - name: Install Godot and export templates
         run: |
@@ -82,13 +82,34 @@ jobs:
             --qa-screenshot="artifacts/world-shifted.png"
           test -s "artifacts/world-shifted.png"
 
+      - name: Record gameplay building test
+        run: |
+          rm -f "$HOME/.local/share/godot/app_userdata/TEKNIK/teknik-world-edits.json"
+          xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy \
+            --fixed-fps 30 \
+            --write-movie artifacts/teknik-gameplay.avi -- \
+            --qa-gameplay \
+            --qa-gameplay-poster=artifacts/gameplay-house.png
+          test -s artifacts/teknik-gameplay.avi
+          test -s artifacts/gameplay-house.png
+          ffmpeg -y -i artifacts/teknik-gameplay.avi \
+            -c:v libx264 -preset medium -crf 23 -pix_fmt yuv420p -movflags +faststart \
+            artifacts/teknik-gameplay.mp4
+          test -s artifacts/teknik-gameplay.mp4
+          duration="$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 artifacts/teknik-gameplay.mp4)"
+          awk -v value="$duration" 'BEGIN { exit !(value >= 10.0) }'
+          rm -f artifacts/teknik-gameplay.avi
+
       - name: Publish world preview
         uses: actions/upload-artifact@v4
         with:
           name: teknik-world-preview-${{ github.sha }}
           if-no-files-found: error
           retention-days: 30
-          path: artifacts/world-*.png
+          path: |
+            artifacts/world-*.png
+            artifacts/gameplay-house.png
+            artifacts/teknik-gameplay.mp4
 
       - name: Set up Android command-line tools
         uses: android-actions/setup-android@v3
@@ -151,7 +172,7 @@ jobs:
             echo
             echo '- Deterministic simulation, streaming, collision-window, telemetry, terrain-surface, persistent-edit, breaking, and placement tests executed.'
             echo '- Hero, river, upland, and one-chunk-shift screenshots requested for visual regression testing.'
-            echo '- No slideshow or synthetic video is generated.'
+            echo '- A real in-engine gameplay recording walks, breaks terrain, and builds a 5x5 house block by block.'
             echo '- Android ARM64 debug export requested.'
             echo '- Physical-device 50 FPS certification is not part of this cloud-runner job.'
           } >> "$GITHUB_STEP_SUMMARY"
