@@ -3,6 +3,7 @@ extends CharacterBody3D
 
 signal break_requested(origin: Vector3, direction: Vector3)
 signal place_requested(origin: Vector3, direction: Vector3)
+signal diagnostics_requested
 
 const MobileControls = preload("res://src/player/mobile_controls.gd")
 
@@ -36,7 +37,9 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if _scripted_mode:
 		return
-	if event is InputEventMouseMotion and _look_enabled:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F8:
+		diagnostics_requested.emit()
+	elif event is InputEventMouseMotion and _look_enabled:
 		_apply_look(event.relative, MOUSE_SENSITIVITY)
 	elif event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_LEFT:
@@ -158,6 +161,7 @@ func _build_mobile_controls() -> void:
 	_mobile_controls.jump_pressed.connect(_on_mobile_jump_pressed)
 	_mobile_controls.break_pressed.connect(_emit_break_request)
 	_mobile_controls.place_pressed.connect(_emit_place_request)
+	_mobile_controls.log_pressed.connect(func() -> void: diagnostics_requested.emit())
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
