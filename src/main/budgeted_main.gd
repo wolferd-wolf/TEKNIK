@@ -213,3 +213,23 @@ func _report_performance_if_due() -> void:
 		file.store_string(JSON.stringify(report, "\t"))
 	_performance_telemetry.reset_event_peaks()
 	_next_telemetry_report_ms = now_ms + TELEMETRY_REPORT_INTERVAL_MS
+
+
+func _capture_qa_screenshot(path: String) -> void:
+	var wait_frames: int = 0
+	while (_chunk_work_budget.has_work() or _chunk_build_worker.is_busy() or _chunk_build_worker.is_ready()) and wait_frames < 900:
+		await get_tree().process_frame
+		wait_frames += 1
+	for frame: int in range(10):
+		await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	var absolute_path: String = path if path.is_absolute_path() else ProjectSettings.globalize_path(path)
+	DirAccess.make_dir_recursive_absolute(absolute_path.get_base_dir())
+	var image: Image = get_viewport().get_texture().get_image()
+	var result: Error = image.save_png(absolute_path)
+	if result == OK:
+		print("QA_SCREENSHOT_SAVED ", absolute_path, " wait_frames=", wait_frames)
+		get_tree().quit(0)
+	else:
+		push_error("Failed to save QA screenshot: %s" % error_string(result))
+		get_tree().quit(1)
