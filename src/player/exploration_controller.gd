@@ -49,8 +49,15 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	var input_vector: Vector2 = _scripted_move if _scripted_mode else Input.get_vector("move_left", "move_right", "move_forward", "move_back")
-	if not _scripted_mode and _mobile_move.length_squared() > input_vector.length_squared():
+	if _scripted_mode:
+		var local_direction := Vector3(_scripted_move.x, 0.0, _scripted_move.y)
+		var direction := (global_transform.basis * local_direction).normalized()
+		global_position += direction * WALK_SPEED * delta
+		velocity = Vector3.ZERO
+		return
+
+	var input_vector := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	if _mobile_move.length_squared() > input_vector.length_squared():
 		input_vector = _mobile_move
 	var local_direction := Vector3(input_vector.x, 0.0, input_vector.y)
 	var direction := (global_transform.basis * local_direction).normalized()
@@ -59,7 +66,7 @@ func _physics_process(delta: float) -> void:
 	velocity.x = move_toward(velocity.x, target_velocity.x, response * delta)
 	velocity.z = move_toward(velocity.z, target_velocity.z, response * delta)
 	if is_on_floor():
-		if (not _scripted_mode and Input.is_action_just_pressed("jump")) or _mobile_jump_requested:
+		if Input.is_action_just_pressed("jump") or _mobile_jump_requested:
 			velocity.y = JUMP_VELOCITY
 		elif velocity.y < 0.0:
 			velocity.y = -0.5
@@ -77,6 +84,7 @@ func set_camera_active(active: bool) -> void:
 func set_scripted_mode(enabled: bool) -> void:
 	_scripted_mode = enabled
 	_scripted_move = Vector2.ZERO
+	velocity = Vector3.ZERO
 	if _mobile_controls != null:
 		_mobile_controls.visible = not enabled
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if enabled else Input.MOUSE_MODE_CAPTURED
