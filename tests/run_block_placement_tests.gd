@@ -36,10 +36,13 @@ func _test_mobile_action_zones() -> void:
 	var viewport := Vector2(1920.0, 1080.0)
 	var break_point := Vector2(viewport.x * 0.79, viewport.y * 0.59)
 	var place_point := Vector2(viewport.x * 0.91, viewport.y * 0.59)
+	var log_point := Vector2(viewport.x * 0.92, viewport.y * 0.12)
 	_expect(ControlMath.is_break_zone(break_point, viewport), "break control owns its touch zone")
 	_expect(ControlMath.is_place_zone(place_point, viewport), "place control owns its touch zone")
+	_expect(ControlMath.is_log_zone(log_point, viewport), "diagnostics control owns its touch zone")
 	_expect(not ControlMath.is_place_zone(break_point, viewport), "break and place zones do not overlap")
 	_expect(not ControlMath.is_look_zone(place_point, viewport), "place touch is not consumed by camera look")
+	_expect(not ControlMath.is_look_zone(log_point, viewport), "diagnostics touch is not consumed by camera look")
 
 
 func _expect(condition: bool, label: String) -> void:
