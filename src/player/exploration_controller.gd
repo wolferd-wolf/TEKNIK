@@ -1,6 +1,8 @@
 class_name TeknikExplorationController
 extends CharacterBody3D
 
+signal break_requested(origin: Vector3, direction: Vector3)
+
 const MobileControls = preload("res://src/player/mobile_controls.gd")
 
 const WALK_SPEED: float = 6.0
@@ -31,6 +33,8 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and _look_enabled:
 		_apply_look(event.relative, MOUSE_SENSITIVITY)
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		_emit_break_request()
 	elif event.is_action_pressed("ui_cancel"):
 		_look_enabled = not _look_enabled
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if _look_enabled else Input.MOUSE_MODE_VISIBLE
@@ -46,7 +50,6 @@ func _physics_process(delta: float) -> void:
 	var response: float = ACCELERATION if is_on_floor() else AIR_CONTROL
 	velocity.x = move_toward(velocity.x, target_velocity.x, response * delta)
 	velocity.z = move_toward(velocity.z, target_velocity.z, response * delta)
-
 	if is_on_floor():
 		if Input.is_action_just_pressed("jump") or _mobile_jump_requested:
 			velocity.y = JUMP_VELOCITY
@@ -55,13 +58,18 @@ func _physics_process(delta: float) -> void:
 	else:
 		velocity.y -= _gravity * delta
 	_mobile_jump_requested = false
-
 	move_and_slide()
 
 
 func set_camera_active(active: bool) -> void:
 	if _camera != null:
 		_camera.current = active
+
+
+func _emit_break_request() -> void:
+	if _camera == null:
+		return
+	break_requested.emit(_camera.global_position, -_camera.global_transform.basis.z.normalized())
 
 
 func _apply_look(relative: Vector2, sensitivity: float) -> void:
@@ -85,7 +93,6 @@ func _build_camera() -> void:
 	_camera_pivot.name = "CameraPivot"
 	_camera_pivot.position = Vector3(0.0, 1.55, 0.0)
 	add_child(_camera_pivot)
-
 	_camera = Camera3D.new()
 	_camera.name = "PlayerCamera"
 	_camera.fov = 68.0
@@ -105,6 +112,7 @@ func _build_mobile_controls() -> void:
 	_mobile_controls.movement_changed.connect(_on_mobile_movement_changed)
 	_mobile_controls.look_dragged.connect(_on_mobile_look_dragged)
 	_mobile_controls.jump_pressed.connect(_on_mobile_jump_pressed)
+	_mobile_controls.break_pressed.connect(_emit_break_request)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
