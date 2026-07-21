@@ -4,7 +4,7 @@ extends Node
 const TerrainGenerator = preload("res://src/world/voxel_terrain_generator.gd")
 const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
 
-const WALK_SECONDS: float = 3.2
+const WALK_SECONDS: float = 1.5
 const EDIT_PAUSE_SECONDS: float = 0.10
 const STAGE_PAUSE_SECONDS: float = 0.8
 
@@ -20,12 +20,13 @@ func begin(world: Node, player: TeknikExplorationController) -> void:
 
 func _run() -> void:
 	await _wait_for_world_idle()
+	var seed: int = _world.qa_world_seed()
 	var spawn: Vector3 = _player.global_position
 	var forward := -_player.global_transform.basis.z
 	var site_x: int = roundi(spawn.x + forward.x * 10.0)
 	var site_z: int = roundi(spawn.z + forward.z * 10.0)
-	var ground_y: int = TerrainGenerator.surface_height(_world.qa_world_seed(), site_x, site_z)
-	var site_center := Vector3(float(site_x) + 2.5, float(ground_y) + 1.5, float(site_z) + 2.5)
+	var ground_y: int = TerrainGenerator.surface_height(seed, site_x, site_z)
+	var site_center := Vector3(float(site_x) + 2.5, float(ground_y) + 2.0, float(site_z) + 2.5)
 
 	_player.set_scripted_mode(true)
 	_player.look_at_world(site_center)
@@ -34,8 +35,10 @@ func _run() -> void:
 	_player.set_scripted_move(Vector2.ZERO)
 	await get_tree().create_timer(STAGE_PAUSE_SECONDS).timeout
 
-	var camera_spot := Vector3(float(site_x) + 2.5, float(ground_y) + 2.5, float(site_z) + 9.5)
-	_player.global_position = camera_spot
+	var camera_x: int = site_x + 2
+	var camera_z: int = site_z + 10
+	var camera_ground_y: int = TerrainGenerator.surface_height(seed, camera_x, camera_z)
+	_player.global_position = Vector3(float(camera_x) + 0.5, float(camera_ground_y) + 3.0, float(camera_z) + 0.5)
 	_player.velocity = Vector3.ZERO
 	_player.look_at_world(site_center)
 	await get_tree().create_timer(STAGE_PAUSE_SECONDS).timeout
@@ -51,6 +54,7 @@ func _run() -> void:
 		_world.qa_apply_voxel_edit(voxel, _world.qa_place_material(), "qa_placed")
 		await get_tree().create_timer(EDIT_PAUSE_SECONDS).timeout
 	await _wait_for_world_idle()
+	_player.look_at_world(site_center + Vector3(0.0, 1.0, 0.0))
 	await get_tree().create_timer(2.0).timeout
 
 	var poster_path: String = _argument_value("--qa-gameplay-poster=")
