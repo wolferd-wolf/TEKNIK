@@ -28,6 +28,19 @@ static func terrain_landmark_profile(seed: int, world_x: int, world_z: int) -> V
 	return Vector3(ridge, basin, escarpment)
 
 
+static func terrain_surface_profile(seed: int, world_x: int, world_z: int) -> Vector3:
+	var climate: Vector2 = climate_at(seed, world_x, world_z)
+	var height: int = surface_height(seed, world_x, world_z)
+	var elevation: float = clampf((float(height) - 9.0) / float(MAX_SURFACE_HEIGHT - 9), 0.0, 1.0)
+	var river_gap: float = river_distance(seed, world_x, world_z)
+	var wet_margin: float = (1.0 - smoothstep(5.0, 17.0, river_gap)) * smoothstep(0.26, 0.82, climate.x)
+	var meadow_noise: float = WorldSeed.sample_value_noise(seed + 1999, float(world_x), float(world_z), 24.0)
+	var meadow: float = smoothstep(0.46, 0.76, meadow_noise) * smoothstep(0.32, 0.78, climate.x) * (1.0 - elevation * 0.58)
+	var scree_noise: float = WorldSeed.sample_value_noise(seed + 2081, float(world_x), float(world_z), 19.0)
+	var scree: float = smoothstep(0.55, 0.84, scree_noise) * clampf(float(surface_slope(seed, world_x, world_z)) / 2.0, 0.0, 1.0)
+	return Vector3(meadow, wet_margin, scree)
+
+
 static func vegetation_profile(seed: int, world_x: int, world_z: int) -> Vector3:
 	var climate: Vector2 = climate_at(seed, world_x, world_z)
 	var river_influence: float = 1.0 - smoothstep(8.0, 42.0, river_distance(seed, world_x, world_z))
@@ -49,20 +62,38 @@ static func surface_color(seed: int, material: int, world_position: Vector3i) ->
 	var climate: Vector2 = climate_at(seed, world_position.x, world_position.z)
 	var elevation: float = clampf((float(world_position.y) - 8.0) / float(MAX_SURFACE_HEIGHT - 8), 0.0, 1.0)
 	var landmark: Vector3 = terrain_landmark_profile(seed, world_position.x, world_position.z)
+	var surface: Vector3 = terrain_surface_profile(seed, world_position.x, world_position.z)
+	var micro: float = WorldSeed.sample_value_noise(seed + 2143, float(world_position.x), float(world_position.z), 8.0)
+	var micro_tint: float = (micro - 0.5) * 0.10
 	match material:
 		GRASS:
 			var dry_grass := Color("777442")
 			var meadow_grass := Color("477544")
 			var cool_upland := Color("456653")
+			var lush_meadow := Color("4f8148")
+			var wet_grass := Color("365f43")
 			var grass: Color = dry_grass.lerp(meadow_grass, smoothstep(0.28, 0.72, climate.x))
-			return grass.lerp(cool_upland, elevation * (0.22 + (1.0 - climate.y) * 0.28))
+			grass = grass.lerp(cool_upland, elevation * (0.22 + (1.0 - climate.y) * 0.28))
+			grass = grass.lerp(lush_meadow, surface.x * 0.52)
+			grass = grass.lerp(wet_grass, surface.y * 0.46)
+			return grass.lightened(maxf(0.0, micro_tint)).darkened(maxf(0.0, -micro_tint))
 		SOIL:
-			return Color("674735").lerp(Color("493f38"), elevation * 0.34)
+			var soil: Color = Color("674735").lerp(Color("493f38"), elevation * 0.34)
+			soil = soil.lerp(Color("3e3b35"), surface.y * 0.42)
+			return soil.lightened(maxf(0.0, micro_tint * 0.5)).darkened(maxf(0.0, -micro_tint * 0.5))
 		SAND:
-			return Color("aa8c55").lerp(Color("8d815e"), climate.x * 0.22)
+			var sand: Color = Color("aa8c55").lerp(Color("8d815e"), climate.x * 0.22)
+			var wet_sand := Color("736b55")
+			sand = sand.lerp(wet_sand, surface.y * 0.72)
+			return sand.lightened(maxf(0.0, micro_tint * 0.38)).darkened(maxf(0.0, -micro_tint * 0.38))
 		STONE:
 			var base_stone := Color("596562").lerp(Color("7d8782"), elevation * 0.42)
-			return base_stone.lerp(Color("4c5655"), landmark.z * 0.25)
+			var strata_phase: float = fposmod(float(world_position.y) + micro * 3.0, 5.0) / 5.0
+			var strata_strength: float = smoothstep(0.08, 0.42, absf(strata_phase - 0.5))
+			base_stone = base_stone.lerp(Color("4c5655"), landmark.z * 0.25)
+			base_stone = base_stone.lerp(Color("879087"), strata_strength * 0.16)
+			base_stone = base_stone.lerp(Color("555b58"), surface.z * 0.30)
+			return base_stone.lightened(maxf(0.0, micro_tint * 0.32)).darkened(maxf(0.0, -micro_tint * 0.32))
 		_:
 			return Color("8c7e69")
 
@@ -101,7 +132,6 @@ static func surface_height(seed: int, world_x: int, world_z: int) -> int:
 		+ landmark.z * 2.5
 		- landmark.y * 3.0
 	)
-
 	var distance_to_river: float = river_distance(seed, world_x, world_z)
 	var channel_floor: float = float(WATER_LEVEL - 2)
 	var inner_bank: float = smoothstep(3.5, 9.5, distance_to_river)
@@ -153,7 +183,8 @@ static func _surface_material_for_height(seed: int, world_x: int, world_z: int, 
 		return SAND
 	var slope: int = surface_slope(seed, world_x, world_z)
 	var landmark: Vector3 = terrain_landmark_profile(seed, world_x, world_z)
-	if slope >= 2 and (height >= 15 or landmark.z > 0.38):
+	var surface: Vector3 = terrain_surface_profile(seed, world_x, world_z)
+	if slope >= 2 and (height >= 15 or landmark.z > 0.38 or surface.z > 0.42):
 		return STONE
 	if height >= 24 and landmark.x > 0.62:
 		return STONE
