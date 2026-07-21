@@ -4,15 +4,18 @@ const ChunkWorkBudget = preload("res://src/world/chunk_work_budget.gd")
 const ChunkBuildWorker = preload("res://src/world/chunk_build_worker.gd")
 const CollisionWindowPlan = preload("res://src/world/collision_window_plan.gd")
 const ExplorationController = preload("res://src/player/exploration_controller.gd")
+const PerformanceTelemetry = preload("res://src/diagnostics/performance_telemetry.gd")
 
 const STREAM_LOADS_PER_FRAME: int = 1
 const STREAM_UNLOADS_PER_FRAME: int = 1
 const COLLISION_RADIUS: int = 1
 const COLLISION_ADDS_PER_FRAME: int = 1
 const COLLISION_REMOVES_PER_FRAME: int = 2
+const TELEMETRY_REPORT_INTERVAL_MS: int = 10_000
 
 var _chunk_work_budget: TeknikChunkWorkBudget = ChunkWorkBudget.new()
 var _chunk_build_worker: TeknikChunkBuildWorker = ChunkBuildWorker.new()
+var _performance_telemetry: TeknikPerformanceTelemetry = PerformanceTelemetry.new()
 var _stream_plan_center: Vector3i = Vector3i.ZERO
 var _stream_plan_started_ms: int = 0
 var _stream_loaded_total: int = 0
@@ -22,6 +25,7 @@ var _collision_add_queue: Array[Vector3i] = []
 var _collision_remove_queue: Array[Vector3i] = []
 var _collision_center: Vector3i = Vector3i(2_147_483_647, 0, 2_147_483_647)
 var _player: TeknikExplorationController
+var _next_telemetry_report_ms: int = 0
 
 
 func _ready() -> void:
@@ -29,13 +33,16 @@ func _ready() -> void:
 	if _qa_screenshot_path().is_empty():
 		_build_player_controller()
 	_queue_collision_window(_world_center)
+	_next_telemetry_report_ms = Time.get_ticks_msec() + TELEMETRY_REPORT_INTERVAL_MS
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	_performance_telemetry.record_frame(delta)
 	_update_world_streaming()
 	_process_chunk_work()
 	_update_collision_window()
 	_process_collision_work()
+	_report_performance_if_due()
 
 
 func _refresh_terrain(center: Vector3i, priority: Vector3i) -> void:
@@ -50,12 +57,7 @@ func _refresh_terrain(center: Vector3i, priority: Vector3i) -> void:
 	_stream_plan_started_ms = Time.get_ticks_msec()
 	_stream_loaded_total = 0
 	_stream_unloaded_total = 0
-	print(
-		"WORLD_STREAM queued_center=", center,
-		" loads=", to_load.size(),
-		" unloads=", to_unload.size(),
-		" threaded_cpu=true"
-	)
+	print("WORLD_STREAM queued_center=", center, " loads=", to_load.size(), " unloads=", to_unload.size(), " threaded_cpu=true")
 
 
 func _process_chunk_work() -> void:
@@ -80,28 +82,14 @@ func _process_chunk_work() -> void:
 		var start_result: Error = _chunk_build_worker.start(WORLD_SEED, coordinate)
 		if start_result != OK:
 			push_error("Failed to start chunk worker: %s" % error_string(start_result))
+	var main_usec: int = Time.get_ticks_usec() - frame_started_usec
 	if completed_loads > 0 or not to_unload.is_empty() or not to_load.is_empty():
+		_performance_telemetry.record_stream(main_usec, worker_usec)
 		_world_sample_cache.clear()
 		_world_column_cache.clear()
-		print(
-			"WORLD_STREAM main_usec=", Time.get_ticks_usec() - frame_started_usec,
-			" worker_usec=", worker_usec,
-			" committed=", completed_loads,
-			" dispatched=", to_load.size(),
-			" unloaded=", to_unload.size(),
-			" remaining_loads=", int(work.remaining_loads),
-			" remaining_unloads=", int(work.remaining_unloads),
-			" worker_busy=", _chunk_build_worker.is_busy()
-		)
+		print("WORLD_STREAM main_usec=", main_usec, " worker_usec=", worker_usec, " committed=", completed_loads, " dispatched=", to_load.size(), " unloaded=", to_unload.size(), " remaining_loads=", int(work.remaining_loads), " remaining_unloads=", int(work.remaining_unloads), " worker_busy=", _chunk_build_worker.is_busy())
 	if not _chunk_work_budget.has_work() and not _chunk_build_worker.is_busy() and _stream_plan_started_ms > 0:
-		print(
-			"WORLD_STREAM complete_center=", _stream_plan_center,
-			" elapsed_ms=", Time.get_ticks_msec() - _stream_plan_started_ms,
-			" loaded_total=", _stream_loaded_total,
-			" unloaded_total=", _stream_unloaded_total,
-			" quads=", _total_quads,
-			" render_instances=", _render_instance_count
-		)
+		print("WORLD_STREAM complete_center=", _stream_plan_center, " elapsed_ms=", Time.get_ticks_msec() - _stream_plan_started_ms, " loaded_total=", _stream_loaded_total, " unloaded_total=", _stream_unloaded_total, " quads=", _total_quads, " render_instances=", _render_instance_count)
 		_stream_plan_started_ms = 0
 
 
@@ -163,12 +151,19 @@ func _queue_collision_window(center: Vector3i) -> void:
 
 
 func _process_collision_work() -> void:
+	var started_usec: int = Time.get_ticks_usec()
+	var changed: bool = false
 	for _index: int in range(mini(COLLISION_REMOVES_PER_FRAME, _collision_remove_queue.size())):
 		_remove_chunk_collision(_collision_remove_queue.pop_front())
+		changed = true
 	for _index: int in range(mini(COLLISION_ADDS_PER_FRAME, _collision_add_queue.size())):
 		var coordinate: Vector3i = _collision_add_queue.pop_front()
 		if not _add_chunk_collision(coordinate) and _terrain_nodes.has(coordinate):
 			_collision_add_queue.append(coordinate)
+		else:
+			changed = true
+	if changed:
+		_performance_telemetry.record_collision(Time.get_ticks_usec() - started_usec)
 
 
 func _coordinate_needs_collision(coordinate: Vector3i) -> bool:
@@ -200,3 +195,21 @@ func _remove_chunk_collision(coordinate: Vector3i) -> void:
 	if body != null:
 		body.queue_free()
 	_collision_bodies.erase(coordinate)
+
+
+func _report_performance_if_due() -> void:
+	var now_ms: int = Time.get_ticks_msec()
+	if now_ms < _next_telemetry_report_ms:
+		return
+	var report: Dictionary = _performance_telemetry.snapshot()
+	report["timestamp_unix_ms"] = Time.get_unix_time_from_system() * 1000.0
+	report["world_center"] = str(_world_center)
+	report["active_render_chunks"] = _terrain_nodes.size()
+	report["active_collision_chunks"] = _collision_bodies.size()
+	report["static_memory_bytes"] = Performance.get_monitor(Performance.MEMORY_STATIC)
+	print("WORLD_PERF ", JSON.stringify(report))
+	var file := FileAccess.open("user://teknik-performance-latest.json", FileAccess.WRITE)
+	if file != null:
+		file.store_string(JSON.stringify(report, "\t"))
+	_performance_telemetry.reset_event_peaks()
+	_next_telemetry_report_ms = now_ms + TELEMETRY_REPORT_INTERVAL_MS
