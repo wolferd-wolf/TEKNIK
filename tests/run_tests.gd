@@ -93,6 +93,36 @@ func _test_voxel_chunk() -> void:
 		99, TerrainGenerator.GRASS, Vector3i(180, 10, 120)
 	)
 	_expect(dry_color != wet_color, "world-space climate varies terrain color")
+	var vegetation_a: Vector3 = TerrainGenerator.vegetation_profile(99, -120, 84)
+	var vegetation_b: Vector3 = TerrainGenerator.vegetation_profile(99, -120, 84)
+	_expect(vegetation_a == vegetation_b, "vegetation habitat is deterministic")
+	_expect(
+		vegetation_a.x >= 0.0 and vegetation_a.x <= 1.0
+		and vegetation_a.y >= 0.0 and vegetation_a.y <= 1.0
+		and vegetation_a.z >= 0.0 and vegetation_a.z <= 1.0,
+		"vegetation habitat remains normalized"
+	)
+	var minimum_cover: float = 1.0
+	var maximum_cover: float = 0.0
+	var minimum_tree_habitat: float = 1.0
+	var maximum_tree_habitat: float = 0.0
+	for vegetation_z: int in range(-192, 193, 24):
+		for vegetation_x: int in range(-192, 193, 24):
+			var profile: Vector3 = TerrainGenerator.vegetation_profile(
+				99, vegetation_x, vegetation_z
+			)
+			minimum_tree_habitat = minf(minimum_tree_habitat, profile.x)
+			maximum_tree_habitat = maxf(maximum_tree_habitat, profile.x)
+			minimum_cover = minf(minimum_cover, profile.y)
+			maximum_cover = maxf(maximum_cover, profile.y)
+	_expect(
+		maximum_tree_habitat - minimum_tree_habitat > 0.25,
+		"climate creates distinct forest habitats"
+	)
+	_expect(
+		maximum_cover - minimum_cover > 0.20,
+		"climate creates distinct ground-cover habitats"
+	)
 
 	var max_step: int = 0
 	var heights_in_budget: bool = true

@@ -288,17 +288,20 @@ func _build_forest() -> void:
 		for grid_x: int in range(world_min, world_max, TREE_SPACING):
 			var cell_x: int = floori(float(grid_x) / float(TREE_SPACING))
 			var cell_z: int = floori(float(grid_z) / float(TREE_SPACING))
-			if WorldSeed.sample_unit(WORLD_SEED + 701, cell_x, cell_z) < 0.88:
-				continue
-
 			var jitter_x: float = (WorldSeed.sample_unit(WORLD_SEED + 719, cell_x, cell_z) - 0.5) * 4.0
 			var jitter_z: float = (WorldSeed.sample_unit(WORLD_SEED + 733, cell_x, cell_z) - 0.5) * 4.0
 			var world_x: int = roundi(float(grid_x) + jitter_x)
 			var world_z: int = roundi(float(grid_z) + jitter_z)
+			var vegetation: Vector3 = TerrainGenerator.vegetation_profile(
+				WORLD_SEED, world_x, world_z
+			)
+			var tree_chance: float = 0.025 + vegetation.x * 0.23
+			if WorldSeed.sample_unit(WORLD_SEED + 701, cell_x, cell_z) > tree_chance:
+				continue
 			var height: int = TerrainGenerator.surface_height(WORLD_SEED, world_x, world_z)
 			if height <= TerrainGenerator.WATER_LEVEL + 2:
 				continue
-			if TerrainGenerator.river_distance(WORLD_SEED, world_x, world_z) < 12.0:
+			if TerrainGenerator.river_distance(WORLD_SEED, world_x, world_z) < 7.5:
 				continue
 			if TerrainGenerator.surface_slope(WORLD_SEED, world_x, world_z) > 1:
 				continue
@@ -313,12 +316,29 @@ func _build_forest() -> void:
 				0.78,
 				1.28,
 				WorldSeed.sample_unit(WORLD_SEED + 751, cell_x, cell_z)
-			)
+			) * lerpf(0.76, 1.12, vegetation.x)
 			var rotation: float = WorldSeed.sample_unit(WORLD_SEED + 769, cell_x, cell_z) * TAU
-			var basis := Basis(Vector3.UP, rotation).scaled(Vector3.ONE * scale)
+			var trunk_height: float = lerpf(0.86, 1.18, vegetation.x)
+			var canopy_width: float = lerpf(0.82, 1.14, vegetation.x)
+			var trunk_basis := Basis(Vector3.UP, rotation).scaled(
+				Vector3(scale, scale * trunk_height, scale)
+			)
+			var canopy_basis := Basis(Vector3.UP, rotation).scaled(
+				Vector3(
+					scale * canopy_width,
+					scale * lerpf(0.78, 1.22, vegetation.x),
+					scale * lerpf(0.88, 1.08, vegetation.y)
+				)
+			)
 			var ground := Vector3(float(world_x) + 0.5, float(height) + 1.0, float(world_z) + 0.5)
-			trunk_transforms.append(Transform3D(basis, ground + Vector3.UP * 1.35 * scale))
-			lower_canopy_transforms.append(Transform3D(basis, ground + Vector3.UP * 3.7 * scale))
+			trunk_transforms.append(Transform3D(
+				trunk_basis,
+				ground + Vector3.UP * 1.35 * scale * trunk_height
+			))
+			lower_canopy_transforms.append(Transform3D(
+				canopy_basis,
+				ground + Vector3.UP * 3.7 * scale * trunk_height
+			))
 
 	_tree_count = trunk_transforms.size()
 	_add_tree_multimesh(_trunk_mesh(), trunk_transforms)
@@ -336,10 +356,20 @@ func _build_boulders() -> void:
 		for grid_x: int in range(world_min, world_max, 10):
 			var cell_x: int = floori(float(grid_x) / 10.0)
 			var cell_z: int = floori(float(grid_z) / 10.0)
-			if WorldSeed.sample_unit(WORLD_SEED + 811, cell_x, cell_z) < 0.84:
-				continue
 			var world_x: int = grid_x + roundi((WorldSeed.sample_unit(WORLD_SEED + 823, cell_x, cell_z) - 0.5) * 6.0)
 			var world_z: int = grid_z + roundi((WorldSeed.sample_unit(WORLD_SEED + 839, cell_x, cell_z) - 0.5) * 6.0)
+			var vegetation: Vector3 = TerrainGenerator.vegetation_profile(
+				WORLD_SEED, world_x, world_z
+			)
+			var height: int = TerrainGenerator.surface_height(WORLD_SEED, world_x, world_z)
+			var elevation: float = clampf(
+				(float(height) - 10.0) / float(TerrainGenerator.MAX_SURFACE_HEIGHT - 10),
+				0.0,
+				1.0
+			)
+			var boulder_chance: float = 0.04 + vegetation.z * 0.11 + elevation * 0.08
+			if WorldSeed.sample_unit(WORLD_SEED + 811, cell_x, cell_z) > boulder_chance:
+				continue
 			if TerrainGenerator.river_distance(WORLD_SEED, world_x, world_z) < 8.0:
 				continue
 			if Vector2(
@@ -347,7 +377,6 @@ func _build_boulders() -> void:
 				float(world_z) - camera_position.z
 			).length() < 8.0:
 				continue
-			var height: int = TerrainGenerator.surface_height(WORLD_SEED, world_x, world_z)
 			var width: float = lerpf(0.65, 1.55, WorldSeed.sample_unit(WORLD_SEED + 853, cell_x, cell_z))
 			var depth: float = lerpf(0.7, 1.4, WorldSeed.sample_unit(WORLD_SEED + 877, cell_x, cell_z))
 			var rise: float = lerpf(0.45, 1.1, WorldSeed.sample_unit(WORLD_SEED + 881, cell_x, cell_z))
@@ -376,10 +405,14 @@ func _build_ground_detail() -> void:
 		for grid_x: int in range(world_min, world_max, 3):
 			var cell_x: int = floori(float(grid_x) / 3.0)
 			var cell_z: int = floori(float(grid_z) / 3.0)
-			if WorldSeed.sample_unit(WORLD_SEED + 947, cell_x, cell_z) < 0.91:
-				continue
 			var world_x: int = grid_x + roundi((WorldSeed.sample_unit(WORLD_SEED + 953, cell_x, cell_z) - 0.5) * 2.0)
 			var world_z: int = grid_z + roundi((WorldSeed.sample_unit(WORLD_SEED + 967, cell_x, cell_z) - 0.5) * 2.0)
+			var vegetation: Vector3 = TerrainGenerator.vegetation_profile(
+				WORLD_SEED, world_x, world_z
+			)
+			var cover_chance: float = 0.018 + vegetation.y * 0.16
+			if WorldSeed.sample_unit(WORLD_SEED + 947, cell_x, cell_z) > cover_chance:
+				continue
 			if Vector2(
 				float(world_x) - camera_position.x,
 				float(world_z) - camera_position.z
@@ -392,7 +425,11 @@ func _build_ground_detail() -> void:
 			var height: int = TerrainGenerator.surface_height(WORLD_SEED, world_x, world_z)
 			var scale: float = lerpf(0.65, 1.2, WorldSeed.sample_unit(WORLD_SEED + 977, cell_x, cell_z))
 			var rotation: float = WorldSeed.sample_unit(WORLD_SEED + 991, cell_x, cell_z) * TAU
-			var basis := Basis(Vector3.UP, rotation).scaled(Vector3(scale, scale, scale))
+			var basis := Basis(Vector3.UP, rotation).scaled(Vector3(
+				scale * lerpf(0.72, 1.08, vegetation.y),
+				scale * lerpf(0.72, 1.18, vegetation.y),
+				scale * lerpf(0.72, 1.08, vegetation.y)
+			))
 			transforms.append(Transform3D(
 				basis,
 				Vector3(float(world_x) + 0.5, float(height) + 1.0 + 0.3 * scale, float(world_z) + 0.5)

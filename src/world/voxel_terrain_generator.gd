@@ -22,6 +22,40 @@ static func climate_at(seed: int, world_x: int, world_z: int) -> Vector2:
 	return Vector2(moisture, temperature)
 
 
+static func vegetation_profile(seed: int, world_x: int, world_z: int) -> Vector3:
+	var climate: Vector2 = climate_at(seed, world_x, world_z)
+	var river_influence: float = 1.0 - smoothstep(
+		8.0,
+		42.0,
+		river_distance(seed, world_x, world_z)
+	)
+	var effective_moisture: float = clampf(
+		climate.x * 0.76 + river_influence * 0.38,
+		0.0,
+		1.0
+	)
+	var elevation: float = clampf(
+		(float(surface_height(seed, world_x, world_z)) - 9.0)
+		/ float(MAX_SURFACE_HEIGHT - 9),
+		0.0,
+		1.0
+	)
+	var temperate_comfort: float = 1.0 - absf(climate.y - 0.56) * 1.35
+	var tree_habitat: float = clampf(
+		smoothstep(0.30, 0.78, effective_moisture)
+		* lerpf(0.72, 1.0, temperate_comfort)
+		* lerpf(1.0, 0.68, elevation),
+		0.0,
+		1.0
+	)
+	var ground_cover: float = clampf(
+		0.10 + effective_moisture * 0.88 - elevation * 0.18,
+		0.0,
+		1.0
+	)
+	return Vector3(tree_habitat, ground_cover, 1.0 - effective_moisture)
+
+
 static func surface_color(
 	seed: int,
 	material: int,
