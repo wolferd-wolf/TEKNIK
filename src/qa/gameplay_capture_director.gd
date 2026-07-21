@@ -24,7 +24,7 @@ func _run() -> void:
 	var forward := -_player.global_transform.basis.z
 	var site_x: int = roundi(spawn.x + forward.x * 10.0)
 	var site_z: int = roundi(spawn.z + forward.z * 10.0)
-	var ground_y: int = TerrainGenerator.surface_height(_world.WORLD_SEED, site_x, site_z)
+	var ground_y: int = TerrainGenerator.surface_height(_world.qa_world_seed(), site_x, site_z)
 	var site_center := Vector3(float(site_x) + 2.5, float(ground_y) + 1.5, float(site_z) + 2.5)
 
 	_player.set_scripted_mode(true)
@@ -40,7 +40,6 @@ func _run() -> void:
 	_player.look_at_world(site_center)
 	await get_tree().create_timer(STAGE_PAUSE_SECONDS).timeout
 
-	# Demonstrate persistent breaking before construction.
 	for offset: Vector3i in [Vector3i(1, 0, 1), Vector3i(2, 0, 1), Vector3i(3, 0, 1)]:
 		_world.qa_apply_voxel_edit(Vector3i(site_x, ground_y, site_z) + offset, VoxelChunk.AIR, "qa_removed")
 		await get_tree().create_timer(0.35).timeout
@@ -49,7 +48,7 @@ func _run() -> void:
 
 	var blocks: Array[Vector3i] = _house_blocks(Vector3i(site_x, ground_y + 1, site_z))
 	for voxel: Vector3i in blocks:
-		_world.qa_apply_voxel_edit(voxel, _world.PLACE_MATERIAL, "qa_placed")
+		_world.qa_apply_voxel_edit(voxel, _world.qa_place_material(), "qa_placed")
 		await get_tree().create_timer(EDIT_PAUSE_SECONDS).timeout
 	await _wait_for_world_idle()
 	await get_tree().create_timer(2.0).timeout
@@ -74,11 +73,9 @@ func _run() -> void:
 
 func _house_blocks(origin: Vector3i) -> Array[Vector3i]:
 	var result: Array[Vector3i] = []
-	# Floor.
 	for x: int in range(5):
 		for z: int in range(5):
 			result.append(origin + Vector3i(x, 0, z))
-	# Three-block-high walls with a two-block doorway on the near side.
 	for y: int in range(1, 4):
 		for x: int in range(5):
 			for z: int in range(5):
@@ -86,7 +83,6 @@ func _house_blocks(origin: Vector3i) -> Array[Vector3i]:
 				var doorway: bool = z == 4 and x == 2 and y <= 2
 				if boundary and not doorway:
 					result.append(origin + Vector3i(x, y, z))
-	# Flat roof keeps the first gameplay fixture simple and readable.
 	for x: int in range(5):
 		for z: int in range(5):
 			result.append(origin + Vector3i(x, 4, z))
