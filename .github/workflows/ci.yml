@@ -226,7 +226,7 @@ jobs:
             "cmake;3.10.2.4988404" \
             "ndk;28.1.13356709"
 
-      - name: Cross-compile Rust C++ extension for Android ARM64
+      - name: Cross-compile Rust C++ extension for Android ARM64 and x86_64
         run: |
           export NDK_ROOT="$ANDROID_HOME/ndk/28.1.13356709"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
@@ -250,6 +250,28 @@ jobs:
           test -s native/bin/libteknik_native.android.template_debug.arm64.so
           file native/bin/libteknik_native.android.template_debug.arm64.so
           readelf -h native/bin/libteknik_native.android.template_debug.arm64.so | tee artifacts/android-native-elf.txt
+
+          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android24-clang"
+          export CARGO_TARGET_X86_64_LINUX_ANDROID_AR="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+          rustup target add x86_64-linux-android
+          cargo build \
+            --manifest-path native/rust/Cargo.toml \
+            --release \
+            --target x86_64-linux-android
+
+          (
+            cd native
+            ANDROID_NDK_ROOT="$NDK_ROOT" ANDROID_HOME="$ANDROID_HOME" scons -j2 \
+              platform=android \
+              arch=x86_64 \
+              target=template_debug \
+              android_api_level=24 \
+              custom_api_file="$GITHUB_WORKSPACE/extension_api.json" \
+              rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/x86_64-linux-android/release"
+          )
+          test -s native/bin/libteknik_native.android.template_debug.x86_64.so
+          file native/bin/libteknik_native.android.template_debug.x86_64.so
+          readelf -h native/bin/libteknik_native.android.template_debug.x86_64.so | tee artifacts/android-emulator-native-elf.txt
 
       - name: Configure Godot Android export
         run: |
@@ -304,6 +326,75 @@ jobs:
             echo '- All 25 startup safety chunks must use Rust, and the traversal requires native streamed chunks with zero fallback.'
             echo '- Procedural spawn, persistence, placement, collision, logging, house building, and 190-metre traversal remain required.'
             echo '- Rust is linked into one official C++ GDExtension library using a pinned godot-cpp revision.'
-            echo '- Android ARM64 export is rejected unless the native shared library is present inside the APK.'
+            echo '- Android ARM64 and emulator x86_64 exports are rejected unless their native shared libraries are present inside each APK.'
+            echo '- The emulator smoke job verifies installation, launch, rendering, process survival, logcat, and Android frame telemetry.'
+            echo '- Emulator results are functional Android evidence, not Vivo T3x performance evidence.'
             echo '- Physical Vivo T3x validation remains required after cloud parity and traversal pass.'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  android-emulator-smoke:
+    needs: validate-build-capture
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Download x86_64 emulator APK
+        uses: actions/download-artifact@v4
+        with:
+          name: teknik-native-${{ github.sha }}
+          path: qa
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Boot emulator and smoke-test TEKNIK
+        uses: ReactiveCircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            mkdir -p emulator-artifacts
+            APK="$(find qa -name TEKNIK-emulator-debug.apk -print -quit)"
+            test -n "$APK"
+            adb install -r "$APK"
+            adb logcat -c
+            adb shell monkey -p com.wolferdwolf.teknik -c android.intent.category.LAUNCHER 1
+            sleep 90
+
+            PID="$(adb shell pidof com.wolferdwolf.teknik | tr -d '\r')"
+            test -n "$PID"
+            adb shell dumpsys activity activities | tee emulator-artifacts/android-emulator-activity.txt
+            grep -q "com.wolferdwolf.teknik" emulator-artifacts/android-emulator-activity.txt
+
+            adb exec-out screencap -p > emulator-artifacts/android-emulator.png
+            test -s emulator-artifacts/android-emulator.png
+            file emulator-artifacts/android-emulator.png
+
+            adb shell screenrecord --time-limit 12 /sdcard/teknik-emulator.mp4
+            adb pull /sdcard/teknik-emulator.mp4 emulator-artifacts/teknik-emulator.mp4
+            test -s emulator-artifacts/teknik-emulator.mp4
+
+            adb shell dumpsys gfxinfo com.wolferdwolf.teknik > emulator-artifacts/android-emulator-gfxinfo.txt
+            adb logcat -d > emulator-artifacts/android-emulator-logcat.txt
+            if grep -Eiq "FATAL EXCEPTION|ANR in com\\.wolferdwolf\\.teknik" emulator-artifacts/android-emulator-logcat.txt; then
+              echo "Android emulator detected a TEKNIK crash or ANR" >&2
+              exit 1
+            fi
+            test -n "$(adb shell pidof com.wolferdwolf.teknik | tr -d '\r')"
+
+      - name: Publish emulator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teknik-android-emulator-${{ github.sha }}
+          if-no-files-found: warn
+          retention-days: 30
+          path: emulator-artifacts/
