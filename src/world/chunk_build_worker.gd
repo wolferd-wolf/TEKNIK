@@ -59,9 +59,13 @@ func _build() -> Dictionary:
 		chunk,
 		world_origin,
 		func(world_position: Vector3i) -> int:
+			if world_position.y < world_origin.y:
+				return TerrainGenerator.STONE
+			if world_position.y >= world_origin.y + VoxelChunk.SIZE:
+				return VoxelChunk.AIR
 			var neighbor_coordinate := Vector3i(
 				floori(float(world_position.x) / float(VoxelChunk.SIZE)),
-				floori(float(world_position.y) / float(VoxelChunk.SIZE)),
+				_coordinate.y,
 				floori(float(world_position.z) / float(VoxelChunk.SIZE))
 			)
 			if neighbor_coordinate == _coordinate:
