@@ -9,64 +9,46 @@ const SOIL: int = 2
 const GRASS: int = 3
 const SAND: int = 4
 const WATER_LEVEL: int = 7
-const MAX_SURFACE_HEIGHT: int = 26
+const MAX_SURFACE_HEIGHT: int = 29
 
 
 static func climate_at(seed: int, world_x: int, world_z: int) -> Vector2:
-	var moisture: float = WorldSeed.sample_value_noise(
-		seed + 1217, float(world_x), float(world_z), 92.0
-	)
-	var temperature: float = WorldSeed.sample_value_noise(
-		seed + 1291, float(world_x), float(world_z), 138.0
-	)
+	var moisture: float = WorldSeed.sample_value_noise(seed + 1217, float(world_x), float(world_z), 92.0)
+	var temperature: float = WorldSeed.sample_value_noise(seed + 1291, float(world_x), float(world_z), 138.0)
 	return Vector2(moisture, temperature)
+
+
+static func terrain_landmark_profile(seed: int, world_x: int, world_z: int) -> Vector3:
+	var ridge_noise: float = WorldSeed.sample_value_noise(seed + 1709, float(world_x), float(world_z), 118.0)
+	var ridge: float = pow(absf(ridge_noise * 2.0 - 1.0), 2.35)
+	var basin_noise: float = WorldSeed.sample_value_noise(seed + 1783, float(world_x), float(world_z), 164.0)
+	var basin: float = smoothstep(0.58, 0.84, basin_noise)
+	var escarpment_noise: float = WorldSeed.sample_value_noise(seed + 1861, float(world_x), float(world_z), 76.0)
+	var escarpment: float = smoothstep(0.60, 0.88, escarpment_noise) * ridge
+	return Vector3(ridge, basin, escarpment)
 
 
 static func vegetation_profile(seed: int, world_x: int, world_z: int) -> Vector3:
 	var climate: Vector2 = climate_at(seed, world_x, world_z)
-	var river_influence: float = 1.0 - smoothstep(
-		8.0,
-		42.0,
-		river_distance(seed, world_x, world_z)
-	)
-	var effective_moisture: float = clampf(
-		climate.x * 0.76 + river_influence * 0.38,
-		0.0,
-		1.0
-	)
-	var elevation: float = clampf(
-		(float(surface_height(seed, world_x, world_z)) - 9.0)
-		/ float(MAX_SURFACE_HEIGHT - 9),
-		0.0,
-		1.0
-	)
+	var river_influence: float = 1.0 - smoothstep(8.0, 42.0, river_distance(seed, world_x, world_z))
+	var effective_moisture: float = clampf(climate.x * 0.76 + river_influence * 0.38, 0.0, 1.0)
+	var elevation: float = clampf((float(surface_height(seed, world_x, world_z)) - 9.0) / float(MAX_SURFACE_HEIGHT - 9), 0.0, 1.0)
 	var temperate_comfort: float = 1.0 - absf(climate.y - 0.56) * 1.35
 	var tree_habitat: float = clampf(
 		smoothstep(0.30, 0.78, effective_moisture)
 		* lerpf(0.72, 1.0, temperate_comfort)
-		* lerpf(1.0, 0.68, elevation),
+		* lerpf(1.0, 0.62, elevation),
 		0.0,
 		1.0
 	)
-	var ground_cover: float = clampf(
-		0.10 + effective_moisture * 0.88 - elevation * 0.18,
-		0.0,
-		1.0
-	)
+	var ground_cover: float = clampf(0.10 + effective_moisture * 0.88 - elevation * 0.18, 0.0, 1.0)
 	return Vector3(tree_habitat, ground_cover, 1.0 - effective_moisture)
 
 
-static func surface_color(
-	seed: int,
-	material: int,
-	world_position: Vector3i
-) -> Color:
+static func surface_color(seed: int, material: int, world_position: Vector3i) -> Color:
 	var climate: Vector2 = climate_at(seed, world_position.x, world_position.z)
-	var elevation: float = clampf(
-		(float(world_position.y) - 8.0) / float(MAX_SURFACE_HEIGHT - 8),
-		0.0,
-		1.0
-	)
+	var elevation: float = clampf((float(world_position.y) - 8.0) / float(MAX_SURFACE_HEIGHT - 8), 0.0, 1.0)
+	var landmark: Vector3 = terrain_landmark_profile(seed, world_position.x, world_position.z)
 	match material:
 		GRASS:
 			var dry_grass := Color("777442")
@@ -79,7 +61,8 @@ static func surface_color(
 		SAND:
 			return Color("aa8c55").lerp(Color("8d815e"), climate.x * 0.22)
 		STONE:
-			return Color("626d6b").lerp(Color("77817d"), elevation * 0.3)
+			var base_stone := Color("596562").lerp(Color("7d8782"), elevation * 0.42)
+			return base_stone.lerp(Color("4c5655"), landmark.z * 0.25)
 		_:
 			return Color("8c7e69")
 
@@ -87,7 +70,6 @@ static func surface_color(
 static func generate_chunk(seed: int, chunk_coordinate: Vector3i) -> TeknikVoxelChunk:
 	var chunk := VoxelChunk.new()
 	var world_origin: Vector3i = chunk_coordinate * VoxelChunk.SIZE
-
 	for z: int in range(VoxelChunk.SIZE):
 		for x: int in range(VoxelChunk.SIZE):
 			var world_x: int = world_origin.x + x
@@ -95,53 +77,45 @@ static func generate_chunk(seed: int, chunk_coordinate: Vector3i) -> TeknikVoxel
 			var column: Vector2i = sample_column(seed, world_x, world_z)
 			var height: int = column.x
 			var top_material: int = column.y
-			var highest_solid_local_y: int = mini(
-				VoxelChunk.SIZE - 1,
-				height - world_origin.y
-			)
+			var highest_solid_local_y: int = mini(VoxelChunk.SIZE - 1, height - world_origin.y)
 			for y: int in range(maxi(0, highest_solid_local_y + 1)):
 				var local_position := Vector3i(x, y, z)
 				var world_y: int = world_origin.y + y
 				var material: int = _material_at_height(world_y, height, top_material)
 				if material != VoxelChunk.AIR:
 					chunk.set_voxel(local_position, material)
-
 	return chunk
 
 
 static func surface_height(seed: int, world_x: int, world_z: int) -> int:
-	var continental: float = WorldSeed.sample_value_noise(
-		seed + 19, float(world_x), float(world_z), 76.0
-	)
-	var rolling: float = WorldSeed.sample_value_noise(
-		seed + 131, float(world_x), float(world_z), 31.0
-	)
-	var ridge_source: float = WorldSeed.sample_value_noise(
-		seed + 283, float(world_x), float(world_z), 48.0
-	)
-	var ridge: float = pow(absf(ridge_source * 2.0 - 1.0), 1.7)
+	var continental: float = WorldSeed.sample_value_noise(seed + 19, float(world_x), float(world_z), 88.0)
+	var rolling: float = WorldSeed.sample_value_noise(seed + 131, float(world_x), float(world_z), 34.0)
+	var detail: float = WorldSeed.sample_value_noise(seed + 227, float(world_x), float(world_z), 17.0)
+	var landmark: Vector3 = terrain_landmark_profile(seed, world_x, world_z)
 	var upland_height: float = (
 		10.0
-		+ continental * 8.0
-		+ (rolling - 0.5) * 4.0
-		+ ridge * 6.0
+		+ continental * 7.5
+		+ (rolling - 0.5) * 3.5
+		+ (detail - 0.5) * 1.25
+		+ landmark.x * 7.5
+		+ landmark.z * 2.5
+		- landmark.y * 3.0
 	)
 
 	var distance_to_river: float = river_distance(seed, world_x, world_z)
-	var valley_blend: float = smoothstep(4.0, 20.0, distance_to_river)
-	var carved_height: float = lerpf(float(WATER_LEVEL - 2), upland_height, valley_blend)
-	if distance_to_river < 4.0:
-		carved_height = minf(carved_height, float(WATER_LEVEL - 2))
+	var channel_floor: float = float(WATER_LEVEL - 2)
+	var inner_bank: float = smoothstep(3.5, 9.5, distance_to_river)
+	var outer_bank: float = smoothstep(9.5, 27.0, distance_to_river)
+	var bank_height: float = lerpf(channel_floor, float(WATER_LEVEL + 2), inner_bank)
+	var carved_height: float = lerpf(bank_height, upland_height, outer_bank)
+	if distance_to_river < 3.5:
+		carved_height = minf(carved_height, channel_floor)
 	return clampi(roundi(carved_height), 2, MAX_SURFACE_HEIGHT)
 
 
 static func river_center_z(seed: int, world_x: int) -> float:
-	var broad_meander: float = WorldSeed.sample_value_noise(
-		seed + 541, float(world_x), 0.0, 68.0
-	)
-	var smaller_meander: float = WorldSeed.sample_value_noise(
-		seed + 617, float(world_x), 0.0, 29.0
-	)
+	var broad_meander: float = WorldSeed.sample_value_noise(seed + 541, float(world_x), 0.0, 74.0)
+	var smaller_meander: float = WorldSeed.sample_value_noise(seed + 617, float(world_x), 0.0, 31.0)
 	return (broad_meander - 0.5) * 30.0 + (smaller_meander - 0.5) * 8.0
 
 
@@ -173,15 +147,15 @@ static func material_from_column(world_y: int, column: Vector2i) -> int:
 	return _material_at_height(world_y, column.x, column.y)
 
 
-static func _surface_material_for_height(
-	seed: int,
-	world_x: int,
-	world_z: int,
-	height: int
-) -> int:
-	if height <= WATER_LEVEL + 1:
+static func _surface_material_for_height(seed: int, world_x: int, world_z: int, height: int) -> int:
+	var river_gap: float = river_distance(seed, world_x, world_z)
+	if height <= WATER_LEVEL + 1 or (river_gap < 10.5 and height <= WATER_LEVEL + 3):
 		return SAND
-	if height >= 22 and surface_slope(seed, world_x, world_z) >= 2:
+	var slope: int = surface_slope(seed, world_x, world_z)
+	var landmark: Vector3 = terrain_landmark_profile(seed, world_x, world_z)
+	if slope >= 2 and (height >= 15 or landmark.z > 0.38):
+		return STONE
+	if height >= 24 and landmark.x > 0.62:
 		return STONE
 	return GRASS
 
