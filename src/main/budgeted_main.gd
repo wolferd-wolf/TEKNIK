@@ -5,6 +5,8 @@ const ChunkBuildWorker = preload("res://src/world/chunk_build_worker.gd")
 const CollisionWindowPlan = preload("res://src/world/collision_window_plan.gd")
 const ExplorationController = preload("res://src/player/exploration_controller.gd")
 const PerformanceTelemetry = preload("res://src/diagnostics/performance_telemetry.gd")
+const WorldEditStore = preload("res://src/world/world_edit_store.gd")
+const InteractionMath = preload("res://src/world/world_interaction_math.gd")
 
 const STREAM_LOADS_PER_FRAME: int = 1
 const STREAM_UNLOADS_PER_FRAME: int = 1
@@ -12,10 +14,15 @@ const COLLISION_RADIUS: int = 1
 const COLLISION_ADDS_PER_FRAME: int = 1
 const COLLISION_REMOVES_PER_FRAME: int = 2
 const TELEMETRY_REPORT_INTERVAL_MS: int = 10_000
+const EDIT_SAVE_DELAY_MS: int = 1200
+const BREAK_DISTANCE: float = 7.0
+const EDIT_SAVE_PATH: String = "user://teknik-world-edits.json"
 
 var _chunk_work_budget: TeknikChunkWorkBudget = ChunkWorkBudget.new()
 var _chunk_build_worker: TeknikChunkBuildWorker = ChunkBuildWorker.new()
 var _performance_telemetry: TeknikPerformanceTelemetry = PerformanceTelemetry.new()
+var _world_edits: TeknikWorldEditStore = WorldEditStore.new()
+var _edit_rebuild_queue: Array[Vector3i] = []
 var _stream_plan_center: Vector3i = Vector3i.ZERO
 var _stream_plan_started_ms: int = 0
 var _stream_loaded_total: int = 0
@@ -26,14 +33,22 @@ var _collision_remove_queue: Array[Vector3i] = []
 var _collision_center: Vector3i = Vector3i(2_147_483_647, 0, 2_147_483_647)
 var _player: TeknikExplorationController
 var _next_telemetry_report_ms: int = 0
+var _edit_save_due_ms: int = 0
 
 
 func _ready() -> void:
+	var load_result: Error = _world_edits.load_file(EDIT_SAVE_PATH, WORLD_SEED)
+	if load_result != OK and load_result != ERR_FILE_NOT_FOUND:
+		push_warning("WORLD_EDIT load failed: %s" % error_string(load_result))
 	super._ready()
 	if _qa_screenshot_path().is_empty():
 		_build_player_controller()
 	_queue_collision_window(_world_center)
 	_next_telemetry_report_ms = Time.get_ticks_msec() + TELEMETRY_REPORT_INTERVAL_MS
+	for coordinate: Vector3i in _world_edits.edited_chunk_coordinates():
+		if _terrain_nodes.has(coordinate):
+			_queue_chunk_rebuild(coordinate)
+	print("WORLD_EDIT loaded_overrides=", _world_edits.override_count(), " edited_chunks=", _world_edits.chunk_count())
 
 
 func _process(delta: float) -> void:
@@ -42,7 +57,13 @@ func _process(delta: float) -> void:
 	_process_chunk_work()
 	_update_collision_window()
 	_process_collision_work()
+	_save_edits_if_due()
 	_report_performance_if_due()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_PREDELETE:
+		_save_edits_now()
 
 
 func _refresh_terrain(center: Vector3i, priority: Vector3i) -> void:
@@ -70,27 +91,48 @@ func _process_chunk_work() -> void:
 		_commit_terrain_chunk(report)
 		completed_loads = 1
 		_stream_loaded_total += 1
-	var load_budget: int = 0 if _chunk_build_worker.is_busy() else STREAM_LOADS_PER_FRAME
+
+	var can_dispatch: bool = not _chunk_build_worker.is_busy()
+	var load_budget: int = STREAM_LOADS_PER_FRAME if can_dispatch and _edit_rebuild_queue.is_empty() else 0
 	var work: Dictionary = _chunk_work_budget.take_frame(load_budget, STREAM_UNLOADS_PER_FRAME)
 	var to_unload: Array[Vector3i] = work.unload
-	var to_load: Array[Vector3i] = work.load
 	for coordinate: Vector3i in to_unload:
 		_unload_terrain_chunk(coordinate)
 	_stream_unloaded_total += to_unload.size()
-	if not to_load.is_empty():
-		var coordinate: Vector3i = to_load[0]
-		var start_result: Error = _chunk_build_worker.start(WORLD_SEED, coordinate)
-		if start_result != OK:
-			push_error("Failed to start chunk worker: %s" % error_string(start_result))
+
+	var dispatched: int = 0
+	if can_dispatch and not _edit_rebuild_queue.is_empty():
+		var rebuild_coordinate: Vector3i = _edit_rebuild_queue.pop_front()
+		if _terrain_nodes.has(rebuild_coordinate):
+			_dispatch_chunk_build(rebuild_coordinate)
+			dispatched = 1
+	elif can_dispatch:
+		var to_load: Array[Vector3i] = work.load
+		if not to_load.is_empty():
+			_dispatch_chunk_build(to_load[0])
+			dispatched = 1
+
 	var main_usec: int = Time.get_ticks_usec() - frame_started_usec
-	if completed_loads > 0 or not to_unload.is_empty() or not to_load.is_empty():
+	if completed_loads > 0 or not to_unload.is_empty() or dispatched > 0:
 		_performance_telemetry.record_stream(main_usec, worker_usec)
 		_world_sample_cache.clear()
 		_world_column_cache.clear()
-		print("WORLD_STREAM main_usec=", main_usec, " worker_usec=", worker_usec, " committed=", completed_loads, " dispatched=", to_load.size(), " unloaded=", to_unload.size(), " remaining_loads=", int(work.remaining_loads), " remaining_unloads=", int(work.remaining_unloads), " worker_busy=", _chunk_build_worker.is_busy())
-	if not _chunk_work_budget.has_work() and not _chunk_build_worker.is_busy() and _stream_plan_started_ms > 0:
+	if not _chunk_work_budget.has_work() and _edit_rebuild_queue.is_empty() and not _chunk_build_worker.is_busy() and _stream_plan_started_ms > 0:
 		print("WORLD_STREAM complete_center=", _stream_plan_center, " elapsed_ms=", Time.get_ticks_msec() - _stream_plan_started_ms, " loaded_total=", _stream_loaded_total, " unloaded_total=", _stream_unloaded_total, " quads=", _total_quads, " render_instances=", _render_instance_count)
 		_stream_plan_started_ms = 0
+
+
+func _dispatch_chunk_build(coordinate: Vector3i) -> void:
+	var snapshots: Dictionary = _world_edits.snapshot_neighborhood(coordinate)
+	var start_result: Error = _chunk_build_worker.start(WORLD_SEED, coordinate, snapshots)
+	if start_result != OK:
+		push_error("Failed to start chunk worker: %s" % error_string(start_result))
+
+
+func _queue_chunk_rebuild(coordinate: Vector3i) -> void:
+	if not _terrain_nodes.has(coordinate) or _edit_rebuild_queue.has(coordinate):
+		return
+	_edit_rebuild_queue.append(coordinate)
 
 
 func _unload_terrain_chunk(coordinate: Vector3i) -> void:
@@ -102,25 +144,31 @@ func _unload_terrain_chunk(coordinate: Vector3i) -> void:
 		_terrain_nodes.erase(coordinate)
 		_render_instance_count -= 1
 	_chunk_stream.mark_unloaded(coordinate)
+	_edit_rebuild_queue.erase(coordinate)
 
 
 func _commit_terrain_chunk(report: Dictionary) -> void:
 	var coordinate: Vector3i = report.coordinate
-	if _terrain_nodes.has(coordinate):
-		_chunk_stream.mark_loaded(coordinate)
-		return
 	var mesh: ArrayMesh = GreedyMesher.mesh_from_arrays(report.arrays)
-	_total_quads += int(report.quads)
-	var terrain := MeshInstance3D.new()
-	terrain.mesh = mesh
-	terrain.position = Vector3(coordinate.x * VoxelChunk.SIZE, 0.0, coordinate.z * VoxelChunk.SIZE)
-	terrain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
-	terrain.set_meta("quad_count", int(report.quads))
-	add_child(terrain)
-	_terrain_nodes[coordinate] = terrain
+	var new_quads: int = int(report.quads)
+	var terrain: MeshInstance3D = _terrain_nodes.get(coordinate)
+	if terrain != null:
+		_remove_chunk_collision(coordinate)
+		_total_quads -= int(terrain.get_meta("quad_count", 0))
+		terrain.mesh = mesh
+		terrain.set_meta("quad_count", new_quads)
+	else:
+		terrain = MeshInstance3D.new()
+		terrain.mesh = mesh
+		terrain.position = Vector3(coordinate.x * VoxelChunk.SIZE, 0.0, coordinate.z * VoxelChunk.SIZE)
+		terrain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+		terrain.set_meta("quad_count", new_quads)
+		add_child(terrain)
+		_terrain_nodes[coordinate] = terrain
+		_render_instance_count += 1
+	_total_quads += new_quads
 	_chunk_stream.mark_loaded(coordinate)
-	_render_instance_count += 1
-	if _coordinate_needs_collision(coordinate):
+	if _coordinate_needs_collision(coordinate) and not _collision_add_queue.has(coordinate):
 		_collision_add_queue.append(coordinate)
 
 
@@ -133,8 +181,49 @@ func _build_player_controller() -> void:
 	_player.position = Vector3(float(spawn_x) + 0.5, float(spawn_height) + 2.5, float(spawn_z) + 0.5)
 	add_child(_player)
 	_player.set_camera_active(true)
+	_player.break_requested.connect(_on_break_requested)
 	_exploration_anchor = _player
 	print("WORLD_PLAYER spawn=", _player.position, " collision_radius=", COLLISION_RADIUS)
+
+
+func _on_break_requested(origin: Vector3, direction: Vector3) -> void:
+	if _player == null:
+		return
+	var query := PhysicsRayQueryParameters3D.create(origin, origin + direction * BREAK_DISTANCE)
+	query.exclude = [_player.get_rid()]
+	query.collide_with_areas = false
+	var hit: Dictionary = get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return
+	var voxel: Vector3i = InteractionMath.removal_voxel(hit.position, hit.normal)
+	var generated: int = TerrainGenerator.voxel_at(WORLD_SEED, voxel)
+	var current: int = _world_edits.get_override(voxel, generated)
+	if current == VoxelChunk.AIR:
+		return
+	if not _world_edits.set_override(voxel, VoxelChunk.AIR):
+		return
+	for coordinate: Vector3i in InteractionMath.affected_chunk_coordinates(voxel, VoxelChunk.SIZE):
+		_queue_chunk_rebuild(coordinate)
+	_edit_save_due_ms = Time.get_ticks_msec() + EDIT_SAVE_DELAY_MS
+	print("WORLD_EDIT removed=", voxel, " affected_chunks=", InteractionMath.affected_chunk_coordinates(voxel, VoxelChunk.SIZE).size(), " total_overrides=", _world_edits.override_count())
+
+
+func _save_edits_if_due() -> void:
+	if _edit_save_due_ms <= 0 or Time.get_ticks_msec() < _edit_save_due_ms:
+		return
+	_save_edits_now()
+
+
+func _save_edits_now() -> void:
+	if not _world_edits.is_dirty():
+		_edit_save_due_ms = 0
+		return
+	var result: Error = _world_edits.save_atomic(EDIT_SAVE_PATH, WORLD_SEED)
+	if result != OK:
+		push_error("WORLD_EDIT save failed: %s" % error_string(result))
+	else:
+		print("WORLD_EDIT saved overrides=", _world_edits.override_count())
+	_edit_save_due_ms = 0
 
 
 func _update_collision_window() -> void:
@@ -147,7 +236,6 @@ func _queue_collision_window(center: Vector3i) -> void:
 	var delta: Dictionary = CollisionWindowPlan.reconcile(_collision_bodies, center, COLLISION_RADIUS)
 	_collision_add_queue = delta.add
 	_collision_remove_queue = delta.remove
-	print("WORLD_COLLISION center=", center, " queued_add=", _collision_add_queue.size(), " queued_remove=", _collision_remove_queue.size())
 
 
 func _process_collision_work() -> void:
@@ -186,7 +274,6 @@ func _add_chunk_collision(coordinate: Vector3i) -> bool:
 	body.add_child(collision)
 	terrain.add_child(body)
 	_collision_bodies[coordinate] = body
-	print("WORLD_COLLISION added=", coordinate, " active=", _collision_bodies.size())
 	return true
 
 
@@ -206,6 +293,7 @@ func _report_performance_if_due() -> void:
 	report["world_center"] = str(_world_center)
 	report["active_render_chunks"] = _terrain_nodes.size()
 	report["active_collision_chunks"] = _collision_bodies.size()
+	report["world_edit_overrides"] = _world_edits.override_count()
 	report["static_memory_bytes"] = Performance.get_monitor(Performance.MEMORY_STATIC)
 	print("WORLD_PERF ", JSON.stringify(report))
 	var file := FileAccess.open("user://teknik-performance-latest.json", FileAccess.WRITE)
@@ -217,7 +305,7 @@ func _report_performance_if_due() -> void:
 
 func _capture_qa_screenshot(path: String) -> void:
 	var wait_frames: int = 0
-	while (_chunk_work_budget.has_work() or _chunk_build_worker.is_busy() or _chunk_build_worker.is_ready()) and wait_frames < 900:
+	while (_chunk_work_budget.has_work() or not _edit_rebuild_queue.is_empty() or _chunk_build_worker.is_busy() or _chunk_build_worker.is_ready()) and wait_frames < 900:
 		await get_tree().process_frame
 		wait_frames += 1
 	for frame: int in range(10):
