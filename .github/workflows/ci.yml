@@ -56,7 +56,9 @@ jobs:
         run: godot --headless --path . --editor --quit
 
       - name: Run deterministic tests
-        run: godot --headless --path . --script res://tests/run_tests.gd
+        run: |
+          godot --headless --path . --script res://tests/run_tests.gd
+          godot --headless --path . --script res://tests/run_stream_budget_tests.gd
 
       - name: Capture rendered QA screenshots
         run: |
@@ -141,7 +143,7 @@ jobs:
           {
             echo '## TEKNIK automated QA'
             echo
-            echo '- Deterministic simulation tests executed.'
+            echo '- Deterministic simulation and stream-budget tests executed.'
             echo '- Hero, river, upland, and one-chunk-shift world screenshots requested.'
             echo '- Android ARM64 debug export requested.'
             echo '- Physical-device 50 FPS certification is not part of this cloud-runner job.'
