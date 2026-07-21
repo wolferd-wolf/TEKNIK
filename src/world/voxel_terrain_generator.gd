@@ -37,7 +37,9 @@ static func terrain_surface_profile(seed: int, world_x: int, world_z: int) -> Ve
 	var meadow_noise: float = WorldSeed.sample_value_noise(seed + 1999, float(world_x), float(world_z), 24.0)
 	var meadow: float = smoothstep(0.46, 0.76, meadow_noise) * smoothstep(0.32, 0.78, climate.x) * (1.0 - elevation * 0.58)
 	var scree_noise: float = WorldSeed.sample_value_noise(seed + 2081, float(world_x), float(world_z), 19.0)
-	var scree: float = smoothstep(0.55, 0.84, scree_noise) * clampf(float(surface_slope(seed, world_x, world_z)) / 2.0, 0.0, 1.0)
+	var landmark: Vector3 = terrain_landmark_profile(seed, world_x, world_z)
+	var ruggedness: float = clampf(landmark.x * 0.45 + landmark.z * 0.90 + elevation * 0.18, 0.0, 1.0)
+	var scree: float = smoothstep(0.55, 0.84, scree_noise) * ruggedness
 	return Vector3(meadow, wet_margin, scree)
 
 
