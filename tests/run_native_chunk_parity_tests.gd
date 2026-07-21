@@ -91,9 +91,18 @@ func _compare_chunk(
 			var reference_color: Color = reference_colors[index]
 			maximum_color_error = maxf(
 				maximum_color_error,
-				absf(native_color.r - reference_color.r),
-				absf(native_color.g - reference_color.g),
-				absf(native_color.b - reference_color.b),
+				absf(native_color.r - reference_color.r)
+			)
+			maximum_color_error = maxf(
+				maximum_color_error,
+				absf(native_color.g - reference_color.g)
+			)
+			maximum_color_error = maxf(
+				maximum_color_error,
+				absf(native_color.b - reference_color.b)
+			)
+			maximum_color_error = maxf(
+				maximum_color_error,
 				absf(native_color.a - reference_color.a)
 			)
 		_expect(
