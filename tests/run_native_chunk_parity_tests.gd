@@ -1,12 +1,14 @@
 extends SceneTree
 
 const NativeChunkBackend = preload("res://src/world/native_chunk_backend.gd")
+const PackedFaceCodec = preload("res://src/world/packed_face_codec.gd")
 const TerrainGenerator = preload("res://src/world/voxel_terrain_generator.gd")
 const GreedyMesher = preload("res://src/world/greedy_mesher.gd")
 const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
 
 const SEED: int = 73_421
 const COLOR_EPSILON: float = 0.00005
+const MINIMUM_PACKED_COMPRESSION_RATIO: float = 20.0
 
 var _failures: int = 0
 
@@ -18,6 +20,10 @@ func _init() -> void:
 		_finish()
 		return
 	print("NATIVE_CHUNK_CORE version=", backend.core_version())
+	_expect(
+		backend.core_version().contains("packed-face"),
+		"native core exposes the packed-face ABI version"
+	)
 
 	var coordinates: Array[Vector3i] = [
 		Vector3i.ZERO,
@@ -71,44 +77,76 @@ func _compare_chunk(
 
 	var reference_arrays: Array = reference.arrays
 	var native_arrays: Array = native.arrays
-	var reference_vertices: PackedVector3Array = reference_arrays[Mesh.ARRAY_VERTEX]
-	var native_vertices: PackedVector3Array = native_arrays[Mesh.ARRAY_VERTEX]
-	var reference_normals: PackedVector3Array = reference_arrays[Mesh.ARRAY_NORMAL]
-	var native_normals: PackedVector3Array = native_arrays[Mesh.ARRAY_NORMAL]
-	var reference_colors: PackedColorArray = reference_arrays[Mesh.ARRAY_COLOR]
-	var native_colors: PackedColorArray = native_arrays[Mesh.ARRAY_COLOR]
-	var reference_indices: PackedInt32Array = reference_arrays[Mesh.ARRAY_INDEX]
-	var native_indices: PackedInt32Array = native_arrays[Mesh.ARRAY_INDEX]
+	_compare_arrays(label + " native legacy", native_arrays, reference_arrays)
 
-	_expect(native_vertices == reference_vertices, label + " vertex positions match")
-	_expect(native_normals == reference_normals, label + " normals match")
-	_expect(native_indices == reference_indices, label + " index order matches")
-	_expect(native_colors.size() == reference_colors.size(), label + " color count matches")
-	if native_colors.size() == reference_colors.size():
-		var maximum_color_error: float = 0.0
-		for index: int in range(native_colors.size()):
-			var native_color: Color = native_colors[index]
-			var reference_color: Color = reference_colors[index]
-			maximum_color_error = maxf(
-				maximum_color_error,
-				absf(native_color.r - reference_color.r)
-			)
-			maximum_color_error = maxf(
-				maximum_color_error,
-				absf(native_color.g - reference_color.g)
-			)
-			maximum_color_error = maxf(
-				maximum_color_error,
-				absf(native_color.b - reference_color.b)
-			)
-			maximum_color_error = maxf(
-				maximum_color_error,
-				absf(native_color.a - reference_color.a)
-			)
+	var packed_faces: PackedInt32Array = native.get("packed_faces", PackedInt32Array())
+	var packed_directional_faces: PackedInt32Array = native.get(
+		"packed_directional_faces",
+		PackedInt32Array()
+	)
+	var direction_offsets: PackedInt32Array = native.get(
+		"packed_direction_offsets",
+		PackedInt32Array()
+	)
+	var direction_counts: PackedInt32Array = native.get(
+		"packed_direction_counts",
+		PackedInt32Array()
+	)
+	_expect(
+		packed_faces.size() == int(native.quads) * PackedFaceCodec.WORDS_PER_FACE,
+		label + " has one two-word packed record per greedy quad"
+	)
+	_expect(
+		int(native.get("packed_face_count", -1)) == int(native.quads),
+		label + " packed face count matches quad count"
+	)
+	_expect(
+		int(native.get("packed_face_bytes", -1)) == int(native.quads) * 8,
+		label + " packed payload is exactly eight bytes per quad"
+	)
+	_expect(
+		float(native.get("packed_compression_ratio", 0.0)) >= MINIMUM_PACKED_COMPRESSION_RATIO,
+		label + " packed payload is at least twenty times smaller than legacy arrays"
+	)
+
+	var decoded: Dictionary = PackedFaceCodec.decode_arrays(
+		packed_faces,
+		coordinate * VoxelChunk.SIZE,
+		SEED
+	)
+	_expect(bool(decoded.get("success", false)), label + " packed faces decode in Godot")
+	if bool(decoded.get("success", false)):
+		_expect(int(decoded.quads) == int(native.quads), label + " decoded quad count matches")
+		_compare_arrays(label + " packed decode", decoded.arrays, native_arrays)
+
+	var partition: Dictionary = PackedFaceCodec.validate_directional_partition(
+		packed_directional_faces,
+		direction_offsets,
+		direction_counts
+	)
+	_expect(bool(partition.get("success", false)), label + " directional streams partition every face")
+	if bool(partition.get("success", false)):
 		_expect(
-			maximum_color_error <= COLOR_EPSILON,
-			label + " vertex colors match within float precision"
+			int(partition.face_count) == int(native.quads),
+			label + " directional stream face count matches"
 		)
+
+	for face_index: int in range(packed_faces.size() / PackedFaceCodec.WORDS_PER_FACE):
+		var face: Dictionary = PackedFaceCodec.decode_face_words(
+			packed_faces[face_index * 2],
+			packed_faces[face_index * 2 + 1]
+		)
+		_expect(bool(face.valid), label + " packed face %d has valid fields" % face_index)
+		if not bool(face.valid):
+			break
+		_expect(
+			int(face.x) < VoxelChunk.SIZE
+			and int(face.y) < VoxelChunk.SIZE
+			and int(face.z) < VoxelChunk.SIZE,
+			label + " packed face %d stores an owning voxel coordinate" % face_index
+		)
+		if _failures > 0:
+			break
 
 	print(
 		"NATIVE_CHUNK_PARITY coordinate=", coordinate,
@@ -117,7 +155,41 @@ func _compare_chunk(
 		" rust_generation_usec=", native.get("generation_usec", 0),
 		" rust_mesh_usec=", native.get("mesh_worker_usec", 0),
 		" quads=", native.quads,
-		" checksum=", native.get("voxel_checksum", 0)
+		" packed_bytes=", native.get("packed_face_bytes", 0),
+		" legacy_bytes=", native.get("legacy_mesh_bytes", 0),
+		" compression=", native.get("packed_compression_ratio", 0.0),
+		" packed_checksum=", native.get("packed_face_checksum", 0),
+		" voxel_checksum=", native.get("voxel_checksum", 0)
+	)
+
+
+func _compare_arrays(label: String, actual_arrays: Array, expected_arrays: Array) -> void:
+	var expected_vertices: PackedVector3Array = expected_arrays[Mesh.ARRAY_VERTEX]
+	var actual_vertices: PackedVector3Array = actual_arrays[Mesh.ARRAY_VERTEX]
+	var expected_normals: PackedVector3Array = expected_arrays[Mesh.ARRAY_NORMAL]
+	var actual_normals: PackedVector3Array = actual_arrays[Mesh.ARRAY_NORMAL]
+	var expected_colors: PackedColorArray = expected_arrays[Mesh.ARRAY_COLOR]
+	var actual_colors: PackedColorArray = actual_arrays[Mesh.ARRAY_COLOR]
+	var expected_indices: PackedInt32Array = expected_arrays[Mesh.ARRAY_INDEX]
+	var actual_indices: PackedInt32Array = actual_arrays[Mesh.ARRAY_INDEX]
+
+	_expect(actual_vertices == expected_vertices, label + " vertex positions match")
+	_expect(actual_normals == expected_normals, label + " normals match")
+	_expect(actual_indices == expected_indices, label + " index order matches")
+	_expect(actual_colors.size() == expected_colors.size(), label + " color count matches")
+	if actual_colors.size() != expected_colors.size():
+		return
+	var maximum_color_error: float = 0.0
+	for index: int in range(actual_colors.size()):
+		var actual_color: Color = actual_colors[index]
+		var expected_color: Color = expected_colors[index]
+		maximum_color_error = maxf(maximum_color_error, absf(actual_color.r - expected_color.r))
+		maximum_color_error = maxf(maximum_color_error, absf(actual_color.g - expected_color.g))
+		maximum_color_error = maxf(maximum_color_error, absf(actual_color.b - expected_color.b))
+		maximum_color_error = maxf(maximum_color_error, absf(actual_color.a - expected_color.a))
+	_expect(
+		maximum_color_error <= COLOR_EPSILON,
+		label + " vertex colors match within float precision"
 	)
 
 
