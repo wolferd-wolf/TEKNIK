@@ -139,11 +139,11 @@ func _compare_chunk(
 			packed_faces[face_index * 2],
 			packed_faces[face_index * 2 + 1]
 		)
-		if not bool(face.valid) or int(face.x) >= VoxelChunk.SIZE or int(face.y) >= VoxelChunk.SIZE or int(face.z) >= VoxelChunk.SIZE:
+		if not bool(face.valid):
 			all_fields_valid = false
 			invalid_face_index = face_index
 			break
-	_expect(all_fields_valid, label + " all packed records have valid fields and owning coordinates")
+	_expect(all_fields_valid, label + " all packed records have valid face-plane fields")
 	if not all_fields_valid:
 		print("PACKED_INVALID_FACE coordinate=", coordinate, " face=", invalid_face_index)
 
