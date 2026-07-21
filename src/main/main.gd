@@ -28,13 +28,15 @@ var _terrain_nodes: Dictionary = {}
 var _world_center: Vector3i = Vector3i.ZERO
 var _feature_root: Node3D
 var _streamed_feature_instances: int = 0
+var _distant_terrain: MeshInstance3D
+var _exploration_anchor: Node3D
 
 
 func _ready() -> void:
 	var build_started_ms: int = Time.get_ticks_msec()
 	_build_environment()
+	_build_exploration_anchor()
 	_build_terrain_ordered()
-	_build_distant_terrain()
 	_build_clouds()
 	print(
 		"WORLD_QA build_ms=", Time.get_ticks_msec() - build_started_ms,
@@ -46,7 +48,42 @@ func _ready() -> void:
 
 	var screenshot_path: String = _qa_screenshot_path()
 	if not screenshot_path.is_empty():
+		var shift: Vector2i = _qa_stream_shift()
+		if shift != Vector2i.ZERO:
+			call_deferred("_apply_qa_stream_shift", shift)
 		call_deferred("_capture_qa_screenshot", screenshot_path)
+
+
+func _process(_delta: float) -> void:
+	_update_world_streaming()
+
+
+func _build_exploration_anchor() -> void:
+	_exploration_anchor = Node3D.new()
+	_exploration_anchor.name = "ExplorationAnchor"
+	add_child(_exploration_anchor)
+
+
+func _update_world_streaming() -> void:
+	if _exploration_anchor == null:
+		return
+	var requested_center: Vector3i = WorldWindowPlan.chunk_coordinate(
+		_exploration_anchor.global_position,
+		VoxelChunk.SIZE
+	)
+	if requested_center == _world_center:
+		return
+	_refresh_world_window(requested_center, requested_center)
+
+
+func _apply_qa_stream_shift(shift: Vector2i) -> void:
+	_exploration_anchor.position = Vector3(
+		float(shift.x * VoxelChunk.SIZE),
+		0.0,
+		float(shift.y * VoxelChunk.SIZE)
+	)
+	_update_world_streaming()
+	print("WORLD_QA anchor_shift=", shift, " active_center=", _world_center)
 
 
 func _build_environment() -> void:
@@ -111,6 +148,7 @@ func _refresh_world_window(center: Vector3i, priority: Vector3i) -> void:
 	if _feature_root == null or center != _world_center:
 		_world_center = center
 		_rebuild_streamed_features()
+		_build_distant_terrain()
 
 
 func _rebuild_streamed_features() -> void:
@@ -243,26 +281,35 @@ func _build_water() -> void:
 
 
 func _build_distant_terrain() -> void:
-	var active_min: int = -CHUNK_RADIUS * VoxelChunk.SIZE
-	var active_max: int = (CHUNK_RADIUS + 1) * VoxelChunk.SIZE
+	if _distant_terrain != null:
+		remove_child(_distant_terrain)
+		_distant_terrain.queue_free()
+		_render_instance_count -= 1
+	_distant_quads = 0
+	var active_rect: Rect2i = WorldWindowPlan.active_world_rect(
+		_world_center, CHUNK_RADIUS, VoxelChunk.SIZE
+	)
+	var distant_rect: Rect2i = WorldWindowPlan.distant_world_rect(
+		_world_center, VoxelChunk.SIZE, DISTANT_WORLD_RADIUS
+	)
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var colors := PackedColorArray()
 	var indices := PackedInt32Array()
 
 	for world_z: int in range(
-		-DISTANT_WORLD_RADIUS,
-		DISTANT_WORLD_RADIUS,
+		distant_rect.position.y,
+		distant_rect.end.y,
 		DISTANT_TERRAIN_STEP
 	):
 		for world_x: int in range(
-			-DISTANT_WORLD_RADIUS,
-			DISTANT_WORLD_RADIUS,
+			distant_rect.position.x,
+			distant_rect.end.x,
 			DISTANT_TERRAIN_STEP
 		):
 			if (
-				world_x >= active_min and world_x < active_max
-				and world_z >= active_min and world_z < active_max
+				world_x >= active_rect.position.x and world_x < active_rect.end.x
+				and world_z >= active_rect.position.y and world_z < active_rect.end.y
 			):
 				continue
 			var base: int = vertices.size()
@@ -306,6 +353,7 @@ func _build_distant_terrain() -> void:
 	distant.mesh = mesh
 	distant.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(distant)
+	_distant_terrain = distant
 	_render_instance_count += 1
 	print("WORLD_QA distant_quads=", _distant_quads)
 
@@ -657,6 +705,21 @@ func _qa_view_name() -> String:
 		if requested in ["hero", "river", "upland"]:
 			return requested
 	return "hero"
+
+
+func _qa_stream_shift() -> Vector2i:
+	var arguments: PackedStringArray = OS.get_cmdline_user_args()
+	for index: int in range(arguments.size()):
+		var argument: String = arguments[index]
+		var requested: String = ""
+		if argument.begins_with("--qa-stream-shift="):
+			requested = argument.trim_prefix("--qa-stream-shift=")
+		elif argument == "--qa-stream-shift" and index + 1 < arguments.size():
+			requested = arguments[index + 1]
+		var axes: PackedStringArray = requested.split(",")
+		if axes.size() == 2 and axes[0].is_valid_int() and axes[1].is_valid_int():
+			return Vector2i(int(axes[0]), int(axes[1]))
+	return Vector2i.ZERO
 
 
 func _capture_qa_screenshot(path: String) -> void:

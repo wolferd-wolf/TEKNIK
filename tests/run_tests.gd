@@ -237,6 +237,27 @@ func _test_world_window_plan() -> void:
 		water_shifted - water_origin == Vector2i(32, 32),
 		"water window advances with terrain residency"
 	)
+	var distant_origin: Rect2i = WorldWindowPlan.distant_world_rect(
+		Vector3i.ZERO, VoxelChunk.SIZE, 320
+	)
+	var distant_shifted: Rect2i = WorldWindowPlan.distant_world_rect(
+		Vector3i(1, 0, -1), VoxelChunk.SIZE, 320
+	)
+	_expect(distant_origin.size == Vector2i(640, 640), "distant terrain keeps a fixed extent")
+	_expect(
+		distant_shifted.position - distant_origin.position == Vector2i(32, -32),
+		"distant terrain follows the exploration anchor"
+	)
+	_expect(
+		WorldWindowPlan.chunk_coordinate(Vector3(31.99, 0.0, 31.99), VoxelChunk.SIZE)
+		== Vector3i.ZERO,
+		"exploration anchor remains in its current positive chunk"
+	)
+	_expect(
+		WorldWindowPlan.chunk_coordinate(Vector3(-0.01, 0.0, -32.01), VoxelChunk.SIZE)
+		== Vector3i(-1, 0, -2),
+		"exploration anchor floors negative chunk coordinates correctly"
+	)
 
 
 func _test_product_constraints() -> void:

@@ -68,6 +68,12 @@ jobs:
             test -s "artifacts/world-$view.png"
           done
 
+          xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy -- \
+            --qa-view="hero" \
+            --qa-stream-shift="-1,0" \
+            --qa-screenshot="artifacts/world-shifted.png"
+          test -s "artifacts/world-shifted.png"
+
       - name: Publish world preview
         uses: actions/upload-artifact@v4
         with:
@@ -136,7 +142,7 @@ jobs:
             echo '## TEKNIK automated QA'
             echo
             echo '- Deterministic simulation tests executed.'
-            echo '- Hero, river, and upland world screenshots requested.'
+            echo '- Hero, river, upland, and one-chunk-shift world screenshots requested.'
             echo '- Android ARM64 debug export requested.'
             echo '- Physical-device 50 FPS certification is not part of this cloud-runner job.'
           } >> "$GITHUB_STEP_SUMMARY"
