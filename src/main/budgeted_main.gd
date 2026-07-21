@@ -3,8 +3,10 @@ extends "res://src/main/main.gd"
 const ChunkWorkBudget = preload("res://src/world/chunk_work_budget.gd")
 const ChunkBuildWorker = preload("res://src/world/chunk_build_worker.gd")
 const CollisionWindowPlan = preload("res://src/world/collision_window_plan.gd")
+const TerrainCollisionProfile = preload("res://src/world/terrain_collision_profile.gd")
 const ExplorationController = preload("res://src/player/exploration_controller.gd")
 const PerformanceTelemetry = preload("res://src/diagnostics/performance_telemetry.gd")
+const RuntimeLog = preload("res://src/diagnostics/runtime_log.gd")
 const WorldEditStore = preload("res://src/world/world_edit_store.gd")
 const InteractionMath = preload("res://src/world/world_interaction_math.gd")
 const GameplayCaptureDirector = preload("res://src/qa/gameplay_capture_director.gd")
@@ -19,10 +21,15 @@ const EDIT_SAVE_DELAY_MS: int = 1200
 const INTERACTION_DISTANCE: float = 7.0
 const PLACE_MATERIAL: int = 1
 const EDIT_SAVE_PATH: String = "user://teknik-world-edits.json"
+const FRAME_STALL_THRESHOLD_MS: float = 100.0
+const FEATURE_REFRESH_DISTANCE_CHUNKS: int = 3
+const DISTANT_REFRESH_DISTANCE_CHUNKS: int = 6
+const ENVIRONMENT_IDLE_DELAY_MS: int = 900
 
 var _chunk_work_budget: TeknikChunkWorkBudget = ChunkWorkBudget.new()
 var _chunk_build_worker: TeknikChunkBuildWorker = ChunkBuildWorker.new()
 var _performance_telemetry: TeknikPerformanceTelemetry = PerformanceTelemetry.new()
+var _runtime_log: TeknikRuntimeLog = RuntimeLog.new()
 var _world_edits: TeknikWorldEditStore = WorldEditStore.new()
 var _edit_rebuild_queue: Array[Vector3i] = []
 var _stream_plan_center: Vector3i = Vector3i.ZERO
@@ -36,13 +43,39 @@ var _collision_center: Vector3i = Vector3i(2_147_483_647, 0, 2_147_483_647)
 var _player: TeknikExplorationController
 var _next_telemetry_report_ms: int = 0
 var _edit_save_due_ms: int = 0
+var _feature_center: Vector3i = Vector3i(2_147_483_647, 0, 2_147_483_647)
+var _distant_center: Vector3i = Vector3i(2_147_483_647, 0, 2_147_483_647)
+var _feature_refresh_pending: bool = false
+var _distant_refresh_pending: bool = false
+var _last_center_change_ms: int = 0
+var _last_mesh_commit_usec: int = 0
+var _last_collision_commit_usec: int = 0
+var _last_environment_refresh_usec: int = 0
 
 
 func _ready() -> void:
+	var log_result: Error = _runtime_log.start_session({
+		"world_seed": WORLD_SEED,
+		"chunk_size": VoxelChunk.SIZE,
+		"chunk_radius": CHUNK_RADIUS,
+		"collision_mode": "heightfield_plus_primitive_runs",
+	})
+	if log_result != OK:
+		push_warning("RUNTIME_LOG start failed: %s" % error_string(log_result))
+
 	var load_result: Error = _world_edits.load_file(EDIT_SAVE_PATH, WORLD_SEED)
 	if load_result != OK and load_result != ERR_FILE_NOT_FOUND:
 		push_warning("WORLD_EDIT load failed: %s" % error_string(load_result))
+		_runtime_log.event("warning", "world_edit", "load_failed", {"error": error_string(load_result)})
+	else:
+		_runtime_log.event("info", "world_edit", "loaded", {
+			"result": error_string(load_result),
+			"overrides": _world_edits.override_count(),
+			"edited_chunks": _world_edits.chunk_count(),
+		})
+
 	super._ready()
+	_prime_initial_collision_profiles()
 	if _qa_screenshot_path().is_empty():
 		_build_player_controller()
 	_queue_collision_window(_world_center)
@@ -50,6 +83,7 @@ func _ready() -> void:
 	for coordinate: Vector3i in _world_edits.edited_chunk_coordinates():
 		if _terrain_nodes.has(coordinate):
 			_queue_chunk_rebuild(coordinate)
+	_runtime_log.event("info", "world", "ready", _diagnostic_context())
 	print("WORLD_EDIT loaded_overrides=", _world_edits.override_count(), " edited_chunks=", _world_edits.chunk_count())
 	if "--qa-gameplay" in OS.get_cmdline_user_args() and _player != null:
 		var director: TeknikGameplayCaptureDirector = GameplayCaptureDirector.new()
@@ -60,10 +94,15 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_performance_telemetry.record_frame(delta)
+	if delta * 1000.0 >= FRAME_STALL_THRESHOLD_MS:
+		var stall_context: Dictionary = _diagnostic_context()
+		stall_context["frame_ms"] = delta * 1000.0
+		_runtime_log.event("warning", "performance", "frame_stall", stall_context)
 	_update_world_streaming()
 	_process_chunk_work()
 	_update_collision_window()
 	_process_collision_work()
+	_process_environment_refresh_if_idle()
 	_save_edits_if_due()
 	_report_performance_if_due()
 
@@ -71,6 +110,43 @@ func _process(delta: float) -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_PREDELETE:
 		_save_edits_now()
+		_runtime_log.close_session("window_close" if what == NOTIFICATION_WM_CLOSE_REQUEST else "predelete")
+
+
+func _refresh_world_window(center: Vector3i, priority: Vector3i) -> void:
+	_refresh_terrain(center, priority)
+	var center_changed: bool = center != _world_center
+	_world_center = center
+	if center_changed:
+		_last_center_change_ms = Time.get_ticks_msec()
+		_runtime_log.event("info", "stream", "center_changed", {
+			"center": str(center),
+			"priority": str(priority),
+		})
+
+	if _feature_root == null:
+		var feature_started_usec: int = Time.get_ticks_usec()
+		_rebuild_streamed_features()
+		_feature_center = center
+		_last_environment_refresh_usec = Time.get_ticks_usec() - feature_started_usec
+		_runtime_log.event("info", "environment", "initial_features_built", {
+			"usec": _last_environment_refresh_usec,
+			"center": str(center),
+		})
+	elif _chunk_distance(center, _feature_center) >= FEATURE_REFRESH_DISTANCE_CHUNKS:
+		_feature_refresh_pending = true
+
+	if _distant_terrain == null:
+		var distant_started_usec: int = Time.get_ticks_usec()
+		_build_distant_terrain()
+		_distant_center = center
+		_last_environment_refresh_usec = Time.get_ticks_usec() - distant_started_usec
+		_runtime_log.event("info", "environment", "initial_distant_built", {
+			"usec": _last_environment_refresh_usec,
+			"center": str(center),
+		})
+	elif _chunk_distance(center, _distant_center) >= DISTANT_REFRESH_DISTANCE_CHUNKS:
+		_distant_refresh_pending = true
 
 
 func _refresh_terrain(center: Vector3i, priority: Vector3i) -> void:
@@ -85,6 +161,11 @@ func _refresh_terrain(center: Vector3i, priority: Vector3i) -> void:
 	_stream_plan_started_ms = Time.get_ticks_msec()
 	_stream_loaded_total = 0
 	_stream_unloaded_total = 0
+	_runtime_log.event("info", "stream", "plan_queued", {
+		"center": str(center),
+		"loads": to_load.size(),
+		"unloads": to_unload.size(),
+	})
 
 
 func _process_chunk_work() -> void:
@@ -92,11 +173,20 @@ func _process_chunk_work() -> void:
 	var completed_loads: int = 0
 	var worker_usec: int = 0
 	if _chunk_build_worker.is_ready():
+		var collect_started_usec: int = Time.get_ticks_usec()
 		var report: Dictionary = _chunk_build_worker.collect()
 		worker_usec = int(report.worker_usec)
 		_commit_terrain_chunk(report)
 		completed_loads = 1
 		_stream_loaded_total += 1
+		_runtime_log.event("info", "stream", "worker_collected", {
+			"coordinate": str(report.coordinate),
+			"worker_usec": worker_usec,
+			"collect_and_commit_usec": Time.get_ticks_usec() - collect_started_usec,
+			"mesh_commit_usec": _last_mesh_commit_usec,
+			"collision_profile_usec": int(report.get("collision_profile_usec", 0)),
+			"quads": int(report.get("quads", 0)),
+		})
 
 	var can_dispatch: bool = not _chunk_build_worker.is_busy()
 	var load_budget: int = STREAM_LOADS_PER_FRAME if can_dispatch and _edit_rebuild_queue.is_empty() else 0
@@ -124,7 +214,14 @@ func _process_chunk_work() -> void:
 		_world_sample_cache.clear()
 		_world_column_cache.clear()
 	if not _chunk_work_budget.has_work() and _edit_rebuild_queue.is_empty() and not _chunk_build_worker.is_busy() and _stream_plan_started_ms > 0:
-		print("WORLD_STREAM complete_center=", _stream_plan_center, " elapsed_ms=", Time.get_ticks_msec() - _stream_plan_started_ms, " loaded_total=", _stream_loaded_total, " unloaded_total=", _stream_unloaded_total)
+		var elapsed_ms: int = Time.get_ticks_msec() - _stream_plan_started_ms
+		print("WORLD_STREAM complete_center=", _stream_plan_center, " elapsed_ms=", elapsed_ms, " loaded_total=", _stream_loaded_total, " unloaded_total=", _stream_unloaded_total)
+		_runtime_log.event("info", "stream", "plan_complete", {
+			"center": str(_stream_plan_center),
+			"elapsed_ms": elapsed_ms,
+			"loaded": _stream_loaded_total,
+			"unloaded": _stream_unloaded_total,
+		})
 		_stream_plan_started_ms = 0
 
 
@@ -133,6 +230,15 @@ func _dispatch_chunk_build(coordinate: Vector3i) -> void:
 	var start_result: Error = _chunk_build_worker.start(WORLD_SEED, coordinate, snapshots)
 	if start_result != OK:
 		push_error("Failed to start chunk worker: %s" % error_string(start_result))
+		_runtime_log.event("error", "stream", "worker_start_failed", {
+			"coordinate": str(coordinate),
+			"error": error_string(start_result),
+		})
+	else:
+		_runtime_log.event("info", "stream", "worker_dispatched", {
+			"coordinate": str(coordinate),
+			"snapshot_chunks": snapshots.size(),
+		})
 
 
 func _queue_chunk_rebuild(coordinate: Vector3i) -> void:
@@ -154,6 +260,7 @@ func _unload_terrain_chunk(coordinate: Vector3i) -> void:
 
 
 func _commit_terrain_chunk(report: Dictionary) -> void:
+	var commit_started_usec: int = Time.get_ticks_usec()
 	var coordinate: Vector3i = report.coordinate
 	var mesh: ArrayMesh = GreedyMesher.mesh_from_arrays(report.arrays)
 	var new_quads: int = int(report.quads)
@@ -172,10 +279,12 @@ func _commit_terrain_chunk(report: Dictionary) -> void:
 		add_child(terrain)
 		_terrain_nodes[coordinate] = terrain
 		_render_instance_count += 1
+	terrain.set_meta("collision_profile", report.get("collision_profile", {}))
 	_total_quads += new_quads
 	_chunk_stream.mark_loaded(coordinate)
 	if _coordinate_needs_collision(coordinate) and not _collision_add_queue.has(coordinate):
 		_collision_add_queue.append(coordinate)
+	_last_mesh_commit_usec = Time.get_ticks_usec() - commit_started_usec
 
 
 func _build_player_controller() -> void:
@@ -189,7 +298,9 @@ func _build_player_controller() -> void:
 	_player.set_camera_active(true)
 	_player.break_requested.connect(_on_break_requested)
 	_player.place_requested.connect(_on_place_requested)
+	_player.diagnostics_requested.connect(_on_diagnostics_requested)
 	_exploration_anchor = _player
+	_runtime_log.event("info", "player", "spawned", {"position": str(_player.position)})
 
 
 func _raycast_world(origin: Vector3, direction: Vector3) -> Dictionary:
@@ -243,7 +354,24 @@ func _apply_voxel_edit(voxel: Vector3i, material: int, action: String) -> void:
 	for coordinate: Vector3i in affected:
 		_queue_chunk_rebuild(coordinate)
 	_edit_save_due_ms = Time.get_ticks_msec() + EDIT_SAVE_DELAY_MS
+	_runtime_log.event("info", "world_edit", action, {
+		"voxel": str(voxel),
+		"material": material,
+		"affected_chunks": affected.size(),
+		"total_overrides": _world_edits.override_count(),
+	})
 	print("WORLD_EDIT ", action, "=", voxel, " material=", material, " affected_chunks=", affected.size(), " total_overrides=", _world_edits.override_count())
+
+
+func _on_diagnostics_requested() -> void:
+	var context: Dictionary = _diagnostic_context()
+	var support_path: String = _runtime_log.write_support_snapshot(context)
+	var payload: String = _runtime_log.copy_recent_to_clipboard(context)
+	_runtime_log.event("info", "diagnostics", "copied", {
+		"support_path": support_path,
+		"clipboard_chars": payload.length(),
+	})
+	print("WORLD_LOG copied_to_clipboard support=", support_path)
 
 
 func qa_apply_voxel_edit(voxel: Vector3i, material: int, action: String) -> void:
@@ -276,11 +404,17 @@ func _save_edits_now() -> void:
 	if not _world_edits.is_dirty():
 		_edit_save_due_ms = 0
 		return
+	var save_started_usec: int = Time.get_ticks_usec()
 	var result: Error = _world_edits.save_atomic(EDIT_SAVE_PATH, WORLD_SEED)
 	if result != OK:
 		push_error("WORLD_EDIT save failed: %s" % error_string(result))
+		_runtime_log.event("error", "world_edit", "save_failed", {"error": error_string(result)})
 	else:
 		print("WORLD_EDIT saved overrides=", _world_edits.override_count())
+		_runtime_log.event("info", "world_edit", "saved", {
+			"overrides": _world_edits.override_count(),
+			"usec": Time.get_ticks_usec() - save_started_usec,
+		})
 	_edit_save_due_ms = 0
 
 
@@ -294,6 +428,11 @@ func _queue_collision_window(center: Vector3i) -> void:
 	var delta: Dictionary = CollisionWindowPlan.reconcile(_collision_bodies, center, COLLISION_RADIUS)
 	_collision_add_queue = delta.add
 	_collision_remove_queue = delta.remove
+	_runtime_log.event("info", "collision", "window_queued", {
+		"center": str(center),
+		"adds": _collision_add_queue.size(),
+		"removes": _collision_remove_queue.size(),
+	})
 
 
 func _process_collision_work() -> void:
@@ -322,16 +461,36 @@ func _add_chunk_collision(coordinate: Vector3i) -> bool:
 	var terrain: MeshInstance3D = _terrain_nodes.get(coordinate)
 	if terrain == null or terrain.mesh == null:
 		return false
-	var shape: Shape3D = terrain.mesh.create_trimesh_shape()
-	if shape == null:
+	var profile: Dictionary = terrain.get_meta("collision_profile", {})
+	if profile.is_empty():
+		var profile_started_usec: int = Time.get_ticks_usec()
+		profile = TerrainCollisionProfile.build(
+			WORLD_SEED,
+			coordinate,
+			_world_edits.snapshot_neighborhood(coordinate)
+		)
+		terrain.set_meta("collision_profile", profile)
+		_runtime_log.event("info", "collision", "fallback_profile_built", {
+			"coordinate": str(coordinate),
+			"usec": Time.get_ticks_usec() - profile_started_usec,
+		})
+	var collision_started_usec: int = Time.get_ticks_usec()
+	var body: StaticBody3D = TerrainCollisionProfile.create_body(
+		profile,
+		"TerrainCollision_%d_%d" % [coordinate.x, coordinate.z]
+	)
+	if body == null:
+		_runtime_log.event("error", "collision", "body_create_failed", {"coordinate": str(coordinate)})
 		return false
-	var body := StaticBody3D.new()
-	body.name = "TerrainCollision_%d_%d" % [coordinate.x, coordinate.z]
-	var collision := CollisionShape3D.new()
-	collision.shape = shape
-	body.add_child(collision)
 	terrain.add_child(body)
 	_collision_bodies[coordinate] = body
+	_last_collision_commit_usec = Time.get_ticks_usec() - collision_started_usec
+	_runtime_log.event("info", "collision", "body_added", {
+		"coordinate": str(coordinate),
+		"usec": _last_collision_commit_usec,
+		"shape_count": TerrainCollisionProfile.shape_count(profile),
+		"mode": "heightfield_plus_primitive_runs",
+	})
 	return true
 
 
@@ -340,6 +499,54 @@ func _remove_chunk_collision(coordinate: Vector3i) -> void:
 	if body != null:
 		body.queue_free()
 	_collision_bodies.erase(coordinate)
+
+
+func _prime_initial_collision_profiles() -> void:
+	var started_usec: int = Time.get_ticks_usec()
+	var primed: int = 0
+	for coordinate: Vector3i in CollisionWindowPlan.desired(_world_center, COLLISION_RADIUS):
+		var terrain: MeshInstance3D = _terrain_nodes.get(coordinate)
+		if terrain == null:
+			continue
+		terrain.set_meta("collision_profile", TerrainCollisionProfile.build(
+			WORLD_SEED,
+			coordinate,
+			_world_edits.snapshot_neighborhood(coordinate)
+		))
+		primed += 1
+	_runtime_log.event("info", "collision", "initial_profiles_primed", {
+		"count": primed,
+		"usec": Time.get_ticks_usec() - started_usec,
+	})
+
+
+func _process_environment_refresh_if_idle() -> void:
+	if not _feature_refresh_pending and not _distant_refresh_pending:
+		return
+	if Time.get_ticks_msec() - _last_center_change_ms < ENVIRONMENT_IDLE_DELAY_MS:
+		return
+	if _chunk_work_budget.has_work() or not _edit_rebuild_queue.is_empty() or _chunk_build_worker.is_busy() or not _collision_add_queue.is_empty():
+		return
+	var started_usec: int = Time.get_ticks_usec()
+	if _feature_refresh_pending:
+		_rebuild_streamed_features()
+		_feature_center = _world_center
+		_feature_refresh_pending = false
+		_last_environment_refresh_usec = Time.get_ticks_usec() - started_usec
+		_runtime_log.event("info", "environment", "features_refreshed", {
+			"center": str(_world_center),
+			"usec": _last_environment_refresh_usec,
+		})
+		return
+	if _distant_refresh_pending:
+		_build_distant_terrain()
+		_distant_center = _world_center
+		_distant_refresh_pending = false
+		_last_environment_refresh_usec = Time.get_ticks_usec() - started_usec
+		_runtime_log.event("info", "environment", "distant_refreshed", {
+			"center": str(_world_center),
+			"usec": _last_environment_refresh_usec,
+		})
 
 
 func _report_performance_if_due() -> void:
@@ -353,12 +560,43 @@ func _report_performance_if_due() -> void:
 	report["active_collision_chunks"] = _collision_bodies.size()
 	report["world_edit_overrides"] = _world_edits.override_count()
 	report["static_memory_bytes"] = Performance.get_monitor(Performance.MEMORY_STATIC)
+	report["last_mesh_commit_usec"] = _last_mesh_commit_usec
+	report["last_collision_commit_usec"] = _last_collision_commit_usec
+	report["last_environment_refresh_usec"] = _last_environment_refresh_usec
 	print("WORLD_PERF ", JSON.stringify(report))
 	var file := FileAccess.open("user://teknik-performance-latest.json", FileAccess.WRITE)
 	if file != null:
 		file.store_string(JSON.stringify(report, "\t"))
+	_runtime_log.event("info", "performance", "telemetry", report)
+	_runtime_log.write_support_snapshot(_diagnostic_context())
 	_performance_telemetry.reset_event_peaks()
 	_next_telemetry_report_ms = now_ms + TELEMETRY_REPORT_INTERVAL_MS
+
+
+func _diagnostic_context() -> Dictionary:
+	return {
+		"world_center": str(_world_center),
+		"player_position": str(_player.global_position) if _player != null else "none",
+		"active_render_chunks": _terrain_nodes.size(),
+		"active_collision_chunks": _collision_bodies.size(),
+		"stream_load_queue": _chunk_work_budget.pending_loads(),
+		"stream_unload_queue": _chunk_work_budget.pending_unloads(),
+		"edit_rebuild_queue": _edit_rebuild_queue.size(),
+		"collision_add_queue": _collision_add_queue.size(),
+		"collision_remove_queue": _collision_remove_queue.size(),
+		"worker_busy": _chunk_build_worker.is_busy(),
+		"worker_ready": _chunk_build_worker.is_ready(),
+		"feature_refresh_pending": _feature_refresh_pending,
+		"distant_refresh_pending": _distant_refresh_pending,
+		"last_mesh_commit_usec": _last_mesh_commit_usec,
+		"last_collision_commit_usec": _last_collision_commit_usec,
+		"last_environment_refresh_usec": _last_environment_refresh_usec,
+		"world_edit_overrides": _world_edits.override_count(),
+	}
+
+
+func _chunk_distance(a: Vector3i, b: Vector3i) -> int:
+	return maxi(absi(a.x - b.x), absi(a.z - b.z))
 
 
 func _capture_qa_screenshot(path: String) -> void:
