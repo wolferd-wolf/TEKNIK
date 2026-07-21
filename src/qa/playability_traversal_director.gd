@@ -4,6 +4,7 @@ extends Node
 const TARGET_DISTANCE: float = 190.0
 const MAX_FRAMES: int = 2400
 const SETTLE_FRAMES: int = 30
+const REQUIRED_NATIVE_INITIAL_CHUNKS: int = 25
 
 var _world: Node
 var _player: TeknikExplorationController
@@ -55,6 +56,24 @@ func _run() -> void:
 		failed = true
 	if _player.global_position.y < 0.0:
 		push_error("QA_PLAYABILITY player ended below the world")
+		failed = true
+	if int(snapshot.get("native_initial_chunks", 0)) < REQUIRED_NATIVE_INITIAL_CHUNKS:
+		push_error(
+			"QA_PLAYABILITY startup safety window did not use Rust for all chunks: %s"
+			% snapshot.get("native_initial_chunks", 0)
+		)
+		failed = true
+	if int(snapshot.get("native_streamed_chunks", 0)) <= 0:
+		push_error("QA_PLAYABILITY traversal did not exercise native streamed chunks")
+		failed = true
+	if int(snapshot.get("native_fallbacks", 0)) != 0:
+		push_error(
+			"QA_PLAYABILITY native backend fallback count=%s"
+			% snapshot.get("native_fallbacks", 0)
+		)
+		failed = true
+	if not str(snapshot.get("native_core_version", "")).begins_with("teknik-rust-core-"):
+		push_error("QA_PLAYABILITY Rust core version was not reported")
 		failed = true
 
 	var poster_path: String = _argument_value("--qa-playability-poster=")
