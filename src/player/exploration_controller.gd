@@ -4,6 +4,8 @@ extends CharacterBody3D
 signal break_requested(origin: Vector3, direction: Vector3)
 signal place_requested(origin: Vector3, direction: Vector3)
 signal diagnostics_requested
+signal terrain_wait_changed(waiting: bool)
+signal recovered_from_fall(previous_position: Vector3, safe_position: Vector3)
 
 const MobileControls = preload("res://src/player/mobile_controls.gd")
 
@@ -13,6 +15,8 @@ const AIR_CONTROL: float = 5.0
 const JUMP_VELOCITY: float = 7.0
 const MOUSE_SENSITIVITY: float = 0.0024
 const TOUCH_LOOK_SENSITIVITY: float = 0.0042
+const FALL_RECOVERY_DEPTH: float = 18.0
+const ABSOLUTE_RECOVERY_Y: float = -12.0
 
 var _gravity: float = 18.0
 var _camera_pivot: Node3D
@@ -23,11 +27,17 @@ var _mobile_jump_requested: bool = false
 var _mobile_controls: TeknikMobileControls
 var _scripted_mode: bool = false
 var _scripted_move: Vector2 = Vector2.ZERO
+var _movement_guard: Callable = Callable()
+var _last_safe_position: Vector3 = Vector3.ZERO
+var _has_safe_position: bool = false
+var _waiting_for_terrain: bool = false
+var _status_label: Label
 
 
 func _ready() -> void:
 	_build_body()
 	_build_camera()
+	_build_status_overlay()
 	if OS.has_feature("mobile") or _force_touch_controls():
 		_build_mobile_controls()
 	else:
@@ -52,15 +62,10 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if _scripted_mode:
-		var local_direction := Vector3(_scripted_move.x, 0.0, _scripted_move.y)
-		var direction := (global_transform.basis * local_direction).normalized()
-		global_position += direction * WALK_SPEED * delta
-		velocity = Vector3.ZERO
-		return
-
-	var input_vector := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
-	if _mobile_move.length_squared() > input_vector.length_squared():
+	var input_vector: Vector2 = _scripted_move if _scripted_mode else Input.get_vector(
+		"move_left", "move_right", "move_forward", "move_back"
+	)
+	if not _scripted_mode and _mobile_move.length_squared() > input_vector.length_squared():
 		input_vector = _mobile_move
 	var local_direction := Vector3(input_vector.x, 0.0, input_vector.y)
 	var direction := (global_transform.basis * local_direction).normalized()
@@ -68,8 +73,18 @@ func _physics_process(delta: float) -> void:
 	var response: float = ACCELERATION if is_on_floor() else AIR_CONTROL
 	velocity.x = move_toward(velocity.x, target_velocity.x, response * delta)
 	velocity.z = move_toward(velocity.z, target_velocity.z, response * delta)
+
+	var horizontal_step := Vector3(velocity.x, 0.0, velocity.z) * delta * 1.35
+	var can_enter: bool = true
+	if horizontal_step.length_squared() > 0.000001 and _movement_guard.is_valid():
+		can_enter = bool(_movement_guard.call(global_position + horizontal_step))
+	if not can_enter:
+		velocity.x = 0.0
+		velocity.z = 0.0
+	_set_waiting_for_terrain(not can_enter)
+
 	if is_on_floor():
-		if Input.is_action_just_pressed("jump") or _mobile_jump_requested:
+		if (Input.is_action_just_pressed("jump") or _mobile_jump_requested) and can_enter:
 			velocity.y = JUMP_VELOCITY
 		elif velocity.y < 0.0:
 			velocity.y = -0.5
@@ -77,6 +92,11 @@ func _physics_process(delta: float) -> void:
 		velocity.y -= _gravity * delta
 	_mobile_jump_requested = false
 	move_and_slide()
+
+	if is_on_floor() and can_enter:
+		_last_safe_position = global_position
+		_has_safe_position = true
+	_recover_if_needed()
 
 
 func set_camera_active(active: bool) -> void:
@@ -97,6 +117,23 @@ func set_scripted_move(value: Vector2) -> void:
 	_scripted_move = value.limit_length(1.0)
 
 
+func set_movement_guard(guard: Callable) -> void:
+	_movement_guard = guard
+
+
+func set_initial_safe_position(position_value: Vector3) -> void:
+	_last_safe_position = position_value
+	_has_safe_position = true
+
+
+func safe_position() -> Vector3:
+	return _last_safe_position if _has_safe_position else global_position
+
+
+func is_waiting_for_terrain() -> bool:
+	return _waiting_for_terrain
+
+
 func look_at_world(target: Vector3) -> void:
 	var eye: Vector3 = global_position + Vector3(0.0, 1.55, 0.0)
 	var delta: Vector3 = target - eye
@@ -105,6 +142,26 @@ func look_at_world(target: Vector3) -> void:
 		rotation.y = atan2(-delta.x, -delta.z)
 	if _camera_pivot != null:
 		_camera_pivot.rotation.x = clampf(atan2(delta.y, horizontal.length()), deg_to_rad(-75.0), deg_to_rad(70.0))
+
+
+func _recover_if_needed() -> void:
+	if not _has_safe_position:
+		return
+	if global_position.y >= ABSOLUTE_RECOVERY_Y and global_position.y >= _last_safe_position.y - FALL_RECOVERY_DEPTH:
+		return
+	var fallen_position: Vector3 = global_position
+	global_position = _last_safe_position + Vector3.UP * 0.35
+	velocity = Vector3.ZERO
+	recovered_from_fall.emit(fallen_position, _last_safe_position)
+
+
+func _set_waiting_for_terrain(waiting: bool) -> void:
+	if waiting == _waiting_for_terrain:
+		return
+	_waiting_for_terrain = waiting
+	if _status_label != null:
+		_status_label.visible = waiting
+	terrain_wait_changed.emit(waiting)
 
 
 func _emit_break_request() -> void:
@@ -146,6 +203,27 @@ func _build_camera() -> void:
 	_camera.near = 0.05
 	_camera.far = 280.0
 	_camera_pivot.add_child(_camera)
+
+
+func _build_status_overlay() -> void:
+	var layer := CanvasLayer.new()
+	layer.name = "StreamingStatusLayer"
+	layer.layer = 30
+	add_child(layer)
+	_status_label = Label.new()
+	_status_label.name = "TerrainStatus"
+	_status_label.text = "GENERATING TERRAIN…"
+	_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_status_label.add_theme_font_size_override("font_size", 22)
+	_status_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.95))
+	_status_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.8))
+	_status_label.add_theme_constant_override("shadow_offset_x", 2)
+	_status_label.add_theme_constant_override("shadow_offset_y", 2)
+	_status_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_status_label.position = Vector2(-150.0, 36.0)
+	_status_label.size = Vector2(300.0, 40.0)
+	_status_label.visible = false
+	layer.add_child(_status_label)
 
 
 func _build_mobile_controls() -> void:
