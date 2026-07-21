@@ -6,8 +6,10 @@ const ChunkBuildWorker = preload("res://src/world/chunk_build_worker.gd")
 
 var _worker: TeknikChunkBuildWorker
 
+
 func _init() -> void:
 	call_deferred("_run")
+
 
 func _run() -> void:
 	_worker = ChunkBuildWorker.new()
@@ -16,10 +18,10 @@ func _run() -> void:
 	var index: int = VoxelChunk.index_of(local)
 	var generated: int = TerrainGenerator.voxel_at(73421, local)
 	var replacement: int = 0 if generated != 0 else TerrainGenerator.STONE
-	var edits: Dictionary = {index: replacement}
-	var start_error: Error = _worker.start(73421, coordinate, edits)
+	var snapshots: Dictionary = {coordinate: {index: replacement}}
+	var start_error: Error = _worker.start(73421, coordinate, snapshots)
 	if start_error != OK:
-		push_error("FAIL worker accepts edit snapshot")
+		push_error("FAIL worker accepts edit snapshots")
 		quit(1)
 		return
 	while not _worker.is_ready():
