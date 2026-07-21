@@ -20,7 +20,7 @@ jobs:
       GODOT_VERSION: "4.7.1"
       GODOT_RELEASE: "4.7.1-stable"
       GODOT_BIN: /usr/local/bin/godot
-      GODOT_CPP_REF: master
+      GODOT_CPP_REF: "ba0edfed90512ec64aba51d4295a3e7e30112f86"
 
     steps:
       - name: Check out source
@@ -34,6 +34,12 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Rust build cache
+        uses: actions/cache@v4
+        with:
+          path: native/rust/target
+          key: teknik-rust-${{ runner.os }}-${{ hashFiles('native/rust/Cargo.toml', 'native/rust/src/**', 'native/rust/include/**') }}
 
       - name: Install system dependencies
         run: |
@@ -57,6 +63,29 @@ jobs:
           unzip -q /tmp/export-templates.tpz -d /tmp/export-templates
           cp -R /tmp/export-templates/templates/. "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
           godot --version
+          rustc --version
+          cargo --version
+
+      - name: Check out pinned godot-cpp
+        run: |
+          git init native/godot-cpp
+          git -C native/godot-cpp remote add origin https://github.com/godotengine/godot-cpp.git
+          git -C native/godot-cpp fetch --depth 1 origin "$GODOT_CPP_REF"
+          git -C native/godot-cpp checkout --detach FETCH_HEAD
+          actual_ref="$(git -C native/godot-cpp rev-parse HEAD)"
+          test "$actual_ref" = "$GODOT_CPP_REF"
+          mkdir -p artifacts
+          printf '%s\n' "$actual_ref" | tee artifacts/godot-cpp-commit.txt
+
+      - name: Restore godot-cpp build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            native/godot-cpp/bin
+            native/godot-cpp/gen
+            native/godot-cpp/obj
+            native/godot-cpp/.sconsign.dblite
+          key: teknik-godot-cpp-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/cpp/**', 'native/SConstruct') }}
 
       - name: Build Rust core and Linux C++ bridge
         run: |
@@ -69,10 +98,6 @@ jobs:
             godot --headless --dump-extension-api
           )
           cp /tmp/godot-api/extension_api.json extension_api.json
-
-          git clone --depth 1 --branch "$GODOT_CPP_REF" \
-            https://github.com/godotengine/godot-cpp.git native/godot-cpp
-          git -C native/godot-cpp rev-parse HEAD | tee artifacts/godot-cpp-commit.txt
 
           (
             cd native
@@ -144,7 +169,7 @@ jobs:
           cp -R "$HOME/.local/share/godot/app_userdata/TEKNIK/logs" artifacts/runtime-logs-building
           rm -f artifacts/teknik-gameplay.avi
 
-      - name: Play across streamed chunk boundaries
+      - name: Play across streamed chunk boundaries with no native fallback
         run: |
           rm -rf "$HOME/.local/share/godot/app_userdata/TEKNIK/logs"
           rm -f "$HOME/.local/share/godot/app_userdata/TEKNIK/teknik-world-edits.json"
@@ -164,6 +189,11 @@ jobs:
           awk -v value="$duration" 'BEGIN { exit !(value >= 25.0) }'
           test -s "$HOME/.local/share/godot/app_userdata/TEKNIK/logs/teknik-latest.jsonl"
           cp -R "$HOME/.local/share/godot/app_userdata/TEKNIK/logs" artifacts/runtime-logs-playability
+          grep -q '"event":"initial_chunk_built"' artifacts/runtime-logs-playability/teknik-latest.jsonl
+          if grep -q '"event":"initial_chunk_fallback"\|"event":"streamed_chunk_fallback"' artifacts/runtime-logs-playability/teknik-latest.jsonl; then
+            echo "Native fallback event detected during traversal" >&2
+            exit 1
+          fi
           rm -f artifacts/teknik-playability.avi
 
       - name: Publish world preview
@@ -271,8 +301,9 @@ jobs:
             echo
             echo '- Rust unit tests and exact Godot parity tests executed.'
             echo '- The threaded runtime fails CI if it falls back to GDScript.'
+            echo '- All 25 startup safety chunks must use Rust, and the traversal requires native streamed chunks with zero fallback.'
             echo '- Procedural spawn, persistence, placement, collision, logging, house building, and 190-metre traversal remain required.'
-            echo '- Rust is linked into one official C++ GDExtension library.'
+            echo '- Rust is linked into one official C++ GDExtension library using a pinned godot-cpp revision.'
             echo '- Android ARM64 export is rejected unless the native shared library is present inside the APK.'
             echo '- Physical Vivo T3x validation remains required after cloud parity and traversal pass.'
           } >> "$GITHUB_STEP_SUMMARY"
