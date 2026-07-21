@@ -34,7 +34,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl unzip xvfb ffmpeg libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
+          sudo apt-get install -y curl unzip xvfb libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
 
       - name: Install Godot and export templates
         run: |
@@ -59,6 +59,7 @@ jobs:
         run: |
           godot --headless --path . --script res://tests/run_tests.gd
           godot --headless --path . --script res://tests/run_stream_budget_tests.gd
+          godot --headless --path . --script res://tests/run_performance_telemetry_tests.gd
 
       - name: Capture rendered QA screenshots
         run: |
@@ -76,36 +77,13 @@ jobs:
             --qa-screenshot="artifacts/world-shifted.png"
           test -s "artifacts/world-shifted.png"
 
-      - name: Build test review video
-        run: |
-          cat > artifacts/video-input.txt <<'EOF'
-          file 'world-hero.png'
-          duration 2
-          file 'world-river.png'
-          duration 2
-          file 'world-upland.png'
-          duration 2
-          file 'world-shifted.png'
-          duration 3
-          file 'world-shifted.png'
-          EOF
-          (
-            cd artifacts
-            ffmpeg -y -f concat -safe 0 -i video-input.txt \
-              -vf "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,format=yuv420p" \
-              -r 30 -c:v libx264 -preset veryfast -crf 22 teknik-test-review.mp4
-          )
-          test -s artifacts/teknik-test-review.mp4
-
       - name: Publish world preview
         uses: actions/upload-artifact@v4
         with:
           name: teknik-world-preview-${{ github.sha }}
           if-no-files-found: error
           retention-days: 30
-          path: |
-            artifacts/world-*.png
-            artifacts/teknik-test-review.mp4
+          path: artifacts/world-*.png
 
       - name: Set up Android command-line tools
         uses: android-actions/setup-android@v3
@@ -166,9 +144,9 @@ jobs:
           {
             echo '## TEKNIK automated QA'
             echo
-            echo '- Deterministic simulation, streaming, and collision-window tests executed.'
-            echo '- Hero, river, upland, and one-chunk-shift world screenshots requested.'
-            echo '- A test-only visual review MP4 was generated from the validated captures.'
+            echo '- Deterministic simulation, streaming, collision-window, and telemetry tests executed.'
+            echo '- Hero, river, upland, and one-chunk-shift screenshots requested for visual regression testing.'
+            echo '- No slideshow or synthetic video is generated.'
             echo '- Android ARM64 debug export requested.'
             echo '- Physical-device 50 FPS certification is not part of this cloud-runner job.'
           } >> "$GITHUB_STEP_SUMMARY"
