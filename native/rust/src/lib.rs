@@ -37,27 +37,55 @@ pub struct TeknikColor4 {
     pub a: f32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub struct TeknikPackedFace {
+    pub geometry: u32,
+    pub appearance: u32,
+}
+
 pub struct TeknikChunkResult {
     voxels: Vec<u8>,
     vertices: Vec<TeknikVec3>,
     normals: Vec<TeknikVec3>,
     colors: Vec<TeknikColor4>,
     indices: Vec<i32>,
+    packed_faces: Vec<TeknikPackedFace>,
+    directional_faces: Vec<TeknikPackedFace>,
+    direction_offsets: [u32; mesher::FACE_DIRECTION_COUNT],
+    direction_counts: [u32; mesher::FACE_DIRECTION_COUNT],
     quads: u32,
     applied_edits: u32,
     boundary_columns: u32,
     generation_usec: u64,
     mesh_usec: u64,
     voxel_checksum: u64,
+    packed_face_checksum: u64,
 }
 
-static VERSION: &[u8] = b"teknik-rust-core-1\0";
+static VERSION: &[u8] = b"teknik-rust-core-2-packed-face\0";
 
 fn checksum_bytes(bytes: &[u8]) -> u64 {
     let mut hash = 0xcbf2_9ce4_8422_2325_u64;
     for byte in bytes {
         hash ^= *byte as u64;
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+fn checksum_packed_faces(faces: &[TeknikPackedFace]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for face in faces {
+        for byte in face
+            .geometry
+            .to_le_bytes()
+            .into_iter()
+            .chain(face.appearance.to_le_bytes())
+        {
+            hash ^= byte as u64;
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
     }
     hash
 }
@@ -118,20 +146,45 @@ pub unsafe extern "C" fn teknik_build_chunk(
         seed,
     );
     let mesh_usec = mesh_started.elapsed().as_micros() as u64;
+    let mesher::MeshOutput {
+        vertices,
+        normals,
+        colors,
+        indices,
+        packed_faces,
+        directional_faces: directional_streams,
+        quads,
+    } = mesh;
+
+    let mut directional_faces = Vec::with_capacity(packed_faces.len());
+    let mut direction_offsets = [0_u32; mesher::FACE_DIRECTION_COUNT];
+    let mut direction_counts = [0_u32; mesher::FACE_DIRECTION_COUNT];
+    for direction in 0..mesher::FACE_DIRECTION_COUNT {
+        direction_offsets[direction] = directional_faces.len() as u32;
+        direction_counts[direction] = directional_streams[direction].len() as u32;
+        directional_faces.extend_from_slice(&directional_streams[direction]);
+    }
+
     let voxel_checksum = checksum_bytes(&voxels);
+    let packed_face_checksum = checksum_packed_faces(&packed_faces);
 
     Box::into_raw(Box::new(TeknikChunkResult {
         voxels,
-        vertices: mesh.vertices,
-        normals: mesh.normals,
-        colors: mesh.colors,
-        indices: mesh.indices,
-        quads: mesh.quads,
+        vertices,
+        normals,
+        colors,
+        indices,
+        packed_faces,
+        directional_faces,
+        direction_offsets,
+        direction_counts,
+        quads,
         applied_edits,
         boundary_columns,
         generation_usec,
         mesh_usec,
         voxel_checksum,
+        packed_face_checksum,
     }))
 }
 
@@ -176,6 +229,21 @@ pointer_getter!(teknik_result_colors, colors, TeknikColor4);
 count_getter!(teknik_result_color_count, colors);
 pointer_getter!(teknik_result_indices, indices, i32);
 count_getter!(teknik_result_index_count, indices);
+pointer_getter!(teknik_result_packed_faces, packed_faces, TeknikPackedFace);
+count_getter!(teknik_result_packed_face_count, packed_faces);
+pointer_getter!(
+    teknik_result_directional_faces,
+    directional_faces,
+    TeknikPackedFace
+);
+count_getter!(
+    teknik_result_directional_face_count,
+    directional_faces
+);
+pointer_getter!(teknik_result_direction_offsets, direction_offsets, u32);
+count_getter!(teknik_result_direction_offset_count, direction_offsets);
+pointer_getter!(teknik_result_direction_counts, direction_counts, u32);
+count_getter!(teknik_result_direction_count_count, direction_counts);
 
 #[no_mangle]
 pub unsafe extern "C" fn teknik_result_quad_count(result: *const TeknikChunkResult) -> u32 {
@@ -227,6 +295,16 @@ pub unsafe extern "C" fn teknik_result_voxel_checksum(
         .unwrap_or(0)
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn teknik_result_packed_face_checksum(
+    result: *const TeknikChunkResult,
+) -> u64 {
+    result
+        .as_ref()
+        .map(|value| value.packed_face_checksum)
+        .unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,7 +327,7 @@ mod tests {
     }
 
     #[test]
-    fn mesher_emits_indexed_geometry() {
+    fn mesher_emits_indexed_and_packed_geometry() {
         let edits = EditMap::new();
         let (voxels, _) = terrain::generate_chunk(73_421, (0, 0, 0), &edits);
         let (padded, _) = terrain::build_padded(73_421, (0, 0, 0), &voxels, &edits);
@@ -258,5 +336,14 @@ mod tests {
         assert_eq!(mesh.vertices.len(), mesh.normals.len());
         assert_eq!(mesh.vertices.len(), mesh.colors.len());
         assert_eq!(mesh.indices.len(), mesh.quads as usize * 6);
+        assert_eq!(mesh.packed_faces.len(), mesh.quads as usize);
+        assert_eq!(
+            mesh.directional_faces.iter().map(Vec::len).sum::<usize>(),
+            mesh.quads as usize
+        );
+        assert_eq!(
+            mesh.packed_faces.len() * std::mem::size_of::<TeknikPackedFace>(),
+            mesh.quads as usize * 8
+        );
     }
 }
