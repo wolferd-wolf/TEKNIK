@@ -6,6 +6,7 @@ signal look_dragged(delta: Vector2)
 signal jump_pressed
 signal break_pressed
 signal place_pressed
+signal log_pressed
 
 const ControlMath = preload("res://src/player/mobile_control_math.gd")
 const STICK_RADIUS: float = 92.0
@@ -18,6 +19,7 @@ var _move_position: Vector2 = Vector2.ZERO
 var _jump_active: bool = false
 var _break_active: bool = false
 var _place_active: bool = false
+var _log_active: bool = false
 
 
 func _ready() -> void:
@@ -37,6 +39,11 @@ func _input(event: InputEvent) -> void:
 func _handle_touch(event: InputEventScreenTouch) -> void:
 	var viewport_size: Vector2 = get_viewport_rect().size
 	if event.pressed:
+		if ControlMath.is_log_zone(event.position, viewport_size):
+			_log_active = true
+			log_pressed.emit()
+			queue_redraw()
+			return
 		if ControlMath.is_jump_zone(event.position, viewport_size):
 			_jump_active = true
 			jump_pressed.emit()
@@ -75,6 +82,8 @@ func _handle_touch(event: InputEventScreenTouch) -> void:
 			_break_active = false
 		if ControlMath.is_place_zone(event.position, viewport_size):
 			_place_active = false
+		if ControlMath.is_log_zone(event.position, viewport_size):
+			_log_active = false
 		queue_redraw()
 
 
@@ -89,6 +98,12 @@ func _handle_drag(event: InputEventScreenDrag) -> void:
 
 func _draw() -> void:
 	var viewport_size: Vector2 = get_viewport_rect().size
+	var log_center := Vector2(viewport_size.x * 0.92, viewport_size.y * 0.12)
+	var log_radius: float = minf(viewport_size.x, viewport_size.y) * 0.055
+	draw_circle(log_center, log_radius, Color(0.12, 0.17, 0.21, 0.36 if not _log_active else 0.62))
+	draw_arc(log_center, log_radius, 0.0, TAU, 40, Color(0.78, 0.9, 0.98, 0.68), 2.5)
+	draw_string(ThemeDB.fallback_font, log_center + Vector2(-17.0, 7.0), "LOG", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 16, Color(0.9, 0.96, 1.0, 0.92))
+
 	var jump_center := Vector2(viewport_size.x * 0.87, viewport_size.y * 0.80)
 	var jump_radius: float = minf(viewport_size.x, viewport_size.y) * 0.088
 	draw_circle(jump_center, jump_radius, Color(0.86, 0.9, 0.94, 0.32 if not _jump_active else 0.52))
