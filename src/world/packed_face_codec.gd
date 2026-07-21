@@ -4,6 +4,7 @@ extends RefCounted
 const TerrainGenerator = preload("res://src/world/voxel_terrain_generator.gd")
 
 const CHUNK_SIZE: int = 32
+const MAX_FACE_PLANE: int = 32
 const WORDS_PER_FACE: int = 2
 const FACE_NEG_X: int = 0
 const FACE_POS_X: int = 1
@@ -14,15 +15,15 @@ const FACE_POS_Z: int = 5
 const FACE_DIRECTION_COUNT: int = 6
 
 const FIVE_BIT_MASK: int = 0x1f
+const SIX_BIT_MASK: int = 0x3f
 const THREE_BIT_MASK: int = 0x07
 const EIGHT_BIT_MASK: int = 0xff
-const SIX_BIT_MASK: int = 0x3f
 const X_SHIFT: int = 0
-const Y_SHIFT: int = 5
-const Z_SHIFT: int = 10
-const DIRECTION_SHIFT: int = 15
-const MATERIAL_SHIFT: int = 18
-const FLAGS_SHIFT: int = 26
+const Y_SHIFT: int = 6
+const Z_SHIFT: int = 12
+const DIRECTION_SHIFT: int = 18
+const MATERIAL_SHIFT: int = 21
+const FLAGS_SHIFT: int = 29
 const WIDTH_SHIFT: int = 0
 const HEIGHT_SHIFT: int = 5
 
@@ -35,24 +36,16 @@ static func decode_face_words(geometry_word: int, appearance_word: int) -> Dicti
 	var width: int = ((appearance >> WIDTH_SHIFT) & FIVE_BIT_MASK) + 1
 	var height: int = ((appearance >> HEIGHT_SHIFT) & FIVE_BIT_MASK) + 1
 	var result: Dictionary = {
-		"x": (geometry >> X_SHIFT) & FIVE_BIT_MASK,
-		"y": (geometry >> Y_SHIFT) & FIVE_BIT_MASK,
-		"z": (geometry >> Z_SHIFT) & FIVE_BIT_MASK,
+		"x": (geometry >> X_SHIFT) & SIX_BIT_MASK,
+		"y": (geometry >> Y_SHIFT) & SIX_BIT_MASK,
+		"z": (geometry >> Z_SHIFT) & SIX_BIT_MASK,
 		"direction": direction,
 		"material": material,
-		"flags": (geometry >> FLAGS_SHIFT) & SIX_BIT_MASK,
+		"flags": (geometry >> FLAGS_SHIFT) & THREE_BIT_MASK,
 		"width": width,
 		"height": height,
 	}
-	result["valid"] = (
-		direction >= 0
-		and direction < FACE_DIRECTION_COUNT
-		and material > 0
-		and width >= 1
-		and width <= CHUNK_SIZE
-		and height >= 1
-		and height <= CHUNK_SIZE
-	)
+	result["valid"] = _decoded_face_is_valid(result)
 	return result
 
 
@@ -100,8 +93,6 @@ static func decode_arrays(
 			float(decoded.y),
 			float(decoded.z)
 		)
-		if positive:
-			origin[axis] += 1.0
 		var delta_u := Vector3.ZERO
 		var delta_v := Vector3.ZERO
 		delta_u[axis_u] = float(decoded.width)
@@ -229,6 +220,26 @@ static func validate_directional_partition(
 		"face_count": total_faces,
 		"error": "" if expected_offset == total_faces else "Directional ranges do not cover all faces",
 	}
+
+
+static func _decoded_face_is_valid(face: Dictionary) -> bool:
+	var direction: int = int(face.direction)
+	var axis_and_sign: Vector2i = _axis_and_sign(direction)
+	var axis: int = axis_and_sign.x
+	if axis < 0:
+		return false
+	var coordinates: Array[int] = [int(face.x), int(face.y), int(face.z)]
+	for coordinate_axis: int in range(3):
+		var maximum: int = MAX_FACE_PLANE if coordinate_axis == axis else CHUNK_SIZE - 1
+		if coordinates[coordinate_axis] < 0 or coordinates[coordinate_axis] > maximum:
+			return false
+	return (
+		int(face.material) > 0
+		and int(face.width) >= 1
+		and int(face.width) <= CHUNK_SIZE
+		and int(face.height) >= 1
+		and int(face.height) <= CHUNK_SIZE
+	)
 
 
 static func _axis_and_sign(direction: int) -> Vector2i:
