@@ -117,6 +117,7 @@ func _compare_chunk(
 	_expect(bool(decoded.get("success", false)), label + " packed faces decode in Godot")
 	if bool(decoded.get("success", false)):
 		_expect(int(decoded.quads) == int(native.quads), label + " decoded quad count matches")
+		_trace_first_packed_mismatch(coordinate, packed_faces, decoded.arrays, native_arrays)
 		_compare_arrays(label + " packed decode", decoded.arrays, native_arrays)
 
 	var partition: Dictionary = PackedFaceCodec.validate_directional_partition(
@@ -131,22 +132,20 @@ func _compare_chunk(
 			label + " directional stream face count matches"
 		)
 
+	var all_fields_valid: bool = true
+	var invalid_face_index: int = -1
 	for face_index: int in range(packed_faces.size() / PackedFaceCodec.WORDS_PER_FACE):
 		var face: Dictionary = PackedFaceCodec.decode_face_words(
 			packed_faces[face_index * 2],
 			packed_faces[face_index * 2 + 1]
 		)
-		_expect(bool(face.valid), label + " packed face %d has valid fields" % face_index)
-		if not bool(face.valid):
+		if not bool(face.valid) or int(face.x) >= VoxelChunk.SIZE or int(face.y) >= VoxelChunk.SIZE or int(face.z) >= VoxelChunk.SIZE:
+			all_fields_valid = false
+			invalid_face_index = face_index
 			break
-		_expect(
-			int(face.x) < VoxelChunk.SIZE
-			and int(face.y) < VoxelChunk.SIZE
-			and int(face.z) < VoxelChunk.SIZE,
-			label + " packed face %d stores an owning voxel coordinate" % face_index
-		)
-		if _failures > 0:
-			break
+	_expect(all_fields_valid, label + " all packed records have valid fields and owning coordinates")
+	if not all_fields_valid:
+		print("PACKED_INVALID_FACE coordinate=", coordinate, " face=", invalid_face_index)
 
 	print(
 		"NATIVE_CHUNK_PARITY coordinate=", coordinate,
@@ -161,6 +160,59 @@ func _compare_chunk(
 		" packed_checksum=", native.get("packed_face_checksum", 0),
 		" voxel_checksum=", native.get("voxel_checksum", 0)
 	)
+
+
+func _trace_first_packed_mismatch(
+	coordinate: Vector3i,
+	packed_faces: PackedInt32Array,
+	actual_arrays: Array,
+	expected_arrays: Array
+) -> void:
+	var actual_vertices: PackedVector3Array = actual_arrays[Mesh.ARRAY_VERTEX]
+	var expected_vertices: PackedVector3Array = expected_arrays[Mesh.ARRAY_VERTEX]
+	var count: int = mini(actual_vertices.size(), expected_vertices.size())
+	for vertex_index: int in range(count):
+		if actual_vertices[vertex_index] == expected_vertices[vertex_index]:
+			continue
+		var face_index: int = vertex_index / 4
+		var decoded_face: Dictionary = PackedFaceCodec.decode_face_words(
+			packed_faces[face_index * 2],
+			packed_faces[face_index * 2 + 1]
+		)
+		print(
+			"PACKED_VERTEX_MISMATCH coordinate=", coordinate,
+			" world_origin=", coordinate * VoxelChunk.SIZE,
+			" face=", face_index,
+			" corner=", vertex_index % 4,
+			" expected=", expected_vertices[vertex_index],
+			" actual=", actual_vertices[vertex_index],
+			" delta=", actual_vertices[vertex_index] - expected_vertices[vertex_index],
+			" decoded=", decoded_face,
+			" geometry_word=", packed_faces[face_index * 2],
+			" appearance_word=", packed_faces[face_index * 2 + 1]
+		)
+		break
+
+	var actual_colors: PackedColorArray = actual_arrays[Mesh.ARRAY_COLOR]
+	var expected_colors: PackedColorArray = expected_arrays[Mesh.ARRAY_COLOR]
+	count = mini(actual_colors.size(), expected_colors.size())
+	for color_index: int in range(count):
+		var actual: Color = actual_colors[color_index]
+		var expected: Color = expected_colors[color_index]
+		var error: float = maxf(
+			maxf(absf(actual.r - expected.r), absf(actual.g - expected.g)),
+			maxf(absf(actual.b - expected.b), absf(actual.a - expected.a))
+		)
+		if error <= COLOR_EPSILON:
+			continue
+		print(
+			"PACKED_COLOR_MISMATCH coordinate=", coordinate,
+			" vertex=", color_index,
+			" expected=", expected,
+			" actual=", actual,
+			" max_error=", error
+		)
+		break
 
 
 func _compare_arrays(label: String, actual_arrays: Array, expected_arrays: Array) -> void:
