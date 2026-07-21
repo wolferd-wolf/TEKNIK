@@ -24,7 +24,7 @@ func _init() -> void:
 func _test_base_heightfield() -> void:
 	var coordinate := Vector3i.ZERO
 	var profile: Dictionary = CollisionProfile.build(SEED, coordinate, {})
-	var data: PackedFloat32Array = profile.height_data
+	var data: PackedFloat32Array = profile.get("height_data", PackedFloat32Array())
 	_expect(data.size() == CollisionProfile.GRID_SIZE * CollisionProfile.GRID_SIZE, "heightfield uses a 33 by 33 border grid")
 	var x: int = 6
 	var z: int = 9
@@ -41,7 +41,7 @@ func _test_removed_surface_lowers_heightfield() -> void:
 	var top: int = TerrainGenerator.surface_height(SEED, x, z)
 	store.set_override(Vector3i(x, top, z), VoxelChunk.AIR)
 	var profile: Dictionary = CollisionProfile.build(SEED, Vector3i.ZERO, store.snapshot_neighborhood(Vector3i.ZERO))
-	var data: PackedFloat32Array = profile.height_data
+	var data: PackedFloat32Array = profile.get("height_data", PackedFloat32Array())
 	_expect(is_equal_approx(data[z * CollisionProfile.GRID_SIZE + x], float(top)), "breaking the top block lowers collision by one block")
 
 
@@ -53,12 +53,13 @@ func _test_placed_blocks_use_merged_primitive_runs() -> void:
 	store.set_override(Vector3i(x, top + 1, z), TerrainGenerator.STONE)
 	store.set_override(Vector3i(x, top + 2, z), TerrainGenerator.STONE)
 	var profile: Dictionary = CollisionProfile.build(SEED, Vector3i.ZERO, store.snapshot_neighborhood(Vector3i.ZERO))
-	var data: PackedFloat32Array = profile.height_data
+	var data: PackedFloat32Array = profile.get("height_data", PackedFloat32Array())
 	_expect(is_equal_approx(data[z * CollisionProfile.GRID_SIZE + x], float(top + 1)), "placed blocks do not turn the terrain heightfield into a solid roof")
-	var runs: Array = profile.box_runs
+	var runs: Array = profile.get("box_runs", [])
 	_expect(runs.size() == 1, "contiguous placed blocks merge into one primitive collision run")
 	if runs.size() == 1:
-		var size: Vector3 = (runs[0] as Dictionary).size
+		var run: Dictionary = runs[0]
+		var size: Vector3 = run.get("size", Vector3.ZERO)
 		_expect(is_equal_approx(size.y, 2.0), "merged primitive run preserves placed stack height")
 	var body: StaticBody3D = CollisionProfile.create_body(profile, "TestPlaced")
 	_expect(body != null and body.get_child_count() == 2, "placed stack adds one box beside the heightfield")
