@@ -26,7 +26,8 @@ var _player: TeknikExplorationController
 
 func _ready() -> void:
 	super._ready()
-	_build_player_controller()
+	if _qa_screenshot_path().is_empty():
+		_build_player_controller()
 	_queue_collision_window(_world_center)
 
 
@@ -61,29 +62,24 @@ func _process_chunk_work() -> void:
 	var frame_started_usec: int = Time.get_ticks_usec()
 	var completed_loads: int = 0
 	var worker_usec: int = 0
-
 	if _chunk_build_worker.is_ready():
 		var report: Dictionary = _chunk_build_worker.collect()
 		worker_usec = int(report.worker_usec)
 		_commit_terrain_chunk(report)
 		completed_loads = 1
 		_stream_loaded_total += 1
-
 	var load_budget: int = 0 if _chunk_build_worker.is_busy() else STREAM_LOADS_PER_FRAME
 	var work: Dictionary = _chunk_work_budget.take_frame(load_budget, STREAM_UNLOADS_PER_FRAME)
 	var to_unload: Array[Vector3i] = work.unload
 	var to_load: Array[Vector3i] = work.load
-
 	for coordinate: Vector3i in to_unload:
 		_unload_terrain_chunk(coordinate)
 	_stream_unloaded_total += to_unload.size()
-
 	if not to_load.is_empty():
 		var coordinate: Vector3i = to_load[0]
 		var start_result: Error = _chunk_build_worker.start(WORLD_SEED, coordinate)
 		if start_result != OK:
 			push_error("Failed to start chunk worker: %s" % error_string(start_result))
-
 	if completed_loads > 0 or not to_unload.is_empty() or not to_load.is_empty():
 		_world_sample_cache.clear()
 		_world_column_cache.clear()
@@ -97,7 +93,6 @@ func _process_chunk_work() -> void:
 			" remaining_unloads=", int(work.remaining_unloads),
 			" worker_busy=", _chunk_build_worker.is_busy()
 		)
-
 	if not _chunk_work_budget.has_work() and not _chunk_build_worker.is_busy() and _stream_plan_started_ms > 0:
 		print(
 			"WORLD_STREAM complete_center=", _stream_plan_center,
@@ -130,11 +125,7 @@ func _commit_terrain_chunk(report: Dictionary) -> void:
 	_total_quads += int(report.quads)
 	var terrain := MeshInstance3D.new()
 	terrain.mesh = mesh
-	terrain.position = Vector3(
-		coordinate.x * VoxelChunk.SIZE,
-		0.0,
-		coordinate.z * VoxelChunk.SIZE
-	)
+	terrain.position = Vector3(coordinate.x * VoxelChunk.SIZE, 0.0, coordinate.z * VoxelChunk.SIZE)
 	terrain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	terrain.set_meta("quad_count", int(report.quads))
 	add_child(terrain)
@@ -153,7 +144,7 @@ func _build_player_controller() -> void:
 	var spawn_height: int = TerrainGenerator.surface_height(WORLD_SEED, spawn_x, spawn_z)
 	_player.position = Vector3(float(spawn_x) + 0.5, float(spawn_height) + 2.5, float(spawn_z) + 0.5)
 	add_child(_player)
-	_player.set_camera_active(_qa_screenshot_path().is_empty())
+	_player.set_camera_active(true)
 	_exploration_anchor = _player
 	print("WORLD_PLAYER spawn=", _player.position, " collision_radius=", COLLISION_RADIUS)
 
@@ -168,11 +159,7 @@ func _queue_collision_window(center: Vector3i) -> void:
 	var delta: Dictionary = CollisionWindowPlan.reconcile(_collision_bodies, center, COLLISION_RADIUS)
 	_collision_add_queue = delta.add
 	_collision_remove_queue = delta.remove
-	print(
-		"WORLD_COLLISION center=", center,
-		" queued_add=", _collision_add_queue.size(),
-		" queued_remove=", _collision_remove_queue.size()
-	)
+	print("WORLD_COLLISION center=", center, " queued_add=", _collision_add_queue.size(), " queued_remove=", _collision_remove_queue.size())
 
 
 func _process_collision_work() -> void:
