@@ -78,6 +78,21 @@ func _test_voxel_chunk() -> void:
 		== TerrainGenerator.voxel_at(99, Vector3i(7, cached_column.x, -11)),
 		"cached terrain columns preserve voxel sampling"
 	)
+	var climate_a: Vector2 = TerrainGenerator.climate_at(99, -120, 84)
+	var climate_b: Vector2 = TerrainGenerator.climate_at(99, -120, 84)
+	_expect(climate_a == climate_b, "terrain climate sampling is deterministic")
+	_expect(
+		climate_a.x >= 0.0 and climate_a.x <= 1.0
+		and climate_a.y >= 0.0 and climate_a.y <= 1.0,
+		"terrain climate remains normalized"
+	)
+	var dry_color: Color = TerrainGenerator.surface_color(
+		99, TerrainGenerator.GRASS, Vector3i(-180, 10, -120)
+	)
+	var wet_color: Color = TerrainGenerator.surface_color(
+		99, TerrainGenerator.GRASS, Vector3i(180, 10, 120)
+	)
+	_expect(dry_color != wet_color, "world-space climate varies terrain color")
 
 	var max_step: int = 0
 	var heights_in_budget: bool = true
@@ -111,6 +126,16 @@ func _test_greedy_mesher() -> void:
 	var solid := VoxelChunk.new(1)
 	var solid_mesh: Dictionary = GreedyMesher.build_mesh(solid)
 	_expect(int(solid_mesh.quads) == 6, "solid chunk collapses to six boundary quads")
+	var tint_calls: Array[int] = [0]
+	var tinted: Dictionary = GreedyMesher.build_mesh(
+		chunk,
+		Vector3i(32, 0, -32),
+		Callable(),
+		func(_material: int, _position: Vector3i) -> Color:
+			tint_calls[0] += 1
+			return Color.MAGENTA
+	)
+	_expect(tint_calls[0] == int(tinted.quads), "greedy mesher samples one climate color per quad")
 
 
 func _test_chunk_stream_plan() -> void:

@@ -7,7 +7,8 @@ const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
 static func build_mesh(
 	chunk: TeknikVoxelChunk,
 	world_origin: Vector3i = Vector3i.ZERO,
-	world_sampler: Callable = Callable()
+	world_sampler: Callable = Callable(),
+	color_sampler: Callable = Callable()
 ) -> Dictionary:
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
@@ -82,7 +83,11 @@ static func build_mesh(
 					var delta_v := Vector3.ZERO
 					delta_u[axis_u] = float(width)
 					delta_v[axis_v] = float(height)
-					_append_quad(vertices, normals, colors, indices, origin, delta_u, delta_v, axis, face)
+					_append_quad(
+						vertices, normals, colors, indices,
+						origin, delta_u, delta_v, axis, face,
+						world_origin, color_sampler
+					)
 					quad_count += 1
 
 					for offset_v: int in range(height):
@@ -137,7 +142,9 @@ static func _append_quad(
 	delta_u: Vector3,
 	delta_v: Vector3,
 	axis: int,
-	face: int
+	face: int,
+	world_origin: Vector3i,
+	color_sampler: Callable
 ) -> void:
 	var base: int = vertices.size()
 	vertices.append(origin)
@@ -147,7 +154,16 @@ static func _append_quad(
 
 	var normal := Vector3.ZERO
 	normal[axis] = 1.0 if face > 0 else -1.0
+	var sample_position := Vector3i(
+		roundi(float(world_origin.x) + origin.x + (delta_u.x + delta_v.x) * 0.5),
+		roundi(float(world_origin.y) + origin.y + (delta_u.y + delta_v.y) * 0.5),
+		roundi(float(world_origin.z) + origin.z + (delta_u.z + delta_v.z) * 0.5)
+	)
 	var color: Color = _material_color(absi(face))
+	if color_sampler.is_valid():
+		var sampled_color: Variant = color_sampler.call(absi(face), sample_position)
+		if sampled_color is Color:
+			color = sampled_color
 	var face_light: float = 1.0
 	if axis == 1 and face > 0:
 		face_light = 1.03
@@ -156,7 +172,11 @@ static func _append_quad(
 	else:
 		face_light = 0.94
 	var variation: float = 0.96 + fposmod(
-		sin(origin.x * 12.9898 + origin.y * 37.719 + origin.z * 78.233) * 43758.5453,
+		sin(
+			float(sample_position.x) * 12.9898
+			+ float(sample_position.y) * 37.719
+			+ float(sample_position.z) * 78.233
+		) * 43758.5453,
 		1.0
 	) * 0.07
 	color = Color(

@@ -12,6 +12,44 @@ const WATER_LEVEL: int = 7
 const MAX_SURFACE_HEIGHT: int = 26
 
 
+static func climate_at(seed: int, world_x: int, world_z: int) -> Vector2:
+	var moisture: float = WorldSeed.sample_value_noise(
+		seed + 1217, float(world_x), float(world_z), 92.0
+	)
+	var temperature: float = WorldSeed.sample_value_noise(
+		seed + 1291, float(world_x), float(world_z), 138.0
+	)
+	return Vector2(moisture, temperature)
+
+
+static func surface_color(
+	seed: int,
+	material: int,
+	world_position: Vector3i
+) -> Color:
+	var climate: Vector2 = climate_at(seed, world_position.x, world_position.z)
+	var elevation: float = clampf(
+		(float(world_position.y) - 8.0) / float(MAX_SURFACE_HEIGHT - 8),
+		0.0,
+		1.0
+	)
+	match material:
+		GRASS:
+			var dry_grass := Color("777442")
+			var meadow_grass := Color("477544")
+			var cool_upland := Color("456653")
+			var grass: Color = dry_grass.lerp(meadow_grass, smoothstep(0.28, 0.72, climate.x))
+			return grass.lerp(cool_upland, elevation * (0.22 + (1.0 - climate.y) * 0.28))
+		SOIL:
+			return Color("674735").lerp(Color("493f38"), elevation * 0.34)
+		SAND:
+			return Color("aa8c55").lerp(Color("8d815e"), climate.x * 0.22)
+		STONE:
+			return Color("626d6b").lerp(Color("77817d"), elevation * 0.3)
+		_:
+			return Color("8c7e69")
+
+
 static func generate_chunk(seed: int, chunk_coordinate: Vector3i) -> TeknikVoxelChunk:
 	var chunk := VoxelChunk.new()
 	var world_origin: Vector3i = chunk_coordinate * VoxelChunk.SIZE

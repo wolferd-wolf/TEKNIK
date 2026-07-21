@@ -124,7 +124,8 @@ func _refresh_terrain(center: Vector3i, priority: Vector3i) -> void:
 		var report: Dictionary = GreedyMesher.build_mesh(
 			chunk,
 			coordinate * VoxelChunk.SIZE,
-			Callable(self, "_sample_world_voxel")
+			Callable(self, "_sample_world_voxel"),
+			Callable(self, "_sample_world_color")
 		)
 		_total_quads += int(report.quads)
 
@@ -243,8 +244,12 @@ func _build_distant_terrain() -> void:
 				var height: int = TerrainGenerator.surface_height(WORLD_SEED, corner.x, corner.y)
 				vertices.append(Vector3(float(corner.x), float(height) + 0.04, float(corner.y)))
 				normals.append(Vector3.UP)
-				var elevation_tint: float = clampf((float(height) - 8.0) / 42.0, 0.0, 0.1)
-				colors.append(Color("455f42").lightened(elevation_tint))
+				var biome_color: Color = TerrainGenerator.surface_color(
+					WORLD_SEED,
+					TerrainGenerator.GRASS,
+					Vector3i(corner.x, height, corner.y)
+				)
+				colors.append(biome_color.lerp(Color("455f42"), 0.42))
 			indices.append_array(PackedInt32Array([
 				base, base + 3, base + 2,
 				base, base + 2, base + 1,
@@ -479,6 +484,10 @@ func _sample_world_voxel(world_position: Vector3i) -> int:
 	var material: int = TerrainGenerator.material_from_column(world_position.y, column)
 	_world_sample_cache[world_position] = material
 	return material
+
+
+func _sample_world_color(material: int, world_position: Vector3i) -> Color:
+	return TerrainGenerator.surface_color(WORLD_SEED, material, world_position)
 
 
 func _camera_position() -> Vector3:
