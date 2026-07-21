@@ -20,6 +20,8 @@ var _look_enabled: bool = true
 var _mobile_move: Vector2 = Vector2.ZERO
 var _mobile_jump_requested: bool = false
 var _mobile_controls: TeknikMobileControls
+var _scripted_mode: bool = false
+var _scripted_move: Vector2 = Vector2.ZERO
 
 
 func _ready() -> void:
@@ -32,6 +34,8 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if _scripted_mode:
+		return
 	if event is InputEventMouseMotion and _look_enabled:
 		_apply_look(event.relative, MOUSE_SENSITIVITY)
 	elif event is InputEventMouseButton and event.pressed:
@@ -45,8 +49,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	var input_vector := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
-	if _mobile_move.length_squared() > input_vector.length_squared():
+	var input_vector: Vector2 = _scripted_move if _scripted_mode else Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	if not _scripted_mode and _mobile_move.length_squared() > input_vector.length_squared():
 		input_vector = _mobile_move
 	var local_direction := Vector3(input_vector.x, 0.0, input_vector.y)
 	var direction := (global_transform.basis * local_direction).normalized()
@@ -55,7 +59,7 @@ func _physics_process(delta: float) -> void:
 	velocity.x = move_toward(velocity.x, target_velocity.x, response * delta)
 	velocity.z = move_toward(velocity.z, target_velocity.z, response * delta)
 	if is_on_floor():
-		if Input.is_action_just_pressed("jump") or _mobile_jump_requested:
+		if (not _scripted_mode and Input.is_action_just_pressed("jump")) or _mobile_jump_requested:
 			velocity.y = JUMP_VELOCITY
 		elif velocity.y < 0.0:
 			velocity.y = -0.5
@@ -68,6 +72,28 @@ func _physics_process(delta: float) -> void:
 func set_camera_active(active: bool) -> void:
 	if _camera != null:
 		_camera.current = active
+
+
+func set_scripted_mode(enabled: bool) -> void:
+	_scripted_mode = enabled
+	_scripted_move = Vector2.ZERO
+	if _mobile_controls != null:
+		_mobile_controls.visible = not enabled
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if enabled else Input.MOUSE_MODE_CAPTURED
+
+
+func set_scripted_move(value: Vector2) -> void:
+	_scripted_move = value.limit_length(1.0)
+
+
+func look_at_world(target: Vector3) -> void:
+	var eye: Vector3 = global_position + Vector3(0.0, 1.55, 0.0)
+	var delta: Vector3 = target - eye
+	var horizontal := Vector2(delta.x, delta.z)
+	if horizontal.length_squared() > 0.0001:
+		rotation.y = atan2(-delta.x, -delta.z)
+	if _camera_pivot != null:
+		_camera_pivot.rotation.x = clampf(-atan2(delta.y, horizontal.length()), deg_to_rad(-75.0), deg_to_rad(70.0))
 
 
 func _emit_break_request() -> void:
