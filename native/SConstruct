@@ -1,0 +1,22 @@
+#!/usr/bin/env python
+
+from SCons.Script import ARGUMENTS, Default, Glob, SConscript
+
+
+env = SConscript("godot-cpp/SConstruct")
+env.Append(CPPPATH=["cpp/src", "rust/include"])
+env.Append(CXXFLAGS=["-std=c++17"])
+
+rust_lib_dir = ARGUMENTS.get("rust_lib_dir", "rust/target/release")
+env.Append(LIBPATH=[rust_lib_dir])
+env.Append(LIBS=["teknik_core"])
+
+if env["platform"] == "linux":
+    env.Append(LIBS=["dl", "pthread", "m"])
+elif env["platform"] == "android":
+    env.Append(LIBS=["dl", "log", "m"])
+
+sources = Glob("cpp/src/*.cpp")
+target = "bin/libteknik_native{}{}".format(env["suffix"], env["SHLIBSUFFIX"])
+library = env.SharedLibrary(target=target, source=sources)
+Default(library)
