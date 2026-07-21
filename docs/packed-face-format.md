@@ -19,24 +19,31 @@ There is one record per greedy quad. No vertex positions, normals, colours or in
 ## Geometry word
 
 ```text
-Bits  0–4   owning voxel X       0–31
-Bits  5–9   owning voxel Y       0–31
-Bits 10–14  owning voxel Z       0–31
-Bits 15–17  face direction       0–5
-Bits 18–25  material ID          1–255
-Bits 26–31  flags                currently zero
+Bits  0–5   face-plane X         0–32
+Bits  6–11  face-plane Y         0–32
+Bits 12–17  face-plane Z         0–32
+Bits 18–20  face direction       0–5
+Bits 21–28  material ID          1–255
+Bits 29–31  flags                currently zero
 ```
 
-### Owning-voxel rule
+### Face-plane rule
 
-The packed coordinate is the local coordinate of a solid voxel that owns the face, not the final face-plane coordinate.
+The packed coordinate is the local origin of the rendered greedy rectangle itself.
 
-This is required because a positive face on the edge of a 32-block chunk lies on plane 32, while five bits can only store 0–31. The decoder starts from the owning voxel and adds one unit along positive face normals.
+Six coordinate bits are required even though chunks contain 32 blocks, because valid boundary planes range from 0 through 32. This also represents seam-safe faces owned by a sampled neighbour chunk. For example, an outside neighbour voxel can expose a `+Z` face on the current chunk's local plane `Z=0`; no owning voxel coordinate inside the current chunk can represent that face correctly.
+
+For a face whose normal axis is `a`:
+
+- the coordinate on axis `a` may be 0–32;
+- the two tangent-axis origin coordinates remain 0–31;
+- width and height extend from that origin along the two tangent axes.
 
 Examples:
 
-- negative X face of voxel X=0 stores X=0 and reconstructs plane X=0;
-- positive X face of voxel X=31 stores X=31 and reconstructs plane X=32.
+- a negative X boundary face stores plane `X=0`;
+- a positive X boundary face stores plane `X=32`;
+- a neighbour-owned positive Z seam face may store plane `Z=0` directly.
 
 ## Appearance word
 
@@ -128,6 +135,7 @@ A change to this format is not accepted unless all of the following remain true:
 - each record is exactly eight bytes;
 - directional ranges are contiguous and cover every face exactly once;
 - coordinates, dimensions, directions and materials are in range;
-- full 32×32 positive boundary faces reconstruct on plane 32;
+- local planes 0 and 32 reconstruct exactly;
+- neighbour-owned seam faces reconstruct exactly;
 - natural, river, upland, negative-coordinate, seam and edited chunks pass;
 - existing gameplay, traversal, Android and fallback gates remain green.
