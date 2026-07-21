@@ -6,4 +6,9 @@ build/
 *.aab
 *.keystore
 *.jks
-
+native/godot-cpp/
+native/rust/target/
+native/bin/*.so
+native/bin/*.dll
+native/bin/*.dylib
+extension_api.json
