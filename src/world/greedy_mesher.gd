@@ -2,6 +2,8 @@ extends RefCounted
 class_name TeknikGreedyMesher
 
 const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
+const PADDED_SIZE: int = VoxelChunk.SIZE + 2
+const PADDED_VOLUME: int = PADDED_SIZE * PADDED_SIZE * PADDED_SIZE
 
 
 static func build_mesh(
@@ -21,6 +23,7 @@ static func build_arrays(
 	world_sampler: Callable = Callable(),
 	color_sampler: Callable = Callable()
 ) -> Dictionary:
+	var padded: PackedByteArray = _build_padded_voxels(chunk, world_origin, world_sampler)
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var colors := PackedColorArray()
@@ -43,10 +46,19 @@ static func build_arrays(
 				cursor[axis_v] = coordinate_v
 				for coordinate_u: int in range(dimensions[axis_u]):
 					cursor[axis_u] = coordinate_u
-					var current_position := Vector3i(cursor[0], cursor[1], cursor[2])
-					var neighbor_position := current_position + Vector3i(step[0], step[1], step[2])
-					var current: int = _sample_voxel(chunk, current_position, world_origin, world_sampler)
-					var neighbor: int = _sample_voxel(chunk, neighbor_position, world_origin, world_sampler)
+					var padded_x: int = cursor[0] + 1
+					var padded_y: int = cursor[1] + 1
+					var padded_z: int = cursor[2] + 1
+					var current_index: int = padded_x + PADDED_SIZE * (padded_z + PADDED_SIZE * padded_y)
+					var neighbor_index: int = (
+						padded_x + step[0]
+						+ PADDED_SIZE * (
+							padded_z + step[2]
+							+ PADDED_SIZE * (padded_y + step[1])
+						)
+					)
+					var current: int = int(padded[current_index])
+					var neighbor: int = int(padded[neighbor_index])
 					if (current == VoxelChunk.AIR) == (neighbor == VoxelChunk.AIR):
 						mask[mask_index] = 0
 					elif current != VoxelChunk.AIR:
@@ -106,6 +118,43 @@ static func build_arrays(
 	}
 
 
+static func _build_padded_voxels(
+	chunk: TeknikVoxelChunk,
+	world_origin: Vector3i,
+	world_sampler: Callable
+) -> PackedByteArray:
+	var padded := PackedByteArray()
+	padded.resize(PADDED_VOLUME)
+	padded.fill(VoxelChunk.AIR)
+	for y: int in range(VoxelChunk.SIZE):
+		for z: int in range(VoxelChunk.SIZE):
+			var chunk_row: int = VoxelChunk.SIZE * (z + VoxelChunk.SIZE * y)
+			var padded_row: int = 1 + PADDED_SIZE * ((z + 1) + PADDED_SIZE * (y + 1))
+			for x: int in range(VoxelChunk.SIZE):
+				padded[padded_row + x] = chunk.voxels[chunk_row + x]
+
+	if not world_sampler.is_valid():
+		return padded
+
+	for y: int in range(VoxelChunk.SIZE):
+		for z: int in range(VoxelChunk.SIZE):
+			padded[_padded_index(0, y + 1, z + 1)] = clampi(int(world_sampler.call(world_origin + Vector3i(-1, y, z))), 0, 255)
+			padded[_padded_index(VoxelChunk.SIZE + 1, y + 1, z + 1)] = clampi(int(world_sampler.call(world_origin + Vector3i(VoxelChunk.SIZE, y, z))), 0, 255)
+	for z: int in range(VoxelChunk.SIZE):
+		for x: int in range(VoxelChunk.SIZE):
+			padded[_padded_index(x + 1, 0, z + 1)] = clampi(int(world_sampler.call(world_origin + Vector3i(x, -1, z))), 0, 255)
+			padded[_padded_index(x + 1, VoxelChunk.SIZE + 1, z + 1)] = clampi(int(world_sampler.call(world_origin + Vector3i(x, VoxelChunk.SIZE, z))), 0, 255)
+	for y: int in range(VoxelChunk.SIZE):
+		for x: int in range(VoxelChunk.SIZE):
+			padded[_padded_index(x + 1, y + 1, 0)] = clampi(int(world_sampler.call(world_origin + Vector3i(x, y, -1))), 0, 255)
+			padded[_padded_index(x + 1, y + 1, VoxelChunk.SIZE + 1)] = clampi(int(world_sampler.call(world_origin + Vector3i(x, y, VoxelChunk.SIZE))), 0, 255)
+	return padded
+
+
+static func _padded_index(x: int, y: int, z: int) -> int:
+	return x + PADDED_SIZE * (z + PADDED_SIZE * y)
+
+
 static func mesh_from_arrays(arrays: Array) -> ArrayMesh:
 	var mesh := ArrayMesh.new()
 	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
@@ -118,14 +167,6 @@ static func mesh_from_arrays(arrays: Array) -> ArrayMesh:
 	material.cull_mode = BaseMaterial3D.CULL_BACK
 	mesh.surface_set_material(0, material)
 	return mesh
-
-
-static func _sample_voxel(chunk: TeknikVoxelChunk, local_position: Vector3i, world_origin: Vector3i, world_sampler: Callable) -> int:
-	if VoxelChunk.in_bounds(local_position):
-		return chunk.get_voxel(local_position)
-	if world_sampler.is_valid():
-		return int(world_sampler.call(world_origin + local_position))
-	return VoxelChunk.AIR
 
 
 static func _append_quad(
