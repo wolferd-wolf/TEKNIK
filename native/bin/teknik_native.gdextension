@@ -10,3 +10,5 @@ linux.debug.x86_64 = "res://native/bin/libteknik_native.linux.template_debug.x86
 linux.release.x86_64 = "res://native/bin/libteknik_native.linux.template_release.x86_64.so"
 android.debug.arm64 = "res://native/bin/libteknik_native.android.template_debug.arm64.so"
 android.release.arm64 = "res://native/bin/libteknik_native.android.template_release.arm64.so"
+android.debug.x86_64 = "res://native/bin/libteknik_native.android.template_debug.x86_64.so"
+android.release.x86_64 = "res://native/bin/libteknik_native.android.template_release.x86_64.so"
