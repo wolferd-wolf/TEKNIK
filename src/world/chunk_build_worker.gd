@@ -18,11 +18,15 @@ func is_busy() -> bool:
 	return _busy
 
 
-func start(seed: int, coordinate: Vector3i, edit_snapshots: Dictionary = {}) -> Error:
+func coordinate() -> Vector3i:
+	return _coordinate
+
+
+func start(seed: int, coordinate_value: Vector3i, edit_snapshots: Dictionary = {}) -> Error:
 	if _busy:
 		return ERR_BUSY
 	_seed = seed
-	_coordinate = coordinate
+	_coordinate = coordinate_value
 	_edit_snapshots = edit_snapshots.duplicate(true)
 	_started_usec = Time.get_ticks_usec()
 	_busy = true
@@ -43,10 +47,14 @@ func collect() -> Dictionary:
 
 
 func _build() -> Dictionary:
+	var generation_started_usec: int = Time.get_ticks_usec()
 	var chunk: TeknikVoxelChunk = TerrainGenerator.generate_chunk(_seed, _coordinate)
+	var generation_usec: int = Time.get_ticks_usec() - generation_started_usec
 	var current_edits: Dictionary = _edit_snapshots.get(_coordinate, {})
 	var applied_edits: int = _apply_snapshot(chunk, current_edits)
 	var world_origin: Vector3i = _coordinate * VoxelChunk.SIZE
+	var boundary_columns: Dictionary = {}
+	var mesh_started_usec: int = Time.get_ticks_usec()
 	var report: Dictionary = GreedyMesher.build_arrays(
 		chunk,
 		world_origin,
@@ -58,7 +66,14 @@ func _build() -> Dictionary:
 			)
 			if neighbor_coordinate == _coordinate:
 				return chunk.get_voxel(world_position - world_origin)
-			var generated: int = TerrainGenerator.voxel_at(_seed, world_position)
+			var column_key := Vector2i(world_position.x, world_position.z)
+			var column: Vector2i
+			if boundary_columns.has(column_key):
+				column = boundary_columns[column_key]
+			else:
+				column = TerrainGenerator.sample_column(_seed, world_position.x, world_position.z)
+				boundary_columns[column_key] = column
+			var generated: int = TerrainGenerator.material_from_column(world_position.y, column)
 			var edits: Dictionary = _edit_snapshots.get(neighbor_coordinate, {})
 			if edits.is_empty():
 				return generated
@@ -66,8 +81,9 @@ func _build() -> Dictionary:
 			var index: int = VoxelChunk.index_of(local)
 			return int(edits.get(index, generated)),
 		func(material: int, world_position: Vector3i) -> Color:
-			return TerrainGenerator.surface_color(_seed, material, world_position)
+			return TerrainGenerator.fast_surface_color(_seed, material, world_position)
 	)
+	var mesh_usec: int = Time.get_ticks_usec() - mesh_started_usec
 	var collision_started_usec: int = Time.get_ticks_usec()
 	report["collision_profile"] = TerrainCollisionProfile.build_from_chunk(
 		_seed,
@@ -76,6 +92,9 @@ func _build() -> Dictionary:
 		chunk
 	)
 	report["collision_profile_usec"] = Time.get_ticks_usec() - collision_started_usec
+	report["generation_usec"] = generation_usec
+	report["mesh_worker_usec"] = mesh_usec
+	report["boundary_column_count"] = boundary_columns.size()
 	report["coordinate"] = _coordinate
 	report["applied_edits"] = applied_edits
 	return report
