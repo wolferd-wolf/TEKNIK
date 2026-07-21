@@ -10,13 +10,23 @@ static func build_mesh(
 	world_sampler: Callable = Callable(),
 	color_sampler: Callable = Callable()
 ) -> Dictionary:
+	var report: Dictionary = build_arrays(chunk, world_origin, world_sampler, color_sampler)
+	report["mesh"] = mesh_from_arrays(report.arrays)
+	return report
+
+
+static func build_arrays(
+	chunk: TeknikVoxelChunk,
+	world_origin: Vector3i = Vector3i.ZERO,
+	world_sampler: Callable = Callable(),
+	color_sampler: Callable = Callable()
+) -> Dictionary:
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var colors := PackedColorArray()
 	var indices := PackedInt32Array()
 	var mask := PackedInt32Array()
 	mask.resize(VoxelChunk.SIZE * VoxelChunk.SIZE)
-
 	var quad_count: int = 0
 	var dimensions := PackedInt32Array([VoxelChunk.SIZE, VoxelChunk.SIZE, VoxelChunk.SIZE])
 
@@ -27,7 +37,6 @@ static func build_mesh(
 		var step := PackedInt32Array([0, 0, 0])
 		step[axis] = 1
 		cursor[axis] = -1
-
 		while cursor[axis] < dimensions[axis]:
 			var mask_index: int = 0
 			for coordinate_v: int in range(dimensions[axis_v]):
@@ -36,13 +45,8 @@ static func build_mesh(
 					cursor[axis_u] = coordinate_u
 					var current_position := Vector3i(cursor[0], cursor[1], cursor[2])
 					var neighbor_position := current_position + Vector3i(step[0], step[1], step[2])
-					var current: int = _sample_voxel(
-						chunk, current_position, world_origin, world_sampler
-					)
-					var neighbor: int = _sample_voxel(
-						chunk, neighbor_position, world_origin, world_sampler
-					)
-
+					var current: int = _sample_voxel(chunk, current_position, world_origin, world_sampler)
+					var neighbor: int = _sample_voxel(chunk, neighbor_position, world_origin, world_sampler)
 					if (current == VoxelChunk.AIR) == (neighbor == VoxelChunk.AIR):
 						mask[mask_index] = 0
 					elif current != VoxelChunk.AIR:
@@ -61,11 +65,9 @@ static func build_mesh(
 						coordinate_u += 1
 						mask_index += 1
 						continue
-
 					var width: int = 1
 					while coordinate_u + width < dimensions[axis_u] and mask[mask_index + width] == face:
 						width += 1
-
 					var height: int = 1
 					var height_valid: bool = true
 					while coordinate_v + height < dimensions[axis_v] and height_valid:
@@ -75,7 +77,6 @@ static func build_mesh(
 								break
 						if height_valid:
 							height += 1
-
 					cursor[axis_u] = coordinate_u
 					cursor[axis_v] = coordinate_v
 					var origin := Vector3(cursor[0], cursor[1], cursor[2])
@@ -83,49 +84,43 @@ static func build_mesh(
 					var delta_v := Vector3.ZERO
 					delta_u[axis_u] = float(width)
 					delta_v[axis_v] = float(height)
-					_append_quad(
-						vertices, normals, colors, indices,
-						origin, delta_u, delta_v, axis, face,
-						world_origin, color_sampler
-					)
+					_append_quad(vertices, normals, colors, indices, origin, delta_u, delta_v, axis, face, world_origin, color_sampler)
 					quad_count += 1
-
 					for offset_v: int in range(height):
 						for offset_u: int in range(width):
 							mask[mask_index + offset_u + offset_v * dimensions[axis_u]] = 0
-
 					coordinate_u += width
 					mask_index += width
 
-	var mesh := ArrayMesh.new()
-	if not vertices.is_empty():
-		var arrays: Array = []
-		arrays.resize(Mesh.ARRAY_MAX)
-		arrays[Mesh.ARRAY_VERTEX] = vertices
-		arrays[Mesh.ARRAY_NORMAL] = normals
-		arrays[Mesh.ARRAY_COLOR] = colors
-		arrays[Mesh.ARRAY_INDEX] = indices
-		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-		var material := StandardMaterial3D.new()
-		material.vertex_color_use_as_albedo = true
-		material.roughness = 0.94
-		material.cull_mode = BaseMaterial3D.CULL_BACK
-		mesh.surface_set_material(0, material)
-
+	var arrays: Array = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_INDEX] = indices
 	return {
-		"mesh": mesh,
+		"arrays": arrays,
 		"quads": quad_count,
 		"vertices": vertices.size(),
 		"triangles": indices.size() / 3,
 	}
 
 
-static func _sample_voxel(
-	chunk: TeknikVoxelChunk,
-	local_position: Vector3i,
-	world_origin: Vector3i,
-	world_sampler: Callable
-) -> int:
+static func mesh_from_arrays(arrays: Array) -> ArrayMesh:
+	var mesh := ArrayMesh.new()
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	if vertices.is_empty():
+		return mesh
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var material := StandardMaterial3D.new()
+	material.vertex_color_use_as_albedo = true
+	material.roughness = 0.94
+	material.cull_mode = BaseMaterial3D.CULL_BACK
+	mesh.surface_set_material(0, material)
+	return mesh
+
+
+static func _sample_voxel(chunk: TeknikVoxelChunk, local_position: Vector3i, world_origin: Vector3i, world_sampler: Callable) -> int:
 	if VoxelChunk.in_bounds(local_position):
 		return chunk.get_voxel(local_position)
 	if world_sampler.is_valid():
@@ -147,15 +142,9 @@ static func _append_quad(
 	color_sampler: Callable
 ) -> void:
 	var base: int = vertices.size()
-	var local_positions: Array[Vector3] = [
-		origin,
-		origin + delta_u,
-		origin + delta_u + delta_v,
-		origin + delta_v,
-	]
+	var local_positions: Array[Vector3] = [origin, origin + delta_u, origin + delta_u + delta_v, origin + delta_v]
 	for local_position: Vector3 in local_positions:
 		vertices.append(local_position)
-
 	var normal := Vector3.ZERO
 	normal[axis] = 1.0 if face > 0 else -1.0
 	var face_light: float = 1.0
@@ -177,23 +166,11 @@ static func _append_quad(
 			if sampled_color is Color:
 				color = sampled_color
 		var variation: float = 0.96 + fposmod(
-			sin(
-				float(sample_position.x) * 12.9898
-				+ float(sample_position.y) * 37.719
-				+ float(sample_position.z) * 78.233
-			) * 43758.5453,
+			sin(float(sample_position.x) * 12.9898 + float(sample_position.y) * 37.719 + float(sample_position.z) * 78.233) * 43758.5453,
 			1.0
 		) * 0.07
 		normals.append(normal)
-		colors.append(Color(
-			color.r * face_light * variation,
-			color.g * face_light * variation,
-			color.b * face_light * variation,
-			1.0
-		))
-
-	# Godot treats clockwise triangles as front-facing. The geometric cross
-	# product therefore points opposite the stored outward lighting normal.
+		colors.append(Color(color.r * face_light * variation, color.g * face_light * variation, color.b * face_light * variation, 1.0))
 	if face > 0:
 		indices.append_array(PackedInt32Array([base, base + 3, base + 2, base, base + 2, base + 1]))
 	else:
