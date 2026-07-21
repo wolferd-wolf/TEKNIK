@@ -1,0 +1,99 @@
+name: TEKNIK Android Emulator Diagnostic
+
+on:
+  push:
+    branches:
+      - agent/bootstrap-foundation
+    paths:
+      - .github/workflows/emulator-diagnostic.yml
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  diagnose-emulator:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Download validated x86_64 APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: teknik-native-b711e9e889392bf749deaf8e25e74d2f16b67008
+          path: qa
+          github-token: ${{ github.token }}
+          repository: wolferd-wolf/TEKNIK
+          run-id: 29862886154
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Boot emulator, launch TEKNIK, and preserve all evidence
+        uses: ReactiveCircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            set -u
+            mkdir -p emulator-artifacts
+            APK="$(find qa -name TEKNIK-emulator-debug.apk -print -quit)"
+            if [ -z "$APK" ]; then
+              echo "Validated emulator APK not found" | tee emulator-artifacts/verdict.txt
+              exit 1
+            fi
+
+            adb install -r "$APK" > emulator-artifacts/install.txt 2>&1
+            INSTALL_STATUS=$?
+            adb shell pm list packages | grep com.wolferdwolf.teknik > emulator-artifacts/package.txt 2>&1 || true
+            adb shell cmd package resolve-activity --brief com.wolferdwolf.teknik > emulator-artifacts/resolved-activity.txt 2>&1 || true
+            adb shell getprop > emulator-artifacts/android-properties.txt 2>&1 || true
+            adb shell dumpsys SurfaceFlinger > emulator-artifacts/surfaceflinger.txt 2>&1 || true
+            adb logcat -c
+
+            adb shell monkey -p com.wolferdwolf.teknik -c android.intent.category.LAUNCHER 1 > emulator-artifacts/launch.txt 2>&1
+            LAUNCH_STATUS=$?
+            sleep 90
+
+            PID="$(adb shell pidof com.wolferdwolf.teknik 2>/dev/null | tr -d '\r')"
+            printf '%s\n' "$PID" > emulator-artifacts/pid.txt
+            adb shell dumpsys activity activities > emulator-artifacts/android-emulator-activity.txt 2>&1 || true
+            adb shell dumpsys package com.wolferdwolf.teknik > emulator-artifacts/package-dump.txt 2>&1 || true
+            adb shell dumpsys gfxinfo com.wolferdwolf.teknik > emulator-artifacts/android-emulator-gfxinfo.txt 2>&1 || true
+            adb logcat -d > emulator-artifacts/android-emulator-logcat.txt 2>&1 || true
+            adb exec-out screencap -p > emulator-artifacts/android-emulator.png 2>/dev/null || true
+
+            if [ -n "$PID" ]; then
+              adb shell screenrecord --time-limit 12 /sdcard/teknik-emulator.mp4 > emulator-artifacts/screenrecord.txt 2>&1 || true
+              adb pull /sdcard/teknik-emulator.mp4 emulator-artifacts/teknik-emulator.mp4 >> emulator-artifacts/screenrecord.txt 2>&1 || true
+            fi
+
+            VERDICT=pass
+            if [ "$INSTALL_STATUS" -ne 0 ]; then
+              VERDICT=install_failed
+            elif [ "$LAUNCH_STATUS" -ne 0 ]; then
+              VERDICT=launch_failed
+            elif [ -z "$PID" ]; then
+              VERDICT=process_exited
+            elif grep -Eiq "FATAL EXCEPTION|ANR in com\.wolferdwolf\.teknik|Fatal signal" emulator-artifacts/android-emulator-logcat.txt; then
+              VERDICT=crash_or_anr
+            fi
+            printf 'install_status=%s\nlaunch_status=%s\npid=%s\nverdict=%s\n' "$INSTALL_STATUS" "$LAUNCH_STATUS" "$PID" "$VERDICT" | tee emulator-artifacts/verdict.txt
+            test "$VERDICT" = pass
+
+      - name: Publish emulator diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teknik-android-emulator-diagnostic-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: emulator-artifacts/
