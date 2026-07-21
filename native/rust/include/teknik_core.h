@@ -29,6 +29,11 @@ typedef struct TeknikColor4 {
     float a;
 } TeknikColor4;
 
+typedef struct TeknikPackedFace {
+    uint32_t geometry;
+    uint32_t appearance;
+} TeknikPackedFace;
+
 typedef struct TeknikChunkResult TeknikChunkResult;
 
 const char *teknik_core_version(void);
@@ -59,12 +64,25 @@ size_t teknik_result_color_count(const TeknikChunkResult *result);
 const int32_t *teknik_result_indices(const TeknikChunkResult *result);
 size_t teknik_result_index_count(const TeknikChunkResult *result);
 
+const TeknikPackedFace *teknik_result_packed_faces(const TeknikChunkResult *result);
+size_t teknik_result_packed_face_count(const TeknikChunkResult *result);
+
+const TeknikPackedFace *teknik_result_directional_faces(const TeknikChunkResult *result);
+size_t teknik_result_directional_face_count(const TeknikChunkResult *result);
+
+const uint32_t *teknik_result_direction_offsets(const TeknikChunkResult *result);
+size_t teknik_result_direction_offset_count(const TeknikChunkResult *result);
+
+const uint32_t *teknik_result_direction_counts(const TeknikChunkResult *result);
+size_t teknik_result_direction_count_count(const TeknikChunkResult *result);
+
 uint32_t teknik_result_quad_count(const TeknikChunkResult *result);
 uint32_t teknik_result_applied_edit_count(const TeknikChunkResult *result);
 uint32_t teknik_result_boundary_column_count(const TeknikChunkResult *result);
 uint64_t teknik_result_generation_usec(const TeknikChunkResult *result);
 uint64_t teknik_result_mesh_usec(const TeknikChunkResult *result);
 uint64_t teknik_result_voxel_checksum(const TeknikChunkResult *result);
+uint64_t teknik_result_packed_face_checksum(const TeknikChunkResult *result);
 
 #ifdef __cplusplus
 }
