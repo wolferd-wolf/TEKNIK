@@ -65,6 +65,8 @@ jobs:
           godot --headless --path . --script res://tests/run_chunk_edit_worker_tests.gd
           godot --headless --path . --script res://tests/run_world_interaction_tests.gd
           godot --headless --path . --script res://tests/run_block_placement_tests.gd
+          godot --headless --path . --script res://tests/run_terrain_collision_profile_tests.gd
+          godot --headless --path . --script res://tests/run_runtime_log_tests.gd
 
       - name: Capture rendered QA screenshots
         run: |
@@ -84,6 +86,7 @@ jobs:
 
       - name: Record gameplay building test
         run: |
+          rm -rf "$HOME/.local/share/godot/app_userdata/TEKNIK/logs"
           rm -f "$HOME/.local/share/godot/app_userdata/TEKNIK/teknik-world-edits.json"
           xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy \
             --fixed-fps 30 \
@@ -98,6 +101,8 @@ jobs:
           test -s artifacts/teknik-gameplay.mp4
           duration="$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 artifacts/teknik-gameplay.mp4)"
           awk -v value="$duration" 'BEGIN { exit !(value >= 10.0) }'
+          test -s "$HOME/.local/share/godot/app_userdata/TEKNIK/logs/teknik-latest.jsonl"
+          cp -R "$HOME/.local/share/godot/app_userdata/TEKNIK/logs" artifacts/runtime-logs
           rm -f artifacts/teknik-gameplay.avi
 
       - name: Publish world preview
@@ -110,6 +115,7 @@ jobs:
             artifacts/world-*.png
             artifacts/gameplay-house.png
             artifacts/teknik-gameplay.mp4
+            artifacts/runtime-logs/
 
       - name: Set up Android command-line tools
         uses: android-actions/setup-android@v3
@@ -170,9 +176,10 @@ jobs:
           {
             echo '## TEKNIK automated QA'
             echo
-            echo '- Deterministic simulation, streaming, collision-window, telemetry, terrain-surface, persistent-edit, breaking, and placement tests executed.'
+            echo '- Deterministic simulation, streaming, telemetry, persistent-edit, placement, lightweight collision-profile, and runtime-log tests executed.'
+            echo '- Runtime chunks use heightfields plus merged primitive placed-block runs; no streamed terrain trimesh collision is requested.'
             echo '- Hero, river, upland, and one-chunk-shift screenshots requested for visual regression testing.'
-            echo '- A real in-engine gameplay recording walks, breaks terrain, and builds a 5x5 house block by block.'
+            echo '- A real in-engine gameplay recording walks, breaks terrain, builds a house, and emits a structured support log.'
             echo '- Android ARM64 debug export requested.'
-            echo '- Physical-device 50 FPS certification is not part of this cloud-runner job.'
+            echo '- Vivo T3x hitch certification still requires the physical phone trace.'
           } >> "$GITHUB_STEP_SUMMARY"
