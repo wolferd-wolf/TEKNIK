@@ -75,7 +75,9 @@ jobs:
             native/godot-cpp/gen
             native/godot-cpp/obj
             native/godot-cpp/.sconsign.dblite
-          key: teknik-vulkan-godot-cpp-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/cpp/**', 'native/SConstruct') }}
+          key: teknik-vulkan-godot-cpp-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}
+          restore-keys: |
+            teknik-vulkan-godot-cpp-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-
 
       - name: Build native extension
         run: |
