@@ -18,6 +18,37 @@ func _ready() -> void:
 		director.begin(self, _player)
 
 
+func _process_environment_refresh_if_idle() -> void:
+	# The distant terrain ring is still too expensive to rebuild on the main
+	# thread, but leaving vegetation fixed at the initial spawn makes the world
+	# visibly empty after only a few streamed chunks. Refresh the lightweight
+	# batched feature layer once movement has been stable long enough and the
+	# terrain/collision queues are idle. Distant LOD refresh remains deferred
+	# until its mesh generation moves off the main thread.
+	if not _feature_refresh_pending:
+		return
+	if Time.get_ticks_msec() - _last_center_change_ms < ENVIRONMENT_IDLE_DELAY_MS:
+		return
+	if (
+		_chunk_work_budget.has_work()
+		or not _edit_rebuild_queue.is_empty()
+		or not _emergency_load_queue.is_empty()
+		or _playable_pool.is_busy()
+		or not _collision_add_queue.is_empty()
+	):
+		return
+	var started_usec: int = Time.get_ticks_usec()
+	_rebuild_streamed_features()
+	_feature_center = _world_center
+	_feature_refresh_pending = false
+	_last_environment_refresh_usec = Time.get_ticks_usec() - started_usec
+	_runtime_log.event("info", "environment", "playable_features_refreshed", {
+		"center": str(_world_center),
+		"usec": _last_environment_refresh_usec,
+		"distant_refresh_deferred": _distant_refresh_pending,
+	})
+
+
 func _refresh_terrain(center: Vector3i, priority: Vector3i) -> void:
 	if not _qa_screenshot_path().is_empty() and _terrain_nodes.is_empty() and _chunk_stream.active_count() == 0:
 		var coordinates: Array[Vector3i] = ChunkStreamPlanPlayable.ordered_square(
@@ -106,6 +137,8 @@ func qa_playability_snapshot() -> Dictionary:
 	snapshot["native_streamed_chunks"] = _native_streamed_chunk_count
 	snapshot["native_fallbacks"] = _native_fallback_count
 	snapshot["native_core_version"] = _native_core_version
+	snapshot["feature_center"] = _feature_center
+	snapshot["feature_refresh_pending"] = _feature_refresh_pending
 	return snapshot
 
 
