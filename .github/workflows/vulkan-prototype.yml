@@ -9,6 +9,7 @@ on:
       - "native/**"
       - "src/world/native_terrain_renderer.gd"
       - "tests/run_native_renderer_probe_tests.gd"
+      - "tests/run_native_renderer_parity_tests.gd"
       - "native/shaders/**"
   workflow_dispatch:
 
@@ -119,6 +120,23 @@ jobs:
           grep -q '"rendering_method": "mobile"' artifacts/renderer-probe.json
           grep -q '"rendering_driver": "vulkan"' artifacts/renderer-probe.json
           grep -q '"rendering_device_available": true' artifacts/renderer-probe.json
+
+      - name: Render packed and conventional chunk through Vulkan
+        run: |
+          set -o pipefail
+          xvfb-run -a godot \
+            --path . \
+            --rendering-method mobile \
+            --rendering-driver vulkan \
+            --audio-driver Dummy \
+            --script res://tests/run_native_renderer_parity_tests.gd -- \
+            --renderer-artifacts=artifacts \
+            2>&1 | tee artifacts/renderer-parity.log
+          test -s artifacts/packed-chunk.png
+          test -s artifacts/legacy-chunk.png
+          test -s artifacts/vulkan-chunk-parity.json
+          grep -q '"exact_pixel_match": true' artifacts/vulkan-chunk-parity.json
+          grep -q '"mismatch_pixels": 0' artifacts/vulkan-chunk-parity.json
 
       - name: Publish Vulkan probe evidence
         if: always()
