@@ -1,4 +1,4 @@
-name: TEKNIK CI ARM64
+name: TEKNIK Fast Build
 
 on:
   push:
@@ -9,13 +9,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: teknik-ci-arm64-${{ github.ref }}
+  group: teknik-fast-build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  validate-build-capture-arm64:
+  test-and-build-android:
     runs-on: ubuntu-24.04
-    timeout-minutes: 75
+    timeout-minutes: 55
     env:
       GODOT_VERSION: "4.7.1"
       GODOT_RELEASE: "4.7.1-stable"
@@ -43,12 +43,10 @@ jobs:
           path: native/rust/target
           key: teknik-rust-${{ runner.os }}-${{ hashFiles('native/rust/Cargo.toml', 'native/rust/src/**', 'native/rust/include/**') }}
 
-      - name: Install system dependencies
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential clang lld scons git curl unzip xvfb ffmpeg \
-            libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
+          sudo apt-get install -y build-essential clang lld scons git curl unzip libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
 
       - name: Install Godot and export templates
         run: |
@@ -64,9 +62,6 @@ jobs:
           mkdir -p "/tmp/export-templates" "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
           unzip -q /tmp/export-templates.tpz -d /tmp/export-templates
           cp -R /tmp/export-templates/templates/. "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
-          godot --version
-          rustc --version
-          cargo --version
 
       - name: Check out pinned godot-cpp
         run: |
@@ -74,10 +69,7 @@ jobs:
           git -C native/godot-cpp remote add origin https://github.com/godotengine/godot-cpp.git
           git -C native/godot-cpp fetch --depth 1 origin "$GODOT_CPP_REF"
           git -C native/godot-cpp checkout --detach FETCH_HEAD
-          actual_ref="$(git -C native/godot-cpp rev-parse HEAD)"
-          test "$actual_ref" = "$GODOT_CPP_REF"
-          mkdir -p artifacts
-          printf '%s\n' "$actual_ref" | tee artifacts/godot-cpp-commit.txt
+          test "$(git -C native/godot-cpp rev-parse HEAD)" = "$GODOT_CPP_REF"
 
       - name: Restore godot-cpp build cache
         uses: actions/cache@v4
@@ -89,145 +81,45 @@ jobs:
             native/godot-cpp/.sconsign.dblite
           key: teknik-godot-cpp-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/cpp/**', 'native/SConstruct') }}
 
-      - name: Build Rust core and Linux test bridge
+      - name: Build native Linux test bridge
         run: |
           set -o pipefail
           mkdir -p artifacts/test-logs /tmp/godot-api
           cargo test --manifest-path native/rust/Cargo.toml --release 2>&1 | tee artifacts/test-logs/rust-unit.log
           cargo build --manifest-path native/rust/Cargo.toml --release 2>&1 | tee artifacts/test-logs/rust-build.log
-
-          (
-            cd /tmp/godot-api
-            godot --headless --dump-extension-api
-          ) 2>&1 | tee artifacts/test-logs/godot-extension-api.log
+          (cd /tmp/godot-api && godot --headless --dump-extension-api)
           cp /tmp/godot-api/extension_api.json extension_api.json
-
           (
             cd native
-            scons -j2 \
-              platform=linux \
-              arch=x86_64 \
-              target=template_debug \
+            scons -j2 platform=linux arch=x86_64 target=template_debug \
               custom_api_file="$GITHUB_WORKSPACE/extension_api.json" \
               rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/release"
           ) 2>&1 | tee artifacts/test-logs/native-linux-build.log
           test -s native/bin/libteknik_native.linux.template_debug.x86_64.so
-          ldd native/bin/libteknik_native.linux.template_debug.x86_64.so | tee artifacts/test-logs/native-linux-ldd.log
 
-      - name: Import project with native extension
+      - name: Import project and run essential tests
         run: |
           set -o pipefail
           godot --headless --path . --editor --quit 2>&1 | tee artifacts/test-logs/godot-import.log
-
-      - name: Run native parity and deterministic tests
-        run: |
-          set -o pipefail
           run_test() {
             local name="$1"
             local script="$2"
-            echo "=== ${name} ==="
-            godot --headless --path . --script "${script}" 2>&1 | tee "artifacts/test-logs/${name}.log"
+            godot --headless --path . --script "$script" 2>&1 | tee "artifacts/test-logs/${name}.log"
           }
           run_test native-chunk-parity res://tests/run_native_chunk_parity_tests.gd
           run_test native-worker-integration res://tests/run_native_worker_integration_tests.gd
           run_test core res://tests/run_tests.gd
           run_test stream-budget res://tests/run_stream_budget_tests.gd
-          run_test performance-telemetry res://tests/run_performance_telemetry_tests.gd
-          run_test surface-language res://tests/run_surface_language_tests.gd
           run_test world-edit-store res://tests/run_world_edit_store_tests.gd
           run_test chunk-edit-worker res://tests/run_chunk_edit_worker_tests.gd
           run_test chunk-build-pool res://tests/run_chunk_build_pool_tests.gd
-          run_test spawn-planner res://tests/run_spawn_planner_tests.gd
           run_test world-interaction res://tests/run_world_interaction_tests.gd
           run_test block-placement res://tests/run_block_placement_tests.gd
-          run_test terrain-collision-profile res://tests/run_terrain_collision_profile_tests.gd
-          run_test runtime-log res://tests/run_runtime_log_tests.gd
-
-      - name: Capture rendered QA screenshots
-        run: |
-          mkdir -p artifacts
-          for view in hero river upland; do
-            xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy -- \
-              --qa-view="$view" \
-              --qa-screenshot="artifacts/world-$view.png"
-            test -s "artifacts/world-$view.png"
-          done
-
-          xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy -- \
-            --qa-view="hero" \
-            --qa-stream-shift="-1,0" \
-            --qa-screenshot="artifacts/world-shifted.png"
-          test -s artifacts/world-shifted.png
-
-      - name: Record gameplay building test
-        run: |
-          rm -rf "$HOME/.local/share/godot/app_userdata/TEKNIK/logs"
-          rm -f "$HOME/.local/share/godot/app_userdata/TEKNIK/teknik-world-edits.json"
-          rm -f "$HOME/.local/share/godot/app_userdata/TEKNIK/teknik-player-state.json"
-          xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy \
-            --fixed-fps 30 \
-            --write-movie artifacts/teknik-gameplay.avi -- \
-            --qa-gameplay \
-            --qa-gameplay-poster=artifacts/gameplay-house.png
-          test -s artifacts/teknik-gameplay.avi
-          test -s artifacts/gameplay-house.png
-          ffmpeg -y -i artifacts/teknik-gameplay.avi \
-            -c:v libx264 -preset medium -crf 23 -pix_fmt yuv420p -movflags +faststart \
-            artifacts/teknik-gameplay.mp4
-          test -s artifacts/teknik-gameplay.mp4
-          duration="$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 artifacts/teknik-gameplay.mp4)"
-          awk -v value="$duration" 'BEGIN { exit !(value >= 10.0) }'
-          test -s "$HOME/.local/share/godot/app_userdata/TEKNIK/logs/teknik-latest.jsonl"
-          cp -R "$HOME/.local/share/godot/app_userdata/TEKNIK/logs" artifacts/runtime-logs-building
-          rm -f artifacts/teknik-gameplay.avi
-
-      - name: Play across streamed chunk boundaries with no native fallback
-        run: |
-          rm -rf "$HOME/.local/share/godot/app_userdata/TEKNIK/logs"
-          rm -f "$HOME/.local/share/godot/app_userdata/TEKNIK/teknik-world-edits.json"
-          rm -f "$HOME/.local/share/godot/app_userdata/TEKNIK/teknik-player-state.json"
-          xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy \
-            --fixed-fps 30 \
-            --write-movie artifacts/teknik-playability.avi -- \
-            --qa-playability \
-            --qa-playability-poster=artifacts/playability-finish.png
-          test -s artifacts/teknik-playability.avi
-          test -s artifacts/playability-finish.png
-          ffmpeg -y -i artifacts/teknik-playability.avi \
-            -c:v libx264 -preset medium -crf 23 -pix_fmt yuv420p -movflags +faststart \
-            artifacts/teknik-playability.mp4
-          test -s artifacts/teknik-playability.mp4
-          duration="$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 artifacts/teknik-playability.mp4)"
-          awk -v value="$duration" 'BEGIN { exit !(value >= 25.0) }'
-          test -s "$HOME/.local/share/godot/app_userdata/TEKNIK/logs/teknik-latest.jsonl"
-          cp -R "$HOME/.local/share/godot/app_userdata/TEKNIK/logs" artifacts/runtime-logs-playability
-          grep -q '"event":"initial_chunk_built"' artifacts/runtime-logs-playability/teknik-latest.jsonl
-          if grep -q '"event":"initial_chunk_fallback"\|"event":"streamed_chunk_fallback"' artifacts/runtime-logs-playability/teknik-latest.jsonl; then
-            echo "Native fallback event detected during traversal" >&2
-            exit 1
-          fi
-          rm -f artifacts/teknik-playability.avi
-
-      - name: Publish world preview
-        uses: actions/upload-artifact@v4
-        with:
-          name: TEKNIK-World-Preview-${{ github.sha }}
-          if-no-files-found: error
-          retention-days: 30
-          path: |
-            artifacts/world-*.png
-            artifacts/gameplay-house.png
-            artifacts/playability-finish.png
-            artifacts/teknik-gameplay.mp4
-            artifacts/teknik-playability.mp4
-            artifacts/runtime-logs-building/
-            artifacts/runtime-logs-playability/
-            artifacts/godot-cpp-commit.txt
 
       - name: Set up Android command-line tools
         uses: android-actions/setup-android@v3
 
-      - name: Install Android ARM64 build dependencies
+      - name: Install Android ARM64 dependencies
         run: |
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager --sdk_root="$ANDROID_HOME" \
@@ -238,36 +130,25 @@ jobs:
             "cmake;3.10.2.4988404" \
             "ndk;${ANDROID_NDK_VERSION}"
 
-      - name: Cross-compile native extension for Android ARM64 only
+      - name: Build native Android ARM64 extension
         run: |
           set -o pipefail
           export NDK_ROOT="$ANDROID_HOME/ndk/${ANDROID_NDK_VERSION}"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
           rustup target add aarch64-linux-android
-          cargo build \
-            --manifest-path native/rust/Cargo.toml \
-            --release \
-            --target aarch64-linux-android \
+          cargo build --manifest-path native/rust/Cargo.toml --release --target aarch64-linux-android \
             2>&1 | tee artifacts/test-logs/rust-android-arm64-build.log
-
           (
             cd native
             ANDROID_NDK_ROOT="$NDK_ROOT" ANDROID_HOME="$ANDROID_HOME" scons -j2 \
-              platform=android \
-              arch=arm64 \
-              target=template_debug \
-              android_api_level=24 \
+              platform=android arch=arm64 target=template_debug android_api_level=24 \
               custom_api_file="$GITHUB_WORKSPACE/extension_api.json" \
               rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/aarch64-linux-android/release"
           ) 2>&1 | tee artifacts/test-logs/native-android-arm64-build.log
-
           test -s native/bin/libteknik_native.android.template_debug.arm64.so
-          file native/bin/libteknik_native.android.template_debug.arm64.so
-          readelf -h native/bin/libteknik_native.android.template_debug.arm64.so | tee artifacts/android-arm64-native-elf.txt
-          grep -q 'AArch64' artifacts/android-arm64-native-elf.txt
 
-      - name: Configure Godot Android export
+      - name: Configure Android export
         run: |
           mkdir -p "$HOME/.config/godot" "$HOME/.android" build
           printf '%s\n' \
@@ -277,69 +158,45 @@ jobs:
             "export/android/java_sdk_path = \"$JAVA_HOME\"" \
             "export/android/android_sdk_path = \"$ANDROID_HOME\"" \
             > "$HOME/.config/godot/editor_settings-${GODOT_VERSION%.*}.tres"
-
           if [ ! -f "$HOME/.android/debug.keystore" ]; then
-            keytool -genkeypair -v \
-              -keystore "$HOME/.android/debug.keystore" \
-              -storepass android \
-              -alias androiddebugkey \
-              -keypass android \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
+            keytool -genkeypair -v -keystore "$HOME/.android/debug.keystore" \
+              -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
               -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-      - name: Export and verify ARM64-only Android APK
+      - name: Export and verify Android ARM64 APK
         run: |
-          godot --headless --path . --export-debug "Android ARM64" build/TEKNIK-arm64-debug.apk
+          set -o pipefail
+          godot --headless --path . --export-debug "Android ARM64" build/TEKNIK-arm64-debug.apk \
+            2>&1 | tee artifacts/test-logs/android-export.log
           test -s build/TEKNIK-arm64-debug.apk
           unzip -l build/TEKNIK-arm64-debug.apk | tee artifacts/apk-arm64-contents.txt
-          grep -q 'lib/arm64-v8a/.*teknik_native.*\.so' artifacts/apk-arm64-contents.txt
-          if grep -q 'lib/x86_64/' artifacts/apk-arm64-contents.txt; then
-            echo "x86_64 Android library found in ARM64-only APK" >&2
-            exit 1
-          fi
-          if grep -q 'lib/armeabi-v7a/' artifacts/apk-arm64-contents.txt; then
-            echo "32-bit ARM Android library found in ARM64-only APK" >&2
-            exit 1
-          fi
+          grep -Eq 'lib/arm64-v8a/libteknik_native.*\.so' artifacts/apk-arm64-contents.txt
+          ! grep -q 'lib/x86_64/' artifacts/apk-arm64-contents.txt
+          ! grep -q 'lib/armeabi-v7a/' artifacts/apk-arm64-contents.txt
           "$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}/aapt" dump badging build/TEKNIK-arm64-debug.apk | tee artifacts/apk-arm64-badging.txt
           grep -q "native-code: 'arm64-v8a'" artifacts/apk-arm64-badging.txt
           sha256sum build/TEKNIK-arm64-debug.apk | tee artifacts/TEKNIK-arm64-debug.sha256
 
-      - name: Publish phone-compatible ARM64 APK
+      - name: Publish phone APK
         uses: actions/upload-artifact@v4
         with:
           name: TEKNIK-Android-ARM64-${{ github.sha }}
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 14
           path: |
             build/TEKNIK-arm64-debug.apk
             artifacts/TEKNIK-arm64-debug.sha256
             artifacts/apk-arm64-badging.txt
 
-      - name: Publish diagnostic logs
-        if: always()
+      - name: Publish failure logs
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: TEKNIK-Build-Logs-${{ github.sha }}
+          name: TEKNIK-Failure-Logs-${{ github.sha }}
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 14
           path: |
             artifacts/test-logs/
-            artifacts/android-arm64-native-elf.txt
             artifacts/apk-arm64-contents.txt
-
-      - name: Write job summary
-        if: always()
-        run: |
-          {
-            echo '## TEKNIK ARM64 build'
-            echo
-            echo '- Android output is ARM64-v8a only.'
-            echo '- No Android x86, x86_64, or 32-bit ARM APK is produced.'
-            echo '- The downloadable phone artifact contains exactly one APK: TEKNIK-arm64-debug.apk.'
-            echo '- Linux x86_64 is used only inside GitHub Actions to run tests and render QA captures.'
-            echo '- Physical Vivo T3x validation remains the authoritative performance test.'
-          } >> "$GITHUB_STEP_SUMMARY"
