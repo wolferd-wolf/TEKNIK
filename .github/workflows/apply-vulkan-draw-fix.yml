@@ -1,9 +1,7 @@
 name: Apply Vulkan Draw Fix
 
 on:
-  push:
-    branches:
-      - agent/bootstrap-foundation
+  pull_request:
     paths:
       - ".github/workflows/apply-vulkan-draw-fix.yml"
       - "tools/apply_vulkan_vertex_array_fix.py"
