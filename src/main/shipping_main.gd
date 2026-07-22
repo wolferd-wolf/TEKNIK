@@ -3,10 +3,21 @@ extends "res://src/main/playable_main.gd"
 const PlayabilityTraversalDirector = preload("res://src/qa/playability_traversal_director.gd")
 const ShippingNativeChunkBackend = preload("res://src/world/native_chunk_backend.gd")
 
+const FEATURE_STAGE_WATER: int = 0
+const FEATURE_STAGE_FOREST: int = 1
+const FEATURE_STAGE_BOULDERS: int = 2
+const FEATURE_STAGE_GROUND: int = 3
+const FEATURE_STAGE_COMPLETE: int = 4
+
 var _native_initial_chunk_count: int = 0
 var _native_streamed_chunk_count: int = 0
 var _native_fallback_count: int = 0
 var _native_core_version: String = "unavailable"
+var _feature_refresh_stage: int = -1
+var _feature_refresh_started_usec: int = 0
+var _feature_refresh_target: Vector3i = Vector3i.ZERO
+var _feature_previous_root: Node3D
+var _feature_previous_instances: int = 0
 
 
 func _ready() -> void:
@@ -19,12 +30,13 @@ func _ready() -> void:
 
 
 func _process_environment_refresh_if_idle() -> void:
-	# The distant terrain ring is still too expensive to rebuild on the main
-	# thread, but leaving vegetation fixed at the initial spawn makes the world
-	# visibly empty after only a few streamed chunks. Refresh the lightweight
-	# batched feature layer once movement has been stable long enough and the
-	# terrain/collision queues are idle. Distant LOD refresh remains deferred
-	# until its mesh generation moves off the main thread.
+	if _feature_refresh_stage >= 0:
+		if _world_center != _feature_refresh_target:
+			_cancel_staged_feature_refresh("center_changed")
+			_feature_refresh_pending = true
+			return
+		_process_staged_feature_refresh()
+		return
 	if not _feature_refresh_pending:
 		return
 	if Time.get_ticks_msec() - _last_center_change_ms < ENVIRONMENT_IDLE_DELAY_MS:
@@ -37,16 +49,96 @@ func _process_environment_refresh_if_idle() -> void:
 		or not _collision_add_queue.is_empty()
 	):
 		return
-	var started_usec: int = Time.get_ticks_usec()
-	_rebuild_streamed_features()
-	_feature_center = _world_center
+	_begin_staged_feature_refresh()
+
+
+func _begin_staged_feature_refresh() -> void:
+	_feature_previous_root = _feature_root
+	_feature_previous_instances = _streamed_feature_instances
+	_feature_root = Node3D.new()
+	_feature_root.name = "StreamedWorldFeaturesStaging"
+	_feature_root.visible = false
+	add_child(_feature_root)
+	_streamed_feature_instances = 0
+	_feature_refresh_target = _world_center
+	_feature_refresh_stage = FEATURE_STAGE_WATER
+	_feature_refresh_started_usec = Time.get_ticks_usec()
+	_runtime_log.event("info", "environment", "feature_refresh_started", {
+		"center": str(_feature_refresh_target),
+		"previous_instances": _feature_previous_instances,
+	})
+
+
+func _process_staged_feature_refresh() -> void:
+	var stage_started_usec: int = Time.get_ticks_usec()
+	var stage_name: String = "unknown"
+	match _feature_refresh_stage:
+		FEATURE_STAGE_WATER:
+			stage_name = "water"
+			_build_water()
+		FEATURE_STAGE_FOREST:
+			stage_name = "forest"
+			_build_forest()
+		FEATURE_STAGE_BOULDERS:
+			stage_name = "boulders"
+			_build_boulders()
+		FEATURE_STAGE_GROUND:
+			stage_name = "ground"
+			_build_ground_detail()
+		FEATURE_STAGE_COMPLETE:
+			_finish_staged_feature_refresh()
+			return
+		_:
+			_cancel_staged_feature_refresh("invalid_stage")
+			return
+	_runtime_log.event("info", "environment", "feature_refresh_stage_complete", {
+		"center": str(_feature_refresh_target),
+		"stage": stage_name,
+		"usec": Time.get_ticks_usec() - stage_started_usec,
+		"new_instances": _streamed_feature_instances,
+	})
+	_feature_refresh_stage += 1
+
+
+func _finish_staged_feature_refresh() -> void:
+	if _feature_previous_root != null:
+		remove_child(_feature_previous_root)
+		_feature_previous_root.queue_free()
+		_render_instance_count -= _feature_previous_instances
+	_feature_root.name = "StreamedWorldFeatures"
+	_feature_root.visible = true
+	_feature_center = _feature_refresh_target
 	_feature_refresh_pending = false
-	_last_environment_refresh_usec = Time.get_ticks_usec() - started_usec
+	_last_environment_refresh_usec = Time.get_ticks_usec() - _feature_refresh_started_usec
 	_runtime_log.event("info", "environment", "playable_features_refreshed", {
-		"center": str(_world_center),
+		"center": str(_feature_center),
 		"usec": _last_environment_refresh_usec,
+		"instances": _streamed_feature_instances,
+		"frames": FEATURE_STAGE_COMPLETE,
 		"distant_refresh_deferred": _distant_refresh_pending,
 	})
+	_feature_previous_root = null
+	_feature_previous_instances = 0
+	_feature_refresh_stage = -1
+
+
+func _cancel_staged_feature_refresh(reason: String) -> void:
+	var staged_instances: int = _streamed_feature_instances
+	if _feature_root != null and _feature_root != _feature_previous_root:
+		remove_child(_feature_root)
+		_feature_root.queue_free()
+		_render_instance_count -= staged_instances
+	_feature_root = _feature_previous_root
+	_streamed_feature_instances = _feature_previous_instances
+	_runtime_log.event("info", "environment", "feature_refresh_cancelled", {
+		"reason": reason,
+		"target": str(_feature_refresh_target),
+		"current": str(_world_center),
+		"discarded_instances": staged_instances,
+	})
+	_feature_previous_root = null
+	_feature_previous_instances = 0
+	_feature_refresh_stage = -1
 
 
 func _refresh_terrain(center: Vector3i, priority: Vector3i) -> void:
@@ -139,6 +231,7 @@ func qa_playability_snapshot() -> Dictionary:
 	snapshot["native_core_version"] = _native_core_version
 	snapshot["feature_center"] = _feature_center
 	snapshot["feature_refresh_pending"] = _feature_refresh_pending
+	snapshot["feature_refresh_stage"] = _feature_refresh_stage
 	return snapshot
 
 
@@ -148,6 +241,7 @@ func _diagnostic_context() -> Dictionary:
 	context["native_streamed_chunks"] = _native_streamed_chunk_count
 	context["native_fallbacks"] = _native_fallback_count
 	context["native_core_version"] = _native_core_version
+	context["feature_refresh_stage"] = _feature_refresh_stage
 	return context
 
 
