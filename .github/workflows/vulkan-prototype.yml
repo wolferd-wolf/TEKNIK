@@ -1,0 +1,132 @@
+name: Vulkan Renderer Prototype
+
+on:
+  push:
+    branches:
+      - agent/bootstrap-foundation
+    paths:
+      - ".github/workflows/vulkan-prototype.yml"
+      - "native/**"
+      - "src/world/native_terrain_renderer.gd"
+      - "tests/run_native_renderer_probe_tests.gd"
+      - "native/shaders/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: teknik-vulkan-prototype-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-vulkan-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GODOT_VERSION: "4.7.1"
+      GODOT_RELEASE: "4.7.1-stable"
+      GODOT_BIN: /usr/local/bin/godot
+      GODOT_CPP_REF: "ba0edfed90512ec64aba51d4295a3e7e30112f86"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Rust cache
+        uses: actions/cache@v4
+        with:
+          path: native/rust/target
+          key: teknik-vulkan-rust-${{ runner.os }}-${{ hashFiles('native/rust/Cargo.toml', 'native/rust/src/**', 'native/rust/include/**') }}
+
+      - name: Install build and Vulkan dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential clang lld scons git curl unzip xvfb \
+            libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6 \
+            libvulkan1 mesa-vulkan-drivers vulkan-tools
+
+      - name: Install Godot
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_RELEASE}/Godot_v${GODOT_RELEASE}_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          sudo install -m 0755 "/tmp/godot/Godot_v${GODOT_RELEASE}_linux.x86_64" "${GODOT_BIN}"
+          godot --version
+          vulkaninfo --summary | tee vulkaninfo.txt
+
+      - name: Check out pinned godot-cpp
+        run: |
+          git init native/godot-cpp
+          git -C native/godot-cpp remote add origin https://github.com/godotengine/godot-cpp.git
+          git -C native/godot-cpp fetch --depth 1 origin "$GODOT_CPP_REF"
+          git -C native/godot-cpp checkout --detach FETCH_HEAD
+          test "$(git -C native/godot-cpp rev-parse HEAD)" = "$GODOT_CPP_REF"
+
+      - name: Restore godot-cpp cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            native/godot-cpp/bin
+            native/godot-cpp/gen
+            native/godot-cpp/obj
+            native/godot-cpp/.sconsign.dblite
+          key: teknik-vulkan-godot-cpp-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/cpp/**', 'native/SConstruct') }}
+
+      - name: Build native extension
+        run: |
+          set -o pipefail
+          mkdir -p artifacts /tmp/godot-api
+          cargo test --manifest-path native/rust/Cargo.toml --release 2>&1 | tee artifacts/rust-unit.log
+          cargo build --manifest-path native/rust/Cargo.toml --release 2>&1 | tee artifacts/rust-build.log
+          (
+            cd /tmp/godot-api
+            godot --headless --dump-extension-api
+          )
+          cp /tmp/godot-api/extension_api.json extension_api.json
+          (
+            cd native
+            scons -j2 \
+              platform=linux \
+              arch=x86_64 \
+              target=template_debug \
+              custom_api_file="$GITHUB_WORKSPACE/extension_api.json" \
+              rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/release"
+          ) 2>&1 | tee artifacts/native-build.log
+          test -s native/bin/libteknik_native.linux.template_debug.x86_64.so
+
+      - name: Import project
+        run: godot --headless --path . --editor --quit
+
+      - name: Probe Mobile Vulkan RenderingDevice
+        run: |
+          set -o pipefail
+          xvfb-run -a godot \
+            --path . \
+            --rendering-method mobile \
+            --rendering-driver vulkan \
+            --audio-driver Dummy \
+            --script res://tests/run_native_renderer_probe_tests.gd -- \
+            --expect-rendering-device \
+            --renderer-report=artifacts/renderer-probe.json \
+            2>&1 | tee artifacts/renderer-probe.log
+          test -s artifacts/renderer-probe.json
+          grep -q '"rendering_method": "mobile"' artifacts/renderer-probe.json
+          grep -q '"rendering_driver": "vulkan"' artifacts/renderer-probe.json
+          grep -q '"rendering_device_available": true' artifacts/renderer-probe.json
+
+      - name: Publish Vulkan probe evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teknik-vulkan-probe-${{ github.sha }}
+          if-no-files-found: warn
+          retention-days: 30
+          path: |
+            artifacts/
+            vulkaninfo.txt
