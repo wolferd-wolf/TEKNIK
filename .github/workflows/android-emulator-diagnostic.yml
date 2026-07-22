@@ -32,6 +32,11 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: dtolnay/rust-toolchain@stable
+      - name: Restore Rust cache
+        uses: actions/cache@v4
+        with:
+          path: native/rust/target
+          key: teknik-emulator-rust-${{ runner.os }}-${{ hashFiles('native/rust/Cargo.toml', 'native/rust/src/**', 'native/rust/include/**') }}
       - name: Install host tools
         run: |
           sudo apt-get update
@@ -52,6 +57,15 @@ jobs:
           git -C native/godot-cpp fetch --depth 1 origin "$GODOT_CPP_REF"
           git -C native/godot-cpp checkout --detach FETCH_HEAD
           test "$(git -C native/godot-cpp rev-parse HEAD)" = "$GODOT_CPP_REF"
+      - name: Restore godot-cpp cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            native/godot-cpp/bin
+            native/godot-cpp/gen
+            native/godot-cpp/obj
+            native/godot-cpp/.sconsign.dblite
+          key: teknik-emulator-godot-cpp-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}
       - uses: android-actions/setup-android@v3
       - name: Install Android packages
         run: |
@@ -95,10 +109,18 @@ jobs:
         with:
           name: teknik-emulator-apk-${{ github.sha }}
           path: qa
+      - name: Locate downloaded emulator APK
+        run: |
+          mkdir -p emulator-artifacts
+          find "$GITHUB_WORKSPACE/qa" -maxdepth 3 -type f -printf '%p %s bytes\n' | tee emulator-artifacts/downloaded-files.txt
+          APK="$(find "$GITHUB_WORKSPACE/qa" -type f -name 'TEKNIK-emulator-debug.apk' -print -quit)"
+          test -n "$APK"
+          test -s "$APK"
+          printf 'TEKNIK_EMULATOR_APK=%s\n' "$APK" >> "$GITHUB_ENV"
       - name: Initialize diagnostic evidence
         run: |
           mkdir -p emulator-artifacts
-          printf 'stage=before_emulator_boot\nrunner=%s\n' "$RUNNER_OS" > emulator-artifacts/verdict.txt
+          printf 'stage=before_emulator_boot\nrunner=%s\napk=%s\n' "$RUNNER_OS" "$TEKNIK_EMULATOR_APK" > emulator-artifacts/verdict.txt
           df -h > emulator-artifacts/disk-before.txt
           free -h > emulator-artifacts/memory-before.txt
       - name: Enable KVM
@@ -118,10 +140,14 @@ jobs:
           disable-animations: true
           script: |
             set +e
-            mkdir -p emulator-artifacts
+            mkdir -p "$GITHUB_WORKSPACE/emulator-artifacts"
+            cd "$GITHUB_WORKSPACE"
             printf 'stage=emulator_script_started\n' >> emulator-artifacts/verdict.txt
-            APK="$(find qa -name TEKNIK-emulator-debug.apk -print -quit)"
-            printf 'apk=%s\n' "$APK" >> emulator-artifacts/verdict.txt
+            APK="$TEKNIK_EMULATOR_APK"
+            if [ -z "$APK" ] || [ ! -s "$APK" ]; then
+              printf 'verdict=apk_missing\n' | tee -a emulator-artifacts/verdict.txt
+              exit 1
+            fi
             adb install -r "$APK" > emulator-artifacts/install.txt 2>&1
             INSTALL_STATUS=$?
             adb shell cmd package resolve-activity --brief com.wolferdwolf.teknik > emulator-artifacts/resolved-activity.txt 2>&1
