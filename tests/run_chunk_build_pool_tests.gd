@@ -30,13 +30,12 @@ func _init() -> void:
 	_expect(first_frame.size() <= 1, "default collection never commits more than one chunk per frame")
 	var reports: Array[Dictionary] = []
 	reports.append_array(first_frame)
-	while not pool.is_busy() == false and waited_ms < 31_000:
+	while pool.is_busy() and waited_ms < 31_000:
 		var next_frame: Array[Dictionary] = pool.collect_ready(1)
 		reports.append_array(next_frame)
-		if not next_frame.is_empty():
-			continue
-		OS.delay_msec(1)
-		waited_ms += 1
+		if next_frame.is_empty():
+			OS.delay_msec(1)
+			waited_ms += 1
 	_expect(reports.size() == 2, "adaptive collection eventually drains both completed chunks")
 
 	var coordinates: Dictionary = {}
