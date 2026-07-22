@@ -1,12 +1,11 @@
 name: Android Emulator Diagnostic
 
 on:
-  push:
-    branches:
-      - agent/bootstrap-foundation
   pull_request:
     branches:
       - main
+    paths:
+      - ".github/workflows/android-emulator-diagnostic.yml"
   workflow_dispatch:
 
 permissions:
@@ -116,11 +115,10 @@ jobs:
           APK="$(find "$GITHUB_WORKSPACE/qa" -type f -name 'TEKNIK-emulator-debug.apk' -print -quit)"
           test -n "$APK"
           test -s "$APK"
-          printf 'TEKNIK_EMULATOR_APK=%s\n' "$APK" >> "$GITHUB_ENV"
       - name: Initialize diagnostic evidence
         run: |
           mkdir -p emulator-artifacts
-          printf 'stage=before_emulator_boot\nrunner=%s\napk=%s\n' "$RUNNER_OS" "$TEKNIK_EMULATOR_APK" > emulator-artifacts/verdict.txt
+          printf 'stage=before_emulator_boot\nrunner=%s\n' "$RUNNER_OS" > emulator-artifacts/verdict.txt
           df -h > emulator-artifacts/disk-before.txt
           free -h > emulator-artifacts/memory-before.txt
       - name: Enable KVM
@@ -139,11 +137,12 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none
           disable-animations: true
           script: |
-            set +e
-            mkdir -p "$GITHUB_WORKSPACE/emulator-artifacts"
+            set +eu
             cd "$GITHUB_WORKSPACE"
+            mkdir -p emulator-artifacts
             printf 'stage=emulator_script_started\n' >> emulator-artifacts/verdict.txt
-            APK="$TEKNIK_EMULATOR_APK"
+            APK="$(find "$GITHUB_WORKSPACE/qa" -type f -name 'TEKNIK-emulator-debug.apk' -print -quit)"
+            printf 'apk=%s\n' "$APK" >> emulator-artifacts/verdict.txt
             if [ -z "$APK" ] || [ ! -s "$APK" ]; then
               printf 'verdict=apk_missing\n' | tee -a emulator-artifacts/verdict.txt
               exit 1
