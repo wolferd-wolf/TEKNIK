@@ -1,9 +1,7 @@
 name: Vulkan Renderer Prototype
 
 on:
-  push:
-    branches:
-      - agent/bootstrap-foundation
+  pull_request:
     paths:
       - ".github/workflows/vulkan-prototype.yml"
       - "native/**"
