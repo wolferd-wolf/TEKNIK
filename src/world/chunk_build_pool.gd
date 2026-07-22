@@ -3,8 +3,14 @@ extends RefCounted
 
 const ChunkBuildWorker = preload("res://src/world/chunk_build_worker.gd")
 
+const SLOW_FRAME_USEC: int = 22_000
+const CRITICAL_FRAME_USEC: int = 30_000
+const MAX_DEFERRED_READY_FRAMES: int = 4
+
 var _workers: Array[TeknikChunkBuildWorker] = []
 var _inflight: Dictionary = {}
+var _deferred_ready_frames: int = 0
+var _last_commit_limit: int = 0
 
 
 func configure(worker_count: int) -> void:
@@ -49,7 +55,26 @@ func start(seed: int, coordinate: Vector3i, edit_snapshots: Dictionary = {}) -> 
 
 func collect_ready(max_reports: int = 1) -> Array[Dictionary]:
 	var reports: Array[Dictionary] = []
-	var report_limit: int = maxi(max_reports, 1)
+	var ready: int = ready_count()
+	if ready == 0:
+		_deferred_ready_frames = 0
+		_last_commit_limit = 0
+		return reports
+	if max_reports <= 0:
+		_last_commit_limit = 0
+		return reports
+
+	var report_limit: int = max_reports
+	if max_reports == 1:
+		var frame_usec: int = int(Performance.get_monitor(Performance.TIME_PROCESS) * 1_000_000.0)
+		report_limit = adaptive_report_limit(frame_usec, ready, _deferred_ready_frames)
+	if report_limit <= 0:
+		_deferred_ready_frames += 1
+		_last_commit_limit = 0
+		return reports
+
+	_deferred_ready_frames = 0
+	_last_commit_limit = report_limit
 	for worker: TeknikChunkBuildWorker in _workers:
 		if reports.size() >= report_limit:
 			break
@@ -63,12 +88,32 @@ func collect_ready(max_reports: int = 1) -> Array[Dictionary]:
 	return reports
 
 
+static func adaptive_report_limit(frame_usec: int, ready: int, deferred_frames: int) -> int:
+	if ready <= 0:
+		return 0
+	if deferred_frames >= MAX_DEFERRED_READY_FRAMES:
+		return 1
+	if frame_usec >= CRITICAL_FRAME_USEC:
+		return 0
+	if frame_usec >= SLOW_FRAME_USEC and ready < 3:
+		return 0
+	return 1
+
+
 func ready_count() -> int:
 	var ready: int = 0
 	for worker: TeknikChunkBuildWorker in _workers:
 		if worker.is_ready():
 			ready += 1
 	return ready
+
+
+func deferred_ready_frames() -> int:
+	return _deferred_ready_frames
+
+
+func last_commit_limit() -> int:
+	return _last_commit_limit
 
 
 func is_busy() -> bool:
