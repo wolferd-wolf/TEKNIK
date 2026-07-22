@@ -1,4 +1,4 @@
-name: TEKNIK CI
+name: TEKNIK CI ARM64
 
 on:
   push:
@@ -9,11 +9,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: teknik-ci-${{ github.ref }}
+  group: teknik-ci-arm64-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  validate-build-capture:
+  validate-build-capture-arm64:
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     env:
@@ -21,6 +21,8 @@ jobs:
       GODOT_RELEASE: "4.7.1-stable"
       GODOT_BIN: /usr/local/bin/godot
       GODOT_CPP_REF: "ba0edfed90512ec64aba51d4295a3e7e30112f86"
+      ANDROID_NDK_VERSION: "28.1.13356709"
+      ANDROID_BUILD_TOOLS: "35.0.1"
 
     steps:
       - name: Check out source
@@ -87,7 +89,7 @@ jobs:
             native/godot-cpp/.sconsign.dblite
           key: teknik-godot-cpp-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/cpp/**', 'native/SConstruct') }}
 
-      - name: Build Rust core and Linux C++ bridge
+      - name: Build Rust core and Linux test bridge
         run: |
           set -o pipefail
           mkdir -p artifacts/test-logs /tmp/godot-api
@@ -120,7 +122,6 @@ jobs:
       - name: Run native parity and deterministic tests
         run: |
           set -o pipefail
-          mkdir -p artifacts/test-logs
           run_test() {
             local name="$1"
             local script="$2"
@@ -156,7 +157,7 @@ jobs:
             --qa-view="hero" \
             --qa-stream-shift="-1,0" \
             --qa-screenshot="artifacts/world-shifted.png"
-          test -s "artifacts/world-shifted.png"
+          test -s artifacts/world-shifted.png
 
       - name: Record gameplay building test
         run: |
@@ -210,7 +211,7 @@ jobs:
       - name: Publish world preview
         uses: actions/upload-artifact@v4
         with:
-          name: teknik-native-world-preview-${{ github.sha }}
+          name: TEKNIK-World-Preview-${{ github.sha }}
           if-no-files-found: error
           retention-days: 30
           path: |
@@ -226,27 +227,29 @@ jobs:
       - name: Set up Android command-line tools
         uses: android-actions/setup-android@v3
 
-      - name: Install required Android SDK packages
+      - name: Install Android ARM64 build dependencies
         run: |
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager --sdk_root="$ANDROID_HOME" \
             "platform-tools" \
-            "build-tools;35.0.1" \
+            "build-tools;${ANDROID_BUILD_TOOLS}" \
             "platforms;android-35" \
             "cmdline-tools;latest" \
             "cmake;3.10.2.4988404" \
-            "ndk;28.1.13356709"
+            "ndk;${ANDROID_NDK_VERSION}"
 
-      - name: Cross-compile Rust C++ extension for Android ARM64 and x86_64
+      - name: Cross-compile native extension for Android ARM64 only
         run: |
-          export NDK_ROOT="$ANDROID_HOME/ndk/28.1.13356709"
+          set -o pipefail
+          export NDK_ROOT="$ANDROID_HOME/ndk/${ANDROID_NDK_VERSION}"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
           rustup target add aarch64-linux-android
           cargo build \
             --manifest-path native/rust/Cargo.toml \
             --release \
-            --target aarch64-linux-android
+            --target aarch64-linux-android \
+            2>&1 | tee artifacts/test-logs/rust-android-arm64-build.log
 
           (
             cd native
@@ -257,32 +260,12 @@ jobs:
               android_api_level=24 \
               custom_api_file="$GITHUB_WORKSPACE/extension_api.json" \
               rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/aarch64-linux-android/release"
-          )
+          ) 2>&1 | tee artifacts/test-logs/native-android-arm64-build.log
+
           test -s native/bin/libteknik_native.android.template_debug.arm64.so
           file native/bin/libteknik_native.android.template_debug.arm64.so
-          readelf -h native/bin/libteknik_native.android.template_debug.arm64.so | tee artifacts/android-native-elf.txt
-
-          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android24-clang"
-          export CARGO_TARGET_X86_64_LINUX_ANDROID_AR="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
-          rustup target add x86_64-linux-android
-          cargo build \
-            --manifest-path native/rust/Cargo.toml \
-            --release \
-            --target x86_64-linux-android
-
-          (
-            cd native
-            ANDROID_NDK_ROOT="$NDK_ROOT" ANDROID_HOME="$ANDROID_HOME" scons -j2 \
-              platform=android \
-              arch=x86_64 \
-              target=template_debug \
-              android_api_level=24 \
-              custom_api_file="$GITHUB_WORKSPACE/extension_api.json" \
-              rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/x86_64-linux-android/release"
-          )
-          test -s native/bin/libteknik_native.android.template_debug.x86_64.so
-          file native/bin/libteknik_native.android.template_debug.x86_64.so
-          readelf -h native/bin/libteknik_native.android.template_debug.x86_64.so | tee artifacts/android-emulator-native-elf.txt
+          readelf -h native/bin/libteknik_native.android.template_debug.arm64.so | tee artifacts/android-arm64-native-elf.txt
+          grep -q 'AArch64' artifacts/android-arm64-native-elf.txt
 
       - name: Configure Godot Android export
         run: |
@@ -307,111 +290,56 @@ jobs:
               -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-      - name: Export Android debug APK with native extension
+      - name: Export and verify ARM64-only Android APK
         run: |
-          godot --headless --path . --export-debug "Android" build/TEKNIK-debug.apk
-          test -s build/TEKNIK-debug.apk
-          unzip -l build/TEKNIK-debug.apk | tee artifacts/apk-contents.txt
-          grep -q "lib/arm64-v8a/.*teknik_native.*\.so" artifacts/apk-contents.txt
+          godot --headless --path . --export-debug "Android ARM64" build/TEKNIK-arm64-debug.apk
+          test -s build/TEKNIK-arm64-debug.apk
+          unzip -l build/TEKNIK-arm64-debug.apk | tee artifacts/apk-arm64-contents.txt
+          grep -q 'lib/arm64-v8a/.*teknik_native.*\.so' artifacts/apk-arm64-contents.txt
+          if grep -q 'lib/x86_64/' artifacts/apk-arm64-contents.txt; then
+            echo "x86_64 Android library found in ARM64-only APK" >&2
+            exit 1
+          fi
+          if grep -q 'lib/armeabi-v7a/' artifacts/apk-arm64-contents.txt; then
+            echo "32-bit ARM Android library found in ARM64-only APK" >&2
+            exit 1
+          fi
+          "$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}/aapt" dump badging build/TEKNIK-arm64-debug.apk | tee artifacts/apk-arm64-badging.txt
+          grep -q "native-code: 'arm64-v8a'" artifacts/apk-arm64-badging.txt
+          sha256sum build/TEKNIK-arm64-debug.apk | tee artifacts/TEKNIK-arm64-debug.sha256
 
-          godot --headless --path . --export-debug "Android Emulator" build/TEKNIK-emulator-debug.apk
-          test -s build/TEKNIK-emulator-debug.apk
-          unzip -l build/TEKNIK-emulator-debug.apk | tee artifacts/emulator-apk-contents.txt
-          grep -q "lib/x86_64/.*teknik_native.*\.so" artifacts/emulator-apk-contents.txt
+      - name: Publish phone-compatible ARM64 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TEKNIK-Android-ARM64-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            build/TEKNIK-arm64-debug.apk
+            artifacts/TEKNIK-arm64-debug.sha256
+            artifacts/apk-arm64-badging.txt
 
-      - name: Publish QA artifacts
+      - name: Publish diagnostic logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: teknik-native-${{ github.sha }}
+          name: TEKNIK-Build-Logs-${{ github.sha }}
           if-no-files-found: warn
           retention-days: 30
           path: |
-            artifacts/
-            build/*.apk
-            native/bin/*.so
+            artifacts/test-logs/
+            artifacts/android-arm64-native-elf.txt
+            artifacts/apk-arm64-contents.txt
 
       - name: Write job summary
         if: always()
         run: |
           {
-            echo '## TEKNIK Rust + C++ native migration QA'
+            echo '## TEKNIK ARM64 build'
             echo
-            echo '- Rust unit tests and exact Godot parity tests executed.'
-            echo '- Individual native and deterministic test logs are preserved in the QA artifact.'
-            echo '- The threaded runtime fails CI if it falls back to GDScript.'
-            echo '- All 25 startup safety chunks must use Rust, and the traversal requires native streamed chunks with zero fallback.'
-            echo '- Procedural spawn, persistence, placement, collision, logging, house building, and 190-metre traversal remain required.'
-            echo '- Rust is linked into one official C++ GDExtension library using a pinned godot-cpp revision.'
-            echo '- Android ARM64 and emulator x86_64 exports are rejected unless their native shared libraries are present inside each APK.'
-            echo '- The emulator smoke job verifies installation, launch, rendering, process survival, logcat, and Android frame telemetry.'
-            echo '- Emulator results are functional Android evidence, not Vivo T3x performance evidence.'
-            echo '- Physical Vivo T3x validation remains required after cloud parity and traversal pass.'
+            echo '- Android output is ARM64-v8a only.'
+            echo '- No Android x86, x86_64, or 32-bit ARM APK is produced.'
+            echo '- The downloadable phone artifact contains exactly one APK: TEKNIK-arm64-debug.apk.'
+            echo '- Linux x86_64 is used only inside GitHub Actions to run tests and render QA captures.'
+            echo '- Physical Vivo T3x validation remains the authoritative performance test.'
           } >> "$GITHUB_STEP_SUMMARY"
-
-  android-emulator-smoke:
-    needs: validate-build-capture
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-
-    steps:
-      - name: Download x86_64 emulator APK
-        uses: actions/download-artifact@v4
-        with:
-          name: teknik-native-${{ github.sha }}
-          path: qa
-
-      - name: Enable KVM
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-
-      - name: Boot emulator and smoke-test TEKNIK
-        uses: ReactiveCircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          target: google_apis
-          arch: x86_64
-          profile: pixel_6
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          disable-animations: true
-          script: |
-            set -eu
-            mkdir -p emulator-artifacts
-            APK="$(find qa -name TEKNIK-emulator-debug.apk -print -quit)"
-            test -n "$APK"
-            adb install -r "$APK"
-            adb logcat -c
-            adb shell monkey -p com.wolferdwolf.teknik -c android.intent.category.LAUNCHER 1
-            sleep 90
-
-            PID="$(adb shell pidof com.wolferdwolf.teknik | tr -d '\r')"
-            test -n "$PID"
-            adb shell dumpsys activity activities | tee emulator-artifacts/android-emulator-activity.txt
-            grep -q "com.wolferdwolf.teknik" emulator-artifacts/android-emulator-activity.txt
-
-            adb exec-out screencap -p > emulator-artifacts/android-emulator.png
-            test -s emulator-artifacts/android-emulator.png
-            file emulator-artifacts/android-emulator.png
-
-            adb shell screenrecord --time-limit 12 /sdcard/teknik-emulator.mp4
-            adb pull /sdcard/teknik-emulator.mp4 emulator-artifacts/teknik-emulator.mp4
-            test -s emulator-artifacts/teknik-emulator.mp4
-
-            adb shell dumpsys gfxinfo com.wolferdwolf.teknik > emulator-artifacts/android-emulator-gfxinfo.txt
-            adb logcat -d > emulator-artifacts/android-emulator-logcat.txt
-            if grep -Eiq "FATAL EXCEPTION|ANR in com\.wolferdwolf\.teknik" emulator-artifacts/android-emulator-logcat.txt; then
-              echo "Android emulator detected a TEKNIK crash or ANR" >&2
-              exit 1
-            fi
-            test -n "$(adb shell pidof com.wolferdwolf.teknik | tr -d '\r')"
-
-      - name: Publish emulator evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: teknik-android-emulator-${{ github.sha }}
-          if-no-files-found: warn
-          retention-days: 30
-          path: emulator-artifacts/
