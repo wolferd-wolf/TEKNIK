@@ -1,4 +1,4 @@
-name: TEKNIK Fast Build
+name: TEKNIK CI
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: teknik-fast-build-${{ github.ref }}
+  group: teknik-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -26,6 +26,11 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+
+      - name: Verify single workflow
+        run: |
+          test "$(find .github/workflows -maxdepth 1 -type f | wc -l)" -eq 1
+          test -f .github/workflows/ci.yml
 
       - name: Install Java 17
         uses: actions/setup-java@v4
@@ -100,6 +105,7 @@ jobs:
       - name: Import project and run essential tests
         run: |
           godot --headless --path . --editor --quit
+          godot --headless --path . --script res://tests/run_mobile_regression_tests.gd
           godot --headless --path . --script res://tests/run_native_chunk_parity_tests.gd
           godot --headless --path . --script res://tests/run_native_worker_integration_tests.gd
           godot --headless --path . --script res://tests/run_tests.gd
