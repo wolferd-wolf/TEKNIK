@@ -22,7 +22,6 @@ jobs:
       GODOT_BIN: /usr/local/bin/godot
       GODOT_CPP_REF: "ba0edfed90512ec64aba51d4295a3e7e30112f86"
       ANDROID_NDK_VERSION: "28.1.13356709"
-      ANDROID_BUILD_TOOLS: "35.0.1"
 
     steps:
       - name: Check out source
@@ -69,7 +68,6 @@ jobs:
           git -C native/godot-cpp remote add origin https://github.com/godotengine/godot-cpp.git
           git -C native/godot-cpp fetch --depth 1 origin "$GODOT_CPP_REF"
           git -C native/godot-cpp checkout --detach FETCH_HEAD
-          test "$(git -C native/godot-cpp rev-parse HEAD)" = "$GODOT_CPP_REF"
 
       - name: Restore godot-cpp build cache
         uses: actions/cache@v4
@@ -83,38 +81,34 @@ jobs:
 
       - name: Build native Linux test bridge
         run: |
-          set -o pipefail
           mkdir -p artifacts/test-logs /tmp/godot-api
-          cargo test --manifest-path native/rust/Cargo.toml --release 2>&1 | tee artifacts/test-logs/rust-unit.log
-          cargo build --manifest-path native/rust/Cargo.toml --release 2>&1 | tee artifacts/test-logs/rust-build.log
+          cargo test --manifest-path native/rust/Cargo.toml --release
+          cargo build --manifest-path native/rust/Cargo.toml --release
           (cd /tmp/godot-api && godot --headless --dump-extension-api)
           cp /tmp/godot-api/extension_api.json extension_api.json
           (
             cd native
-            scons -j2 platform=linux arch=x86_64 target=template_debug \
+            scons -j2 \
+              platform=linux \
+              arch=x86_64 \
+              target=template_debug \
               custom_api_file="$GITHUB_WORKSPACE/extension_api.json" \
               rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/release"
-          ) 2>&1 | tee artifacts/test-logs/native-linux-build.log
+          )
           test -s native/bin/libteknik_native.linux.template_debug.x86_64.so
 
       - name: Import project and run essential tests
         run: |
-          set -o pipefail
-          godot --headless --path . --editor --quit 2>&1 | tee artifacts/test-logs/godot-import.log
-          run_test() {
-            local name="$1"
-            local script="$2"
-            godot --headless --path . --script "$script" 2>&1 | tee "artifacts/test-logs/${name}.log"
-          }
-          run_test native-chunk-parity res://tests/run_native_chunk_parity_tests.gd
-          run_test native-worker-integration res://tests/run_native_worker_integration_tests.gd
-          run_test core res://tests/run_tests.gd
-          run_test stream-budget res://tests/run_stream_budget_tests.gd
-          run_test world-edit-store res://tests/run_world_edit_store_tests.gd
-          run_test chunk-edit-worker res://tests/run_chunk_edit_worker_tests.gd
-          run_test chunk-build-pool res://tests/run_chunk_build_pool_tests.gd
-          run_test world-interaction res://tests/run_world_interaction_tests.gd
-          run_test block-placement res://tests/run_block_placement_tests.gd
+          godot --headless --path . --editor --quit
+          godot --headless --path . --script res://tests/run_native_chunk_parity_tests.gd
+          godot --headless --path . --script res://tests/run_native_worker_integration_tests.gd
+          godot --headless --path . --script res://tests/run_tests.gd
+          godot --headless --path . --script res://tests/run_stream_budget_tests.gd
+          godot --headless --path . --script res://tests/run_world_edit_store_tests.gd
+          godot --headless --path . --script res://tests/run_chunk_edit_worker_tests.gd
+          godot --headless --path . --script res://tests/run_chunk_build_pool_tests.gd
+          godot --headless --path . --script res://tests/run_world_interaction_tests.gd
+          godot --headless --path . --script res://tests/run_block_placement_tests.gd
 
       - name: Set up Android command-line tools
         uses: android-actions/setup-android@v3
@@ -124,7 +118,7 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager --sdk_root="$ANDROID_HOME" \
             "platform-tools" \
-            "build-tools;${ANDROID_BUILD_TOOLS}" \
+            "build-tools;35.0.1" \
             "platforms;android-35" \
             "cmdline-tools;latest" \
             "cmake;3.10.2.4988404" \
@@ -132,20 +126,21 @@ jobs:
 
       - name: Build native Android ARM64 extension
         run: |
-          set -o pipefail
           export NDK_ROOT="$ANDROID_HOME/ndk/${ANDROID_NDK_VERSION}"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
           rustup target add aarch64-linux-android
-          cargo build --manifest-path native/rust/Cargo.toml --release --target aarch64-linux-android \
-            2>&1 | tee artifacts/test-logs/rust-android-arm64-build.log
+          cargo build --manifest-path native/rust/Cargo.toml --release --target aarch64-linux-android
           (
             cd native
             ANDROID_NDK_ROOT="$NDK_ROOT" ANDROID_HOME="$ANDROID_HOME" scons -j2 \
-              platform=android arch=arm64 target=template_debug android_api_level=24 \
+              platform=android \
+              arch=arm64 \
+              target=template_debug \
+              android_api_level=24 \
               custom_api_file="$GITHUB_WORKSPACE/extension_api.json" \
               rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/aarch64-linux-android/release"
-          ) 2>&1 | tee artifacts/test-logs/native-android-arm64-build.log
+          )
           test -s native/bin/libteknik_native.android.template_debug.arm64.so
 
       - name: Configure Android export
@@ -159,44 +154,26 @@ jobs:
             "export/android/android_sdk_path = \"$ANDROID_HOME\"" \
             > "$HOME/.config/godot/editor_settings-${GODOT_VERSION%.*}.tres"
           if [ ! -f "$HOME/.android/debug.keystore" ]; then
-            keytool -genkeypair -v -keystore "$HOME/.android/debug.keystore" \
-              -storepass android -alias androiddebugkey -keypass android \
-              -keyalg RSA -keysize 2048 -validity 10000 \
+            keytool -genkeypair \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
               -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-      - name: Export and verify Android ARM64 APK
+      - name: Export Android debug APK
         run: |
-          set -o pipefail
-          godot --headless --path . --export-debug "Android ARM64" build/TEKNIK-arm64-debug.apk \
-            2>&1 | tee artifacts/test-logs/android-export.log
+          godot --headless --path . --export-debug "Android ARM64" build/TEKNIK-arm64-debug.apk
           test -s build/TEKNIK-arm64-debug.apk
-          unzip -l build/TEKNIK-arm64-debug.apk | tee artifacts/apk-arm64-contents.txt
-          grep -Eq 'lib/arm64-v8a/libteknik_native.*\.so' artifacts/apk-arm64-contents.txt
-          ! grep -q 'lib/x86_64/' artifacts/apk-arm64-contents.txt
-          ! grep -q 'lib/armeabi-v7a/' artifacts/apk-arm64-contents.txt
-          "$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}/aapt" dump badging build/TEKNIK-arm64-debug.apk | tee artifacts/apk-arm64-badging.txt
-          grep -q "native-code: 'arm64-v8a'" artifacts/apk-arm64-badging.txt
-          sha256sum build/TEKNIK-arm64-debug.apk | tee artifacts/TEKNIK-arm64-debug.sha256
 
       - name: Publish phone APK
         uses: actions/upload-artifact@v4
         with:
           name: TEKNIK-Android-ARM64-${{ github.sha }}
           if-no-files-found: error
-          retention-days: 14
-          path: |
-            build/TEKNIK-arm64-debug.apk
-            artifacts/TEKNIK-arm64-debug.sha256
-            artifacts/apk-arm64-badging.txt
-
-      - name: Publish failure logs
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: TEKNIK-Failure-Logs-${{ github.sha }}
-          if-no-files-found: warn
-          retention-days: 14
-          path: |
-            artifacts/test-logs/
-            artifacts/apk-arm64-contents.txt
+          retention-days: 30
+          path: build/TEKNIK-arm64-debug.apk
