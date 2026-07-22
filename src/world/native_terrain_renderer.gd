@@ -32,3 +32,33 @@ func probe_renderer() -> Dictionary:
 			"packed_renderer_supported": false,
 		}
 	return result
+
+
+func render_chunk_parity_preview(
+	packed_faces: PackedInt32Array,
+	legacy_vertices: PackedVector3Array,
+	legacy_normals: PackedVector3Array,
+	legacy_indices: PackedInt32Array,
+	chunk_origin: Vector3i,
+	image_size: int = 256
+) -> Dictionary:
+	if not is_available() or not _renderer.has_method("render_chunk_parity_preview"):
+		return {
+			"success": false,
+			"error": "Native packed chunk preview is unavailable",
+		}
+	var result: Variant = _renderer.call(
+		"render_chunk_parity_preview",
+		packed_faces,
+		legacy_vertices,
+		legacy_normals,
+		legacy_indices,
+		chunk_origin,
+		image_size
+	)
+	if not result is Dictionary:
+		return {
+			"success": false,
+			"error": "Native packed chunk preview returned a non-dictionary result",
+		}
+	return result
