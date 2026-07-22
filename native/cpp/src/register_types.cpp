@@ -1,6 +1,7 @@
 #include "register_types.h"
 
 #include "teknik_native_chunk_builder.h"
+#include "teknik_terrain_renderer.h"
 
 #include <gdextension_interface.h>
 #include <godot_cpp/core/class_db.hpp>
@@ -14,6 +15,7 @@ void initialize_teknik_native_module(ModuleInitializationLevel level) {
         return;
     }
     GDREGISTER_CLASS(TeknikNativeChunkBuilder);
+    GDREGISTER_CLASS(TeknikTerrainRenderer);
 }
 
 void uninitialize_teknik_native_module(ModuleInitializationLevel level) {
@@ -42,4 +44,4 @@ GDExtensionBool GDE_EXPORT teknik_native_library_init(
     return init_object.init();
 }
 
-}
+} // extern "C"
