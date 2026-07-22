@@ -145,11 +145,12 @@ RID create_framebuffer(
 }
 
 Ref<RDPipelineColorBlendState> create_color_blend_state() {
-    RDPipelineColorBlendStateAttachment attachment;
-    attachment.set_enable_blend(false);
+    Ref<RDPipelineColorBlendStateAttachment> attachment;
+    attachment.instantiate();
+    attachment->set_enable_blend(false);
 
     TypedArray<RDPipelineColorBlendStateAttachment> attachments;
-    attachments.push_back(&attachment);
+    attachments.push_back(attachment);
 
     Ref<RDPipelineColorBlendState> state;
     state.instantiate();
@@ -447,23 +448,25 @@ Dictionary TeknikTerrainRenderer::render_chunk_parity_preview(
     TypedArray<RDVertexAttribute> empty_attributes;
     const int64_t packed_vertex_format = device->vertex_format_create(empty_attributes);
 
-    RDVertexAttribute position_attribute;
-    position_attribute.set_location(0);
-    position_attribute.set_binding(0);
-    position_attribute.set_format(RenderingDevice::DATA_FORMAT_R32G32B32_SFLOAT);
-    position_attribute.set_stride(FLOATS_PER_LEGACY_VERTEX * sizeof(float));
-    position_attribute.set_offset(0);
+    Ref<RDVertexAttribute> position_attribute;
+    position_attribute.instantiate();
+    position_attribute->set_location(0);
+    position_attribute->set_binding(0);
+    position_attribute->set_format(RenderingDevice::DATA_FORMAT_R32G32B32_SFLOAT);
+    position_attribute->set_stride(FLOATS_PER_LEGACY_VERTEX * sizeof(float));
+    position_attribute->set_offset(0);
 
-    RDVertexAttribute normal_attribute;
-    normal_attribute.set_location(1);
-    normal_attribute.set_binding(0);
-    normal_attribute.set_format(RenderingDevice::DATA_FORMAT_R32G32B32_SFLOAT);
-    normal_attribute.set_stride(FLOATS_PER_LEGACY_VERTEX * sizeof(float));
-    normal_attribute.set_offset(3 * sizeof(float));
+    Ref<RDVertexAttribute> normal_attribute;
+    normal_attribute.instantiate();
+    normal_attribute->set_location(1);
+    normal_attribute->set_binding(0);
+    normal_attribute->set_format(RenderingDevice::DATA_FORMAT_R32G32B32_SFLOAT);
+    normal_attribute->set_stride(FLOATS_PER_LEGACY_VERTEX * sizeof(float));
+    normal_attribute->set_offset(3 * sizeof(float));
 
     TypedArray<RDVertexAttribute> legacy_attributes;
-    legacy_attributes.push_back(&position_attribute);
-    legacy_attributes.push_back(&normal_attribute);
+    legacy_attributes.push_back(position_attribute);
+    legacy_attributes.push_back(normal_attribute);
     const int64_t legacy_vertex_format = device->vertex_format_create(legacy_attributes);
 
     const int64_t framebuffer_format = device->framebuffer_get_format(packed_framebuffer);
@@ -584,7 +587,10 @@ Dictionary TeknikTerrainRenderer::render_chunk_parity_preview(
     );
 
     report.merge(comparison, true);
-    report["success"] = static_cast<bool>(comparison.get("valid_image_sizes", false));
+    const bool valid_image_sizes = static_cast<bool>(comparison.get("valid_image_sizes", false));
+    const bool exact_pixel_match = static_cast<bool>(comparison.get("exact_pixel_match", false));
+    const int64_t covered_pixels = static_cast<int64_t>(comparison.get("covered_pixels", 0));
+    report["success"] = valid_image_sizes && exact_pixel_match && covered_pixels > 0;
     report["image_size"] = image_size;
     report["face_count"] = face_count;
     report["procedural_vertex_count"] = face_count * PROCEDURAL_VERTICES_PER_FACE;
@@ -608,10 +614,9 @@ Dictionary TeknikTerrainRenderer::render_chunk_parity_preview(
         Image::FORMAT_RGBA8,
         legacy_pixels
     );
-    if (!static_cast<bool>(comparison.get("exact_pixel_match", false))) {
+    if (!exact_pixel_match) {
         report["error"] = "Packed and conventional Vulkan preview pixels differ";
-    } else if (static_cast<int64_t>(comparison.get("covered_pixels", 0)) <= 0) {
-        report["success"] = false;
+    } else if (covered_pixels <= 0) {
         report["error"] = "Packed Vulkan preview produced no covered pixels";
     }
     return report;
