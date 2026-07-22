@@ -214,6 +214,7 @@ void draw_packed_faces(
     const RID &framebuffer,
     const RID &pipeline,
     const RID &uniform_set,
+    const RID &vertex_array,
     int64_t face_count
 ) {
     PackedColorArray clear_colors;
@@ -225,6 +226,7 @@ void draw_packed_faces(
     );
     device->draw_list_bind_render_pipeline(draw_list, pipeline);
     device->draw_list_bind_uniform_set(draw_list, uniform_set, 0);
+    device->draw_list_bind_vertex_array(draw_list, vertex_array);
     device->draw_list_draw(
         draw_list,
         false,
@@ -550,8 +552,15 @@ Dictionary TeknikTerrainRenderer::render_chunk_parity_preview(
         0,
         legacy_indices.size()
     ));
+    TypedArray<RID> packed_vertex_buffers;
+    const RID packed_vertex_array = guard.track(device->vertex_array_create(
+        PROCEDURAL_VERTICES_PER_FACE,
+        packed_vertex_format,
+        packed_vertex_buffers
+    ));
     if (!device->uniform_set_is_valid(packed_uniform_set)
         || !device->uniform_set_is_valid(legacy_uniform_set)
+        || !packed_vertex_array.is_valid()
         || !legacy_vertex_array.is_valid()
         || !legacy_index_array.is_valid()) {
         report["success"] = false;
@@ -565,6 +574,7 @@ Dictionary TeknikTerrainRenderer::render_chunk_parity_preview(
         packed_framebuffer,
         packed_pipeline,
         packed_uniform_set,
+        packed_vertex_array,
         face_count
     );
     draw_legacy_mesh(
@@ -576,8 +586,6 @@ Dictionary TeknikTerrainRenderer::render_chunk_parity_preview(
         legacy_index_array
     );
 
-    device->submit();
-    device->sync();
     const PackedByteArray packed_pixels = device->texture_get_data(packed_target, 0);
     const PackedByteArray legacy_pixels = device->texture_get_data(legacy_target, 0);
     const Dictionary comparison = compare_rendered_images(
