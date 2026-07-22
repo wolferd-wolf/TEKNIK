@@ -47,9 +47,12 @@ func start(seed: int, coordinate: Vector3i, edit_snapshots: Dictionary = {}) -> 
 	return ERR_BUSY
 
 
-func collect_ready() -> Array[Dictionary]:
+func collect_ready(max_reports: int = 1) -> Array[Dictionary]:
 	var reports: Array[Dictionary] = []
+	var report_limit: int = maxi(max_reports, 1)
 	for worker: TeknikChunkBuildWorker in _workers:
+		if reports.size() >= report_limit:
+			break
 		if not worker.is_ready():
 			continue
 		var coordinate: Vector3i = worker.coordinate()
@@ -58,6 +61,14 @@ func collect_ready() -> Array[Dictionary]:
 		if not report.is_empty():
 			reports.append(report)
 	return reports
+
+
+func ready_count() -> int:
+	var ready: int = 0
+	for worker: TeknikChunkBuildWorker in _workers:
+		if worker.is_ready():
+			ready += 1
+	return ready
 
 
 func is_busy() -> bool:

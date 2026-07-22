@@ -14,12 +14,21 @@ func _init() -> void:
 	_expect(pool.inflight_count() == 2, "two chunks are tracked in flight")
 	_expect(pool.start(73_421, Vector3i.LEFT, {}) == ERR_BUSY, "pool refuses work beyond capacity")
 
-	var reports: Array[Dictionary] = []
 	var waited_ms: int = 0
-	while reports.size() < 2 and waited_ms < 30_000:
+	while pool.ready_count() < 2 and waited_ms < 30_000:
 		OS.delay_msec(10)
 		waited_ms += 10
-		reports.append_array(pool.collect_ready())
+	_expect(pool.ready_count() == 2, "both parallel workers become ready")
+
+	var first_frame: Array[Dictionary] = pool.collect_ready()
+	_expect(first_frame.size() == 1, "default collection commits at most one chunk per frame")
+	_expect(pool.inflight_count() == 1, "one completed worker remains queued after the first frame")
+	var second_frame: Array[Dictionary] = pool.collect_ready()
+	_expect(second_frame.size() == 1, "next frame collects the remaining completed chunk")
+
+	var reports: Array[Dictionary] = []
+	reports.append_array(first_frame)
+	reports.append_array(second_frame)
 	_expect(reports.size() == 2, "both parallel workers complete")
 	var coordinates: Dictionary = {}
 	for report: Dictionary in reports:
