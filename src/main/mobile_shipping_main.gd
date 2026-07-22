@@ -3,6 +3,8 @@ extends "res://src/main/shipping_main.gd"
 const AutoJumpAssistant = preload("res://src/player/auto_jump_assistant.gd")
 const MeshVisualSanitizer = preload("res://src/world/mesh_visual_sanitizer.gd")
 
+var _auto_jump_count: int = 0
+
 
 func _ready() -> void:
 	super._ready()
@@ -13,6 +15,16 @@ func _ready() -> void:
 		auto_jump.name = "AutoJumpAssistant"
 		_player.add_child(auto_jump)
 		auto_jump.configure(_player)
+		auto_jump.auto_jump_triggered.connect(_on_auto_jump_triggered)
+		_runtime_log.event("info", "mobile", "runtime_configured", {
+			"orientation": int(ProjectSettings.get_setting("display/window/handheld/orientation", -1)),
+			"emulate_mouse_from_touch": bool(ProjectSettings.get_setting(
+				"input_devices/pointing/emulate_mouse_from_touch",
+				true
+			)),
+			"viewport": str(get_viewport().get_visible_rect().size),
+			"floor_snap_length": _player.floor_snap_length,
+		})
 
 
 func _input(event: InputEvent) -> void:
@@ -57,3 +69,12 @@ func _flatten_loaded_terrain_colors() -> void:
 		replacement.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 		replacement.surface_set_material(0, source.surface_get_material(0))
 		terrain.mesh = replacement
+
+
+func _on_auto_jump_triggered(position: Vector3, upward_velocity: float) -> void:
+	_auto_jump_count += 1
+	_runtime_log.event("info", "mobile", "auto_jump_triggered", {
+		"position": str(position),
+		"upward_velocity": upward_velocity,
+		"count": _auto_jump_count,
+	})

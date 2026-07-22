@@ -1,6 +1,8 @@
 class_name TeknikAutoJumpAssistant
 extends Node
 
+signal auto_jump_triggered(position: Vector3, upward_velocity: float)
+
 const AUTO_JUMP_VELOCITY: float = 5.8
 const AUTO_JUMP_HEIGHT: float = 1.08
 const AUTO_JUMP_PROBE_DISTANCE: float = 0.62
@@ -54,3 +56,4 @@ func _physics_process(delta: float) -> void:
 		AUTO_JUMP_VELOCITY
 	)
 	_cooldown_seconds = AUTO_JUMP_COOLDOWN_SECONDS
+	auto_jump_triggered.emit(_controller.global_position, _controller.velocity.y)

@@ -1,5 +1,6 @@
 extends SceneTree
 
+const AutoJumpAssistant = preload("res://src/player/auto_jump_assistant.gd")
 const MeshVisualSanitizer = preload("res://src/world/mesh_visual_sanitizer.gd")
 
 var _failures: int = 0
@@ -8,6 +9,7 @@ var _failures: int = 0
 func _init() -> void:
 	_test_mobile_project_settings()
 	_test_flat_quad_colors()
+	_test_auto_jump_evidence_signal()
 	_test_shipping_scene()
 
 	if _failures == 0:
@@ -50,6 +52,15 @@ func _test_flat_quad_colors() -> void:
 		and colors[2] == colors[3],
 		"all four vertices of a greedy quad use one flat color"
 	)
+
+
+func _test_auto_jump_evidence_signal() -> void:
+	var assistant := AutoJumpAssistant.new()
+	_expect(
+		assistant.has_signal("auto_jump_triggered"),
+		"auto jump exposes device-side activation evidence"
+	)
+	assistant.free()
 
 
 func _test_shipping_scene() -> void:
