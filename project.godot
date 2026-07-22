@@ -8,6 +8,10 @@ config/name="TEKNIK"
 run/main_scene="res://src/main/main.tscn"
 config/features=PackedStringArray("4.7", "Mobile")
 
+[autoload]
+
+FPSCounter="*res://src/ui/fps_counter.gd"
+
 [display]
 
 window/size/viewport_width=1280
