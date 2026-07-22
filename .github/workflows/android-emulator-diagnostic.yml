@@ -108,13 +108,16 @@ jobs:
         with:
           name: teknik-emulator-apk-${{ github.sha }}
           path: qa
-      - name: Locate downloaded emulator APK
+      - name: Stage downloaded emulator APK
         run: |
           mkdir -p emulator-artifacts
           find "$GITHUB_WORKSPACE/qa" -maxdepth 3 -type f -printf '%p %s bytes\n' | tee emulator-artifacts/downloaded-files.txt
           APK="$(find "$GITHUB_WORKSPACE/qa" -type f -name 'TEKNIK-emulator-debug.apk' -print -quit)"
           test -n "$APK"
           test -s "$APK"
+          cp "$APK" /tmp/TEKNIK-emulator-debug.apk
+          test -s /tmp/TEKNIK-emulator-debug.apk
+          sha256sum /tmp/TEKNIK-emulator-debug.apk | tee emulator-artifacts/apk-sha256.txt
       - name: Initialize diagnostic evidence
         run: |
           mkdir -p emulator-artifacts
@@ -138,12 +141,12 @@ jobs:
           disable-animations: true
           script: |
             set +eu
-            cd "$GITHUB_WORKSPACE"
             mkdir -p emulator-artifacts
             printf 'stage=emulator_script_started\n' >> emulator-artifacts/verdict.txt
-            APK="$(find "$GITHUB_WORKSPACE/qa" -type f -name 'TEKNIK-emulator-debug.apk' -print -quit)"
+            APK=/tmp/TEKNIK-emulator-debug.apk
             printf 'apk=%s\n' "$APK" >> emulator-artifacts/verdict.txt
-            if [ -z "$APK" ] || [ ! -s "$APK" ]; then
+            ls -l /tmp/TEKNIK-emulator-debug.apk > emulator-artifacts/staged-apk.txt 2>&1
+            if [ ! -s "$APK" ]; then
               printf 'verdict=apk_missing\n' | tee -a emulator-artifacts/verdict.txt
               exit 1
             fi
