@@ -1,3 +1,4 @@
+# Production terrain warp must pass procedural, native parity, and Android export gates.
 name: TEKNIK CI
 
 on:
