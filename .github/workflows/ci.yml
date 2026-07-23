@@ -149,6 +149,7 @@ jobs:
           godot --headless --path . --script res://tests/run_native_worker_integration_tests.gd
           godot --headless --path . --script res://tests/run_tests.gd
           godot --headless --path . --script res://tests/run_stream_budget_tests.gd
+          godot --headless --path . --script res://tests/run_collision_stream_scheduler_tests.gd
           godot --headless --path . --script res://tests/run_world_edit_store_tests.gd
           godot --headless --path . --script res://tests/run_chunk_edit_worker_tests.gd
           godot --headless --path . --script res://tests/run_chunk_build_pool_tests.gd
