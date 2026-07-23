@@ -4,7 +4,9 @@ const DirectionalStreamPlan = preload("res://src/world/chunk_stream_plan.gd")
 const DirectionalSpawnPlanner = preload("res://src/world/spawn_planner.gd")
 const DirectionalVoxelChunk = preload("res://src/world/voxel_chunk.gd")
 
-const CHUNK_CACHE_LIMIT: int = 8
+# A one-chunk reversal can temporarily involve seven outgoing and seven incoming
+# chunks. Sixteen entries retain both strips with a small deterministic margin.
+const CHUNK_CACHE_LIMIT: int = 16
 const CACHE_COMMITS_PER_FRAME: int = 1
 const INVALID_COORDINATE := Vector3i(2_147_483_647, 0, 2_147_483_647)
 
