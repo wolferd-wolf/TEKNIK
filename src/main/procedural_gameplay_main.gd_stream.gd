@@ -16,9 +16,6 @@ var _distant_commit_usec: int = 0
 
 
 func _rebuild_streamed_features() -> void:
-	# Keep the last complete ecology root visible while the replacement is planned
-	# and committed. Removing it here leaves the world barren whenever continuous
-	# movement prevents the idle-gated ecology worker from starting.
 	if _feature_root == null:
 		_feature_root = Node3D.new()
 		_feature_root.name = "StreamedWorldFeatures"
@@ -96,6 +93,49 @@ func _begin_ecology_generation() -> void:
 		"observer": str(observer_position),
 		"old_features_visible": true,
 	})
+
+
+func _add_tree_multimesh(
+	mesh: Mesh,
+	transforms: Array[Transform3D],
+	cast_shadows: bool = true,
+	streamed: bool = true
+) -> void:
+	if transforms.is_empty():
+		return
+	var multimesh := MultiMesh.new()
+	multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	multimesh.mesh = mesh
+	multimesh.instance_count = transforms.size()
+	for index: int in range(transforms.size()):
+		multimesh.set_instance_transform(index, transforms[index])
+	# MultiMesh instances use world-space transforms while their owner node remains
+	# at the origin. Vulkan/mobile cannot reliably infer those remote bounds, so an
+	# explicit active-window AABB is required or the complete vegetation batch can
+	# be frustum-culled.
+	var half_span: float = float((CHUNK_RADIUS + 2) * VoxelChunk.SIZE)
+	var center_world := Vector3(
+		float(_feature_refresh_target.x * VoxelChunk.SIZE),
+		48.0,
+		float(_feature_refresh_target.z * VoxelChunk.SIZE)
+	)
+	multimesh.custom_aabb = AABB(
+		center_world - Vector3(half_span, 64.0, half_span),
+		Vector3(half_span * 2.0, 128.0, half_span * 2.0)
+	)
+	var instance := MultiMeshInstance3D.new()
+	instance.multimesh = multimesh
+	instance.cast_shadow = (
+		GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+		if cast_shadows
+		else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	)
+	if streamed:
+		_feature_root.add_child(instance)
+		_streamed_feature_instances += 1
+	else:
+		add_child(instance)
+	_render_instance_count += 1
 
 
 func _begin_distant_generation() -> void:
