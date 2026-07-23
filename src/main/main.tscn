@@ -1,9 +1,8 @@
 [gd_scene load_steps=2 format=3]
 
-; incremental_collision_main.gd extends movement_streaming_main.gd, which extends
-; biome_visual_main.gd and retains directional chunk streaming, safe mesh caching,
-; procedural_gameplay_main.gd_stream.gd, and the proven chunk-local vegetation stack.
-[ext_resource type="Script" path="res://src/main/incremental_collision_main.gd" id="1_main"]
+; multi_lod_main.gd extends incremental_collision_main.gd and preserves the
+; directional streaming, safe cache, biome palette, and chunk-local vegetation stack.
+[ext_resource type="Script" path="res://src/main/multi_lod_main.gd" id="1_main"]
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_main")
