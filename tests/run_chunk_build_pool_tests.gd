@@ -43,8 +43,19 @@ func _init() -> void:
 		coordinates[report.coordinate] = true
 		_expect(int(report.get("generation_usec", 0)) > 0, "worker reports generation timing")
 		_expect(int(report.get("mesh_worker_usec", 0)) > 0, "worker reports mesh timing")
+		_expect(int(report.get("build_thread_usec", 0)) > 0, "worker reports pure thread build timing")
+		_expect(int(report.get("ready_wait_usec", -1)) >= 0, "worker reports completed-to-collect latency")
+		_expect(int(report.get("ready_queue_depth", 0)) >= 1, "pool records ready queue depth at collection")
+		_expect(int(report.get("adaptive_commit_limit", 0)) == 1, "pool records adaptive commit decision")
+		_expect(int(report.get("adaptive_frame_usec", -1)) >= 0, "pool records frame time used by adaptive policy")
+		_expect(int(report.get("worst_ready_wait_usec", -1)) >= int(report.get("ready_wait_usec", 0)), "pool tracks worst ready latency")
 		_expect(int(report.get("boundary_column_count", 0)) <= 140, "boundary terrain columns are cached instead of resampled per voxel")
 	_expect(coordinates.has(Vector3i.ZERO) and coordinates.has(Vector3i.RIGHT), "parallel results preserve requested coordinates")
+	_expect(pool.last_ready_count() >= 1, "pool exposes the last observed ready queue depth")
+	_expect(pool.last_frame_usec() >= 0, "pool exposes the last adaptive frame time")
+	_expect(pool.last_ready_wait_usec() >= 0, "pool exposes the most recent ready latency")
+	_expect(pool.worst_ready_wait_usec() >= pool.last_ready_wait_usec(), "pool preserves worst observed ready latency")
+	_expect(pool.total_deferred_ready_frames() >= 0, "pool exposes cumulative adaptive deferrals")
 	_expect(not pool.is_busy(), "pool becomes idle after adaptive collection")
 
 	if _failures == 0:
