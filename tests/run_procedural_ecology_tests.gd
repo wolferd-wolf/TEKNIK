@@ -3,6 +3,7 @@ extends SceneTree
 const Ecology = preload("res://src/world/procedural_ecology.gd")
 const Terrain = preload("res://src/world/voxel_terrain_generator.gd")
 const SpawnPlanner = preload("res://src/world/spawn_planner.gd")
+const DomainWarp = preload("res://src/world/terrain_domain_warp.gd")
 
 
 var _failures: int = 0
@@ -12,6 +13,7 @@ func _init() -> void:
 	_test_candidate_determinism()
 	_test_blue_noise_spacing()
 	_test_ecological_fields()
+	_test_domain_warp_contract()
 	_test_seed_diversity_and_terrain_continuity()
 	_test_river_continuity()
 	_test_spawn_suitability()
@@ -119,6 +121,31 @@ func _test_ecological_fields() -> void:
 		conifer >= 0.06 and conifer <= 0.78,
 		"species probability stays inside ecological bounds"
 	)
+
+
+func _test_domain_warp_contract() -> void:
+	var first: Vector2 = DomainWarp.coordinates(73_421, -144, 208)
+	var second: Vector2 = DomainWarp.coordinates(73_421, -144, 208)
+	_expect(first == second, "terrain domain warp is deterministic")
+	var changed_seed: Vector2 = DomainWarp.coordinates(91_777, -144, 208)
+	_expect(first.distance_to(changed_seed) > 0.5, "terrain domain warp responds to world seed")
+	var maximum_neighbor_delta: float = 0.0
+	var maximum_offset: float = 0.0
+	for world_z: int in range(-256, 257, 16):
+		for world_x: int in range(-256, 257, 16):
+			var current: Vector2 = DomainWarp.coordinates(73_421, world_x, world_z)
+			var east: Vector2 = DomainWarp.coordinates(73_421, world_x + 1, world_z)
+			maximum_neighbor_delta = maxf(
+				maximum_neighbor_delta,
+				absf(current.distance_to(east) - 1.0)
+			)
+			maximum_offset = maxf(
+				maximum_offset,
+				current.distance_to(Vector2(float(world_x), float(world_z)))
+			)
+	_expect(maximum_neighbor_delta < 1.0, "terrain domain warp remains continuous between columns")
+	_expect(maximum_offset <= 34.0, "terrain domain warp remains inside its displacement budget")
+	_expect(maximum_offset > 8.0, "terrain domain warp creates meaningful large-scale distortion")
 
 
 func _test_seed_diversity_and_terrain_continuity() -> void:
