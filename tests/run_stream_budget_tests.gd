@@ -3,6 +3,7 @@ extends SceneTree
 const ChunkWorkBudget = preload("res://src/world/chunk_work_budget.gd")
 const CollisionWindowPlan = preload("res://src/world/collision_window_plan.gd")
 const MobileControlMath = preload("res://src/player/mobile_control_math.gd")
+const ChunkStreamPlan = preload("res://src/world/chunk_stream_plan.gd")
 
 var _failures: int = 0
 
@@ -11,6 +12,8 @@ func _init() -> void:
 	_test_frame_budgeting()
 	_test_replacement_cancels_stale_work()
 	_test_negative_budgets_are_safe()
+	_test_directional_chunk_priority()
+	_test_directional_cache_guards()
 	_test_collision_window_plan()
 	_test_mobile_control_geometry()
 
@@ -58,6 +61,49 @@ func _test_negative_budgets_are_safe() -> void:
 	_expect(frame.load.is_empty() and frame.unload.is_empty(), "negative budgets perform no work")
 	_expect(budget.pending_load_count() == 1, "negative load budget preserves queue")
 	_expect(budget.pending_unload_count() == 1, "negative unload budget preserves queue")
+
+
+func _test_directional_chunk_priority() -> void:
+	var coordinates: Array[Vector3i] = [
+		Vector3i(-2, 0, 0), Vector3i(2, 0, 0),
+		Vector3i(0, 0, -2), Vector3i(0, 0, 2),
+	]
+	var east: Array[Vector3i] = ChunkStreamPlan.sort_directional(
+		coordinates, Vector3i.ZERO, Vector3i.ZERO, Vector2i.RIGHT
+	)
+	_expect(
+		east.find(Vector3i(2, 0, 0)) < east.find(Vector3i(-2, 0, 0)),
+		"eastward motion prioritizes the leading terrain edge"
+	)
+	var north: Array[Vector3i] = ChunkStreamPlan.sort_directional(
+		coordinates, Vector3i.ZERO, Vector3i.ZERO, Vector2i(0, -1)
+	)
+	_expect(
+		north.find(Vector3i(0, 0, -2)) < north.find(Vector3i(0, 0, 2)),
+		"northward motion prioritizes the leading terrain edge"
+	)
+	var stationary: Array[Vector3i] = ChunkStreamPlan.sort_directional(
+		[Vector3i(3, 0, 0), Vector3i(1, 0, 0), Vector3i(2, 0, 0)],
+		Vector3i.ZERO,
+		Vector3i.ZERO,
+		Vector2i.ZERO
+	)
+	_expect(
+		stationary == [Vector3i(1, 0, 0), Vector3i(2, 0, 0), Vector3i(3, 0, 0)],
+		"stationary streaming remains nearest first"
+	)
+
+
+func _test_directional_cache_guards() -> void:
+	var source: String = FileAccess.get_file_as_string(
+		"res://src/main/movement_streaming_main.gd"
+	)
+	_expect(source.contains("CHUNK_CACHE_LIMIT: int = 8"), "chunk reuse cache is bounded")
+	_expect(source.contains("CACHE_COMMITS_PER_FRAME: int = 1"), "cache commits remain frame budgeted")
+	_expect(source.contains("snapshot_neighborhood(coordinate).is_empty()"), "edited neighborhoods bypass cached terrain")
+	_expect(source.contains("_cache_chunk_before_unload(coordinate)"), "unloaded terrain is captured before destruction")
+	var scene: String = FileAccess.get_file_as_string("res://src/main/main.tscn")
+	_expect(scene.contains("movement_streaming_main.gd"), "shipping scene enables directional streaming")
 
 
 func _test_collision_window_plan() -> void:
