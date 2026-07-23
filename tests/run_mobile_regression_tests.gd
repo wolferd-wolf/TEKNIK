@@ -73,23 +73,28 @@ func _test_shipping_scene() -> void:
 		scene_text.contains("procedural_gameplay_main.gd"),
 		"shipping scene enables procedural mobile gameplay"
 	)
+	_expect(
+		scene_text.contains("gd_stream.gd"),
+		"shipping scene enables player-following ecology streaming"
+	)
 
 
 func _test_feature_planner() -> void:
 	var planner := FeaturePlanner.new()
+	var observer := Vector3(10_000.0, 0.0, 10_000.0)
 	var first: Dictionary = planner.build(
 		73_421,
 		Vector3i.ZERO,
 		0,
 		32,
-		Vector3(10_000.0, 0.0, 10_000.0)
+		observer
 	)
 	var second: Dictionary = planner.build(
 		73_421,
 		Vector3i.ZERO,
 		0,
 		32,
-		Vector3(10_000.0, 0.0, 10_000.0)
+		observer
 	)
 	_expect(
 		_feature_signature(first) == _feature_signature(second),
@@ -102,6 +107,9 @@ func _test_feature_planner() -> void:
 	var gameplay_source: String = FileAccess.get_file_as_string(
 		"res://src/main/procedural_gameplay_main.gd"
 	)
+	var stream_source: String = FileAccess.get_file_as_string(
+		"res://src/main/procedural_gameplay_main.gd_stream.gd"
+	)
 	_expect(
 		gameplay_source.contains("Thread.new()"),
 		"vegetation planning runs outside the render thread"
@@ -113,6 +121,10 @@ func _test_feature_planner() -> void:
 	_expect(
 		gameplay_source.contains("old_features_visible"),
 		"old vegetation remains visible during replacement"
+	)
+	_expect(
+		stream_source.contains("_player.global_position"),
+		"ground detail follows the moving player instead of the original spawn"
 	)
 
 
