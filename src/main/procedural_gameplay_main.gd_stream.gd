@@ -15,19 +15,39 @@ var _distant_generation_usec: int = 0
 var _distant_commit_usec: int = 0
 
 
+func _refresh_world_window(center: Vector3i, priority: Vector3i) -> void:
+	var previous_center: Vector3i = _world_center
+	super._refresh_world_window(center, priority)
+	# Ecology must track the same residency center as terrain. The previous design
+	# refreshed only every three chunks and kept the old batch visible, leaving
+	# trees and ground cover floating after their supporting chunks unloaded.
+	if center != previous_center and center != _feature_center:
+		_rebuild_streamed_features()
+
+
 func _rebuild_streamed_features() -> void:
-	if _feature_root == null:
-		_feature_root = Node3D.new()
-		_feature_root.name = "StreamedWorldFeatures"
-		add_child(_feature_root)
-		_streamed_feature_instances = 0
-		_build_water()
+	# Never retain an ecology batch whose terrain window is no longer resident.
+	# Its detached shadows were also the source of the long triangular artifacts
+	# seen in physical-device gameplay.
+	if _ecology_state == ECOLOGY_COMMITTING:
+		_cancel_ecology_commit("terrain_center_changed")
+	if _feature_root != null:
+		remove_child(_feature_root)
+		_feature_root.queue_free()
+		_render_instance_count -= _streamed_feature_instances
+	_feature_previous_root = null
+	_feature_previous_instances = 0
+	_streamed_feature_instances = 0
+	_feature_root = Node3D.new()
+	_feature_root.name = "StreamedWorldFeatures"
+	add_child(_feature_root)
+	_build_water()
 	_feature_refresh_pending = true
-	_runtime_log.event("info", "environment", "ecology_refresh_queued", {
-		"current_center": str(_feature_center),
+	_runtime_log.event("info", "environment", "ecology_invalidated_with_terrain", {
+		"old_center": str(_feature_center),
 		"target_center": str(_world_center),
+		"stale_features_removed": true,
 		"visible_instances": _streamed_feature_instances,
-		"preserved_visible_root": true,
 	})
 
 
@@ -91,7 +111,7 @@ func _begin_ecology_generation() -> void:
 	_runtime_log.event("info", "environment", "ecology_generation_started", {
 		"center": str(_feature_refresh_target),
 		"observer": str(observer_position),
-		"old_features_visible": true,
+		"old_features_visible": false,
 	})
 
 
@@ -113,7 +133,7 @@ func _add_tree_multimesh(
 			push_error("Ecology transform is not Transform3D at index %d" % index)
 			return
 		multimesh.set_instance_transform(index, transform)
-	var half_span: float = float((CHUNK_RADIUS + 2) * VoxelChunk.SIZE)
+	var half_span: float = float((CHUNK_RADIUS + 1) * VoxelChunk.SIZE)
 	var center_world := Vector3(
 		float(_feature_refresh_target.x * VoxelChunk.SIZE),
 		48.0,
