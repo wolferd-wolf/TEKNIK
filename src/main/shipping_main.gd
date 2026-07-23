@@ -155,6 +155,24 @@ func _refresh_terrain(center: Vector3i, priority: Vector3i) -> void:
 	super._refresh_terrain(center, priority)
 
 
+func _process_chunk_work() -> void:
+	var discarded: Array[Vector3i] = _playable_pool.discard_buffered_outside(
+		_desired_chunks,
+		_terrain_nodes
+	)
+	if not discarded.is_empty():
+		var coordinate_labels: Array[String] = []
+		for coordinate: Vector3i in discarded:
+			coordinate_labels.append(str(coordinate))
+		_runtime_log.event("info", "stream", "stale_buffered_results_discarded", {
+			"count": discarded.size(),
+			"coordinates": coordinate_labels,
+			"center": str(_world_center),
+			"pipeline_remaining": _playable_pool.pipeline_count(),
+		})
+	super._process_chunk_work()
+
+
 func _build_initial_chunk(coordinate: Vector3i) -> void:
 	var backend := ShippingNativeChunkBackend.new()
 	if not backend.is_available():
