@@ -2,13 +2,13 @@ class_name TeknikChunkBuildPool
 extends RefCounted
 
 const ChunkBuildWorker = preload("res://src/world/chunk_build_worker.gd")
+const AdaptiveFrameBudget = preload("res://src/diagnostics/adaptive_frame_budget.gd")
 
-const SLOW_FRAME_USEC: int = 22_000
-const CRITICAL_FRAME_USEC: int = 30_000
 const MAX_DEFERRED_READY_FRAMES: int = 4
 
 var _workers: Array[TeknikChunkBuildWorker] = []
 var _inflight: Dictionary = {}
+var _frame_budget: TeknikAdaptiveFrameBudget = AdaptiveFrameBudget.new()
 var _deferred_ready_frames: int = 0
 var _total_deferred_ready_frames: int = 0
 var _last_commit_limit: int = 0
@@ -21,6 +21,7 @@ var _worst_ready_wait_usec: int = 0
 func configure(worker_count: int) -> void:
 	if not _workers.is_empty():
 		return
+	_frame_budget.configure(60)
 	for _index: int in range(maxi(worker_count, 1)):
 		_workers.append(ChunkBuildWorker.new())
 
@@ -63,6 +64,7 @@ func collect_ready(max_reports: int = 1) -> Array[Dictionary]:
 	var ready: int = ready_count()
 	_last_ready_count = ready
 	_last_frame_usec = int(Performance.get_monitor(Performance.TIME_PROCESS) * 1_000_000.0)
+	_frame_budget.record(_last_frame_usec)
 	if ready == 0:
 		_deferred_ready_frames = 0
 		_last_commit_limit = 0
@@ -74,7 +76,13 @@ func collect_ready(max_reports: int = 1) -> Array[Dictionary]:
 
 	var report_limit: int = max_reports
 	if max_reports == 1:
-		report_limit = adaptive_report_limit(_last_frame_usec, ready, _deferred_ready_frames)
+		report_limit = adaptive_report_limit(
+			_last_frame_usec,
+			ready,
+			_deferred_ready_frames,
+			_frame_budget.slow_usec(),
+			_frame_budget.critical_usec()
+		)
 	if report_limit <= 0:
 		_deferred_ready_frames += 1
 		_total_deferred_ready_frames += 1
@@ -99,19 +107,29 @@ func collect_ready(max_reports: int = 1) -> Array[Dictionary]:
 			report["adaptive_frame_usec"] = _last_frame_usec
 			report["adaptive_commit_limit"] = report_limit
 			report["adaptive_total_deferred_frames"] = _total_deferred_ready_frames
+			report["adaptive_p50_usec"] = _frame_budget.p50_usec()
+			report["adaptive_p90_usec"] = _frame_budget.p90_usec()
+			report["adaptive_slow_usec"] = _frame_budget.slow_usec()
+			report["adaptive_critical_usec"] = _frame_budget.critical_usec()
 			report["worst_ready_wait_usec"] = _worst_ready_wait_usec
 			reports.append(report)
 	return reports
 
 
-static func adaptive_report_limit(frame_usec: int, ready: int, deferred_frames: int) -> int:
+static func adaptive_report_limit(
+	frame_usec: int,
+	ready: int,
+	deferred_frames: int,
+	slow_frame_usec: int = 22_000,
+	critical_frame_usec: int = 30_000
+) -> int:
 	if ready <= 0:
 		return 0
 	if deferred_frames >= MAX_DEFERRED_READY_FRAMES:
 		return 1
-	if frame_usec >= CRITICAL_FRAME_USEC:
+	if frame_usec >= critical_frame_usec:
 		return 0
-	if frame_usec >= SLOW_FRAME_USEC and ready < 3:
+	if frame_usec >= slow_frame_usec and ready < 3:
 		return 0
 	return 1
 
@@ -150,6 +168,30 @@ func last_ready_wait_usec() -> int:
 
 func worst_ready_wait_usec() -> int:
 	return _worst_ready_wait_usec
+
+
+func adaptive_target_usec() -> int:
+	return _frame_budget.target_usec()
+
+
+func adaptive_p50_usec() -> int:
+	return _frame_budget.p50_usec()
+
+
+func adaptive_p90_usec() -> int:
+	return _frame_budget.p90_usec()
+
+
+func adaptive_slow_usec() -> int:
+	return _frame_budget.slow_usec()
+
+
+func adaptive_critical_usec() -> int:
+	return _frame_budget.critical_usec()
+
+
+func adaptive_sample_count() -> int:
+	return _frame_budget.sample_count()
 
 
 func is_busy() -> bool:
