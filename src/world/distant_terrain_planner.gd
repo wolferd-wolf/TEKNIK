@@ -57,49 +57,57 @@ func build(
 			)
 			top_quads += 1
 
-			var north_height: int = _cell_height(
-				seed, world_x, world_z - safe_step, safe_step, height_cache
-			)
-			if height > north_height:
-				_append_north_wall(
-					vertices, normals, colors, indices,
-					world_x, world_z, safe_step, top_y,
-					float(north_height) + 0.04, top_color
+			var north_z: int = world_z - safe_step
+			if not _cell_is_inside_active_window(world_x, north_z, active_rect):
+				var north_height: int = _cell_height(
+					seed, world_x, north_z, safe_step, height_cache
 				)
-				side_quads += 1
+				if height > north_height:
+					_append_north_wall(
+						vertices, normals, colors, indices,
+						world_x, world_z, safe_step, top_y,
+						float(north_height) + 0.04, top_color
+					)
+					side_quads += 1
 
-			var south_height: int = _cell_height(
-				seed, world_x, world_z + safe_step, safe_step, height_cache
-			)
-			if height > south_height:
-				_append_south_wall(
-					vertices, normals, colors, indices,
-					world_x, world_z, safe_step, top_y,
-					float(south_height) + 0.04, top_color
+			var south_z: int = world_z + safe_step
+			if not _cell_is_inside_active_window(world_x, south_z, active_rect):
+				var south_height: int = _cell_height(
+					seed, world_x, south_z, safe_step, height_cache
 				)
-				side_quads += 1
+				if height > south_height:
+					_append_south_wall(
+						vertices, normals, colors, indices,
+						world_x, world_z, safe_step, top_y,
+						float(south_height) + 0.04, top_color
+					)
+					side_quads += 1
 
-			var west_height: int = _cell_height(
-				seed, world_x - safe_step, world_z, safe_step, height_cache
-			)
-			if height > west_height:
-				_append_west_wall(
-					vertices, normals, colors, indices,
-					world_x, world_z, safe_step, top_y,
-					float(west_height) + 0.04, top_color
+			var west_x: int = world_x - safe_step
+			if not _cell_is_inside_active_window(west_x, world_z, active_rect):
+				var west_height: int = _cell_height(
+					seed, west_x, world_z, safe_step, height_cache
 				)
-				side_quads += 1
+				if height > west_height:
+					_append_west_wall(
+						vertices, normals, colors, indices,
+						world_x, world_z, safe_step, top_y,
+						float(west_height) + 0.04, top_color
+					)
+					side_quads += 1
 
-			var east_height: int = _cell_height(
-				seed, world_x + safe_step, world_z, safe_step, height_cache
-			)
-			if height > east_height:
-				_append_east_wall(
-					vertices, normals, colors, indices,
-					world_x, world_z, safe_step, top_y,
-					float(east_height) + 0.04, top_color
+			var east_x: int = world_x + safe_step
+			if not _cell_is_inside_active_window(east_x, world_z, active_rect):
+				var east_height: int = _cell_height(
+					seed, east_x, world_z, safe_step, height_cache
 				)
-				side_quads += 1
+				if height > east_height:
+					_append_east_wall(
+						vertices, normals, colors, indices,
+						world_x, world_z, safe_step, top_y,
+						float(east_height) + 0.04, top_color
+					)
+					side_quads += 1
 
 	return {
 		"center": center,
