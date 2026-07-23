@@ -24,28 +24,27 @@ static func recolor_report(report: Dictionary, world_origin: Vector3i, seed: int
 static func recolor_distant_plan(plan: Dictionary, seed: int) -> void:
 	var vertices: PackedVector3Array = plan.get("vertices", PackedVector3Array())
 	var normals: PackedVector3Array = plan.get("normals", PackedVector3Array())
-	if vertices.is_empty() or normals.size() != vertices.size():
+	if vertices.is_empty() or normals.size() != vertices.size() or vertices.size() % 4 != 0:
 		return
 	var colors := PackedColorArray()
 	colors.resize(vertices.size())
 	var cache: Dictionary = {}
-	for index: int in range(vertices.size()):
-		var vertex: Vector3 = vertices[index]
-		var normal: Vector3 = normals[index]
-		var world_position := Vector3i(
-			roundi(vertex.x),
-			roundi(vertex.y),
-			roundi(vertex.z)
-		)
+	var face_count: int = vertices.size() / 4
+	for face_index: int in range(face_count):
+		var base_vertex: int = face_index * 4
+		var normal: Vector3 = normals[base_vertex]
+		var center: Vector3 = _face_center(vertices, base_vertex)
+		var surface_y: float = _face_max_y(vertices, base_vertex)
+		var sample := Vector3i(roundi(center.x), roundi(center.y), roundi(center.z))
 		var weights: Vector4 = BiomePalette.biome_weights(
 			seed,
-			world_position.x,
-			world_position.z,
-			vertex.y
+			sample.x,
+			sample.z,
+			surface_y
 		)
 		var material: int
 		if normal.y > 0.5:
-			if vertex.y <= float(TerrainGenerator.WATER_LEVEL + 2) or weights.w > 0.58:
+			if surface_y <= float(TerrainGenerator.WATER_LEVEL + 2) or weights.w > 0.58:
 				material = TerrainGenerator.SAND
 			elif weights.z > 0.58:
 				material = TerrainGenerator.STONE
@@ -54,26 +53,27 @@ static func recolor_distant_plan(plan: Dictionary, seed: int) -> void:
 		else:
 			material = (
 				TerrainGenerator.STONE
-				if weights.z > 0.30 or vertex.y >= 15.0
+				if weights.z > 0.30 or surface_y >= 15.0
 				else TerrainGenerator.SOIL
 			)
 		var base: Color = BiomePalette.color(
 			seed,
 			material,
-			world_position,
-			vertex.y,
+			sample,
+			surface_y,
 			cache
 		)
 		var light: float = 1.02 if normal.y > 0.5 else 0.90
 		if normal.x > 0.5 or normal.z < -0.5:
 			light *= 1.03
-		var variation: float = _variation(world_position)
-		colors[index] = Color(
+		var variation: float = _variation(sample)
+		var face_color := Color(
 			base.r * light * variation,
 			base.g * light * variation,
 			base.b * light * variation,
 			1.0
 		)
+		_write_flat_face(colors, base_vertex, face_color)
 	plan["colors"] = colors
 
 
@@ -99,30 +99,28 @@ static func _recolor_packed(
 		var face_light: float = _face_light(direction)
 		var material: int = int(decoded.material)
 		var base_vertex: int = face_index * 4
-		var surface_y: float = -INF
-		for corner: int in range(4):
-			surface_y = maxf(surface_y, vertices[base_vertex + corner].y + float(world_origin.y))
-		for corner: int in range(4):
-			var local_position: Vector3 = vertices[base_vertex + corner]
-			var sample := Vector3i(
-				world_origin.x + roundi(local_position.x),
-				world_origin.y + roundi(local_position.y),
-				world_origin.z + roundi(local_position.z)
-			)
-			var base: Color = BiomePalette.color(
-				seed,
-				material,
-				sample,
-				surface_y,
-				cache
-			)
-			var variation: float = _variation(sample)
-			colors[base_vertex + corner] = Color(
-				base.r * face_light * variation,
-				base.g * face_light * variation,
-				base.b * face_light * variation,
-				1.0
-			)
+		var local_center: Vector3 = _face_center(vertices, base_vertex)
+		var surface_y: float = _face_max_y(vertices, base_vertex) + float(world_origin.y)
+		var sample := Vector3i(
+			world_origin.x + roundi(local_center.x),
+			world_origin.y + roundi(local_center.y),
+			world_origin.z + roundi(local_center.z)
+		)
+		var base: Color = BiomePalette.color(
+			seed,
+			material,
+			sample,
+			surface_y,
+			cache
+		)
+		var variation: float = _variation(sample)
+		var face_color := Color(
+			base.r * face_light * variation,
+			base.g * face_light * variation,
+			base.b * face_light * variation,
+			1.0
+		)
+		_write_flat_face(colors, base_vertex, face_color)
 	arrays[Mesh.ARRAY_COLOR] = colors
 
 
@@ -130,7 +128,11 @@ static func _recolor_legacy(arrays: Array, world_origin: Vector3i, seed: int) ->
 	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
 	var old_colors: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
-	if normals.size() != vertices.size() or old_colors.size() != vertices.size():
+	if (
+		normals.size() != vertices.size()
+		or old_colors.size() != vertices.size()
+		or vertices.size() % 4 != 0
+	):
 		return
 	var colors := PackedColorArray()
 	colors.resize(vertices.size())
@@ -138,34 +140,84 @@ static func _recolor_legacy(arrays: Array, world_origin: Vector3i, seed: int) ->
 	var face_count: int = vertices.size() / 4
 	for face_index: int in range(face_count):
 		var base_vertex: int = face_index * 4
-		var material: int = _infer_material(old_colors[base_vertex])
+		var material: int = _infer_face_material(old_colors, base_vertex)
 		var normal: Vector3 = normals[base_vertex]
 		var face_light: float = _face_light_from_normal(normal)
-		var surface_y: float = -INF
-		for corner: int in range(4):
-			surface_y = maxf(surface_y, vertices[base_vertex + corner].y + float(world_origin.y))
-		for corner: int in range(4):
-			var local_position: Vector3 = vertices[base_vertex + corner]
-			var sample := Vector3i(
-				world_origin.x + roundi(local_position.x),
-				world_origin.y + roundi(local_position.y),
-				world_origin.z + roundi(local_position.z)
-			)
-			var base: Color = BiomePalette.color(
-				seed,
-				material,
-				sample,
-				surface_y,
-				cache
-			)
-			var variation: float = _variation(sample)
-			colors[base_vertex + corner] = Color(
-				base.r * face_light * variation,
-				base.g * face_light * variation,
-				base.b * face_light * variation,
-				1.0
-			)
+		var local_center: Vector3 = _face_center(vertices, base_vertex)
+		var surface_y: float = _face_max_y(vertices, base_vertex) + float(world_origin.y)
+		var sample := Vector3i(
+			world_origin.x + roundi(local_center.x),
+			world_origin.y + roundi(local_center.y),
+			world_origin.z + roundi(local_center.z)
+		)
+		var base: Color = BiomePalette.color(
+			seed,
+			material,
+			sample,
+			surface_y,
+			cache
+		)
+		var variation: float = _variation(sample)
+		var face_color := Color(
+			base.r * face_light * variation,
+			base.g * face_light * variation,
+			base.b * face_light * variation,
+			1.0
+		)
+		_write_flat_face(colors, base_vertex, face_color)
 	arrays[Mesh.ARRAY_COLOR] = colors
+
+
+static func _face_center(vertices: PackedVector3Array, base_vertex: int) -> Vector3:
+	return (
+		vertices[base_vertex]
+		+ vertices[base_vertex + 1]
+		+ vertices[base_vertex + 2]
+		+ vertices[base_vertex + 3]
+	) * 0.25
+
+
+static func _face_max_y(vertices: PackedVector3Array, base_vertex: int) -> float:
+	return maxf(
+		maxf(vertices[base_vertex].y, vertices[base_vertex + 1].y),
+		maxf(vertices[base_vertex + 2].y, vertices[base_vertex + 3].y)
+	)
+
+
+static func _write_flat_face(
+	colors: PackedColorArray,
+	base_vertex: int,
+	face_color: Color
+) -> void:
+	colors[base_vertex] = face_color
+	colors[base_vertex + 1] = face_color
+	colors[base_vertex + 2] = face_color
+	colors[base_vertex + 3] = face_color
+
+
+static func _infer_face_material(old_colors: PackedColorArray, base_vertex: int) -> int:
+	var average := Color(
+		(
+			old_colors[base_vertex].r
+			+ old_colors[base_vertex + 1].r
+			+ old_colors[base_vertex + 2].r
+			+ old_colors[base_vertex + 3].r
+		) * 0.25,
+		(
+			old_colors[base_vertex].g
+			+ old_colors[base_vertex + 1].g
+			+ old_colors[base_vertex + 2].g
+			+ old_colors[base_vertex + 3].g
+		) * 0.25,
+		(
+			old_colors[base_vertex].b
+			+ old_colors[base_vertex + 1].b
+			+ old_colors[base_vertex + 2].b
+			+ old_colors[base_vertex + 3].b
+		) * 0.25,
+		1.0
+	)
+	return _infer_material(average)
 
 
 static func _infer_material(value: Color) -> int:
