@@ -110,11 +110,25 @@ func _test_feature_planner() -> void:
 	)
 	_expect(
 		gameplay_source.contains("old_features_visible"),
-		"old vegetation remains visible during replacement"
+		"base ecology replacement retains compatibility diagnostics"
 	)
 	_expect(
-		stream_source.contains("_player.global_position"),
-		"ground detail follows the moving player instead of the original spawn"
+		stream_source.contains("_ecology_chunk_roots")
+		and stream_source.contains("func _unload_terrain_chunk")
+		and stream_source.contains("_remove_ecology_chunk(coordinate)"),
+		"vegetation residency is owned and unloaded per terrain chunk"
+	)
+	_expect(
+		stream_source.contains("var exclusion_position: Vector3 = _planned_spawn")
+		and not stream_source.contains("var observer_position: Vector3 = (\n\t\t_player.global_position"),
+		"vegetation placement stays deterministic while the player moves"
+	)
+	_expect(
+		stream_source.contains("QA_ECOLOGY_STREAM_PASS")
+		or FileAccess.get_file_as_string(
+			"res://src/qa/gameplay_capture_director.gd"
+		).contains("QA_ECOLOGY_STREAM_PASS"),
+		"gameplay QA verifies neighboring vegetation survives a chunk unload"
 	)
 
 
