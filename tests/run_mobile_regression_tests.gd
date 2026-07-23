@@ -3,6 +3,7 @@ extends SceneTree
 const AutoJumpAssistant = preload("res://src/player/auto_jump_assistant.gd")
 const MeshVisualSanitizer = preload("res://src/world/mesh_visual_sanitizer.gd")
 const FeaturePlanner = preload("res://src/world/procedural_feature_planner.gd")
+const DistantPlanner = preload("res://src/world/distant_terrain_planner.gd")
 
 var _failures: int = 0
 
@@ -13,6 +14,7 @@ func _init() -> void:
 	_test_auto_jump_evidence_signal()
 	_test_shipping_scene()
 	_test_feature_planner()
+	_test_distant_terrain_planner()
 
 	if _failures == 0:
 		print("MOBILE_REGRESSION_RESULT PASS")
@@ -82,20 +84,8 @@ func _test_shipping_scene() -> void:
 func _test_feature_planner() -> void:
 	var planner := FeaturePlanner.new()
 	var observer := Vector3(10_000.0, 0.0, 10_000.0)
-	var first: Dictionary = planner.build(
-		73_421,
-		Vector3i.ZERO,
-		0,
-		32,
-		observer
-	)
-	var second: Dictionary = planner.build(
-		73_421,
-		Vector3i.ZERO,
-		0,
-		32,
-		observer
-	)
+	var first: Dictionary = planner.build(73_421, Vector3i.ZERO, 0, 32, observer)
+	var second: Dictionary = planner.build(73_421, Vector3i.ZERO, 0, 32, observer)
 	_expect(
 		_feature_signature(first) == _feature_signature(second),
 		"background feature planning remains deterministic"
@@ -128,23 +118,37 @@ func _test_feature_planner() -> void:
 	)
 
 
+func _test_distant_terrain_planner() -> void:
+	var planner := DistantPlanner.new()
+	var first: Dictionary = planner.build(73_421, Vector3i.ZERO, 32, 1, 64, 4)
+	var second: Dictionary = planner.build(73_421, Vector3i.ZERO, 32, 1, 64, 4)
+	var quads: int = int(first.get("quads", 0))
+	var vertices: PackedVector3Array = first.get("vertices", PackedVector3Array())
+	var indices: PackedInt32Array = first.get("indices", PackedInt32Array())
+	_expect(quads > 0, "background distant terrain planner produces geometry")
+	_expect(vertices.size() == quads * 4, "distant terrain emits four vertices per quad")
+	_expect(indices.size() == quads * 6, "distant terrain emits six indices per quad")
+	_expect(
+		vertices == second.get("vertices", PackedVector3Array())
+		and indices == second.get("indices", PackedInt32Array()),
+		"background distant terrain planning remains deterministic"
+	)
+	var stream_source: String = FileAccess.get_file_as_string(
+		"res://src/main/procedural_gameplay_main.gd_stream.gd"
+	)
+	_expect(
+		stream_source.contains("DistantTerrainPlanner")
+		and stream_source.contains("distant_generation_started"),
+		"shipping runtime generates distant terrain outside the render thread"
+	)
+
+
 func _feature_signature(plan: Dictionary) -> String:
 	var keys: Array[String] = [
-		"trunks",
-		"broadleaf_lower",
-		"broadleaf_upper",
-		"broadleaf_side",
-		"conifer_lower",
-		"conifer_middle",
-		"conifer_upper",
-		"fallen_logs",
-		"cool_rock_primary",
-		"cool_rock_secondary",
-		"warm_rock_primary",
-		"warm_rock_secondary",
-		"lush_tufts",
-		"dry_tufts",
-		"shrubs_lower",
+		"trunks", "broadleaf_lower", "broadleaf_upper", "broadleaf_side",
+		"conifer_lower", "conifer_middle", "conifer_upper", "fallen_logs",
+		"cool_rock_primary", "cool_rock_secondary", "warm_rock_primary",
+		"warm_rock_secondary", "lush_tufts", "dry_tufts", "shrubs_lower",
 		"shrubs_upper",
 	]
 	var signature: Array[String] = []
