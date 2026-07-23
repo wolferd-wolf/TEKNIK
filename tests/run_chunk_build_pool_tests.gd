@@ -29,13 +29,16 @@ func _init() -> void:
 	_expect(budget.slow_usec() == 26_000, "sustained stalls cannot train away the slow-frame ceiling")
 	_expect(budget.critical_usec() == 36_000, "sustained stalls cannot train away the critical-frame ceiling")
 
+	_test_ready_buffer_releases_worker()
+
 	var pool: TeknikChunkBuildPool = ChunkBuildPool.new()
 	pool.configure(2)
 	_expect(pool.capacity() == 2, "worker pool exposes configured parallel capacity")
+	_expect(pool.pipeline_capacity() == 6, "ready report buffering remains bounded per worker")
 	_expect(pool.start(73_421, Vector3i.ZERO, {}) == OK, "first chunk dispatch succeeds")
 	_expect(pool.start(73_421, Vector3i.RIGHT, {}) == OK, "second chunk dispatch runs in parallel")
 	_expect(pool.inflight_count() == 2, "two chunks are tracked in flight")
-	_expect(pool.start(73_421, Vector3i.LEFT, {}) == ERR_BUSY, "pool refuses work beyond capacity")
+	_expect(pool.start(73_421, Vector3i.LEFT, {}) == ERR_BUSY, "pool refuses work beyond active worker capacity")
 
 	var waited_ms: int = 0
 	while pool.ready_count() < 2 and waited_ms < 30_000:
@@ -45,6 +48,8 @@ func _init() -> void:
 
 	var first_frame: Array[Dictionary] = pool.collect_ready(1)
 	_expect(first_frame.size() <= 1, "default collection never commits more than one chunk per frame")
+	_expect(pool.inflight_count() == 0, "all completed workers are released before adaptive mesh delivery")
+	_expect(pool.buffered_ready_count() >= 1, "uncommitted completed reports remain in the ready buffer")
 	var reports: Array[Dictionary] = []
 	reports.append_array(first_frame)
 	while pool.is_busy() and waited_ms < 31_000:
@@ -61,8 +66,12 @@ func _init() -> void:
 		_expect(int(report.get("generation_usec", 0)) > 0, "worker reports generation timing")
 		_expect(int(report.get("mesh_worker_usec", 0)) > 0, "worker reports mesh timing")
 		_expect(int(report.get("build_thread_usec", 0)) > 0, "worker reports pure thread build timing")
-		_expect(int(report.get("ready_wait_usec", -1)) >= 0, "worker reports completed-to-collect latency")
+		_expect(int(report.get("ready_wait_usec", -1)) >= 0, "worker reports completed-to-delivery latency")
+		_expect(int(report.get("harvest_ready_wait_usec", -1)) >= 0, "worker reports completed-to-buffer latency")
+		_expect(int(report.get("ready_buffer_wait_usec", -1)) >= 0, "worker reports buffer-to-delivery latency")
+		_expect(bool(report.get("worker_released_before_commit", false)), "report proves worker release precedes mesh commit")
 		_expect(int(report.get("ready_queue_depth", 0)) >= 1, "pool records ready queue depth at collection")
+		_expect(int(report.get("buffered_ready_depth", 0)) >= 1, "pool records buffered ready depth at delivery")
 		_expect(int(report.get("adaptive_commit_limit", 0)) == 1, "pool records adaptive commit decision")
 		_expect(int(report.get("adaptive_frame_usec", -1)) >= 0, "pool records frame time used by adaptive policy")
 		_expect(int(report.get("adaptive_p50_usec", 0)) > 0, "pool reports rolling median frame time")
@@ -77,6 +86,8 @@ func _init() -> void:
 	_expect(pool.last_ready_wait_usec() >= 0, "pool exposes the most recent ready latency")
 	_expect(pool.worst_ready_wait_usec() >= pool.last_ready_wait_usec(), "pool preserves worst observed ready latency")
 	_expect(pool.total_deferred_ready_frames() >= 0, "pool exposes cumulative adaptive deferrals")
+	_expect(pool.total_harvested_reports() == 2, "pool counts every harvested worker report")
+	_expect(pool.peak_buffered_ready_count() >= 2, "pool records ready buffer pressure")
 	# Headless CI can report TIME_PROCESS as zero. Zero samples are intentionally
 	# ignored, so only require the count to be valid here; the budget's sampling
 	# behavior is covered deterministically above with explicit frame values.
@@ -85,6 +96,12 @@ func _init() -> void:
 
 	var payload: Dictionary = StreamingRuntimeMetrics.append_pool_metrics({}, pool)
 	_expect(payload.has("stream_ready_queue_depth"), "runtime payload includes ready queue depth")
+	_expect(payload.has("stream_buffered_ready_reports"), "runtime payload includes buffered report count")
+	_expect(payload.has("stream_peak_buffered_ready_reports"), "runtime payload includes peak buffer pressure")
+	_expect(payload.has("stream_pipeline_count"), "runtime payload includes total chunk pipeline depth")
+	_expect(payload.has("stream_pipeline_capacity"), "runtime payload includes bounded pipeline capacity")
+	_expect(payload.has("stream_last_harvested_reports"), "runtime payload includes latest harvested workers")
+	_expect(payload.has("stream_total_harvested_reports"), "runtime payload includes total harvested workers")
 	_expect(payload.has("stream_inflight_chunks"), "runtime payload includes inflight chunk count")
 	_expect(payload.has("stream_adaptive_frame_usec"), "runtime payload includes adaptive frame timing")
 	_expect(payload.has("stream_adaptive_commit_limit"), "runtime payload includes adaptive commit decision")
@@ -105,6 +122,37 @@ func _init() -> void:
 	else:
 		print("CHUNK_BUILD_POOL_TEST_RESULT FAIL count=", _failures)
 		quit(1)
+
+
+func _test_ready_buffer_releases_worker() -> void:
+	var pool: TeknikChunkBuildPool = ChunkBuildPool.new()
+	pool.configure(1)
+	var first := Vector3i(7, 0, 3)
+	var second := Vector3i(8, 0, 3)
+	_expect(pool.start(73_421, first, {}) == OK, "buffer test dispatches first chunk")
+	var waited_ms: int = 0
+	while pool.ready_count() < 1 and waited_ms < 30_000:
+		OS.delay_msec(10)
+		waited_ms += 10
+	_expect(pool.ready_count() == 1, "buffer test worker completes")
+	var withheld: Array[Dictionary] = pool.collect_ready(0)
+	_expect(withheld.is_empty(), "zero delivery budget withholds the completed report")
+	_expect(pool.buffered_ready_count() == 1, "completed report moves into the bounded ready buffer")
+	_expect(pool.inflight_count() == 0, "harvesting releases the finished worker slot")
+	_expect(pool.has_capacity(), "released worker can accept more generation work")
+	_expect(pool.has_coordinate(first), "buffered coordinates remain protected from duplicate dispatch")
+	_expect(pool.start(73_421, first, {}) == ERR_ALREADY_IN_USE, "buffer prevents duplicate buffered chunk work")
+	_expect(pool.start(73_421, second, {}) == OK, "freed worker starts the next chunk before first mesh commit")
+	while pool.ready_count() < 2 and waited_ms < 60_000:
+		OS.delay_msec(10)
+		waited_ms += 10
+	_expect(pool.ready_count() == 2, "buffer and newly completed worker are both visible")
+	var delivered: Array[Dictionary] = pool.collect_ready(8)
+	_expect(delivered.size() == 2, "explicit delivery budget drains buffered and newly harvested reports")
+	_expect(pool.buffered_ready_count() == 0, "ready buffer drains completely")
+	_expect(not pool.is_busy(), "buffer test leaves no worker or report behind")
+	for report: Dictionary in delivered:
+		_expect(bool(report.get("worker_released_before_commit", false)), "buffer test reports worker-first release ordering")
 
 
 func _expect(condition: bool, label: String) -> void:
