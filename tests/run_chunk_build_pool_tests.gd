@@ -1,6 +1,7 @@
 extends SceneTree
 
 const ChunkBuildPool = preload("res://src/world/chunk_build_pool.gd")
+const StreamingRuntimeMetrics = preload("res://src/diagnostics/streaming_runtime_metrics.gd")
 
 var _failures: int = 0
 
@@ -57,6 +58,16 @@ func _init() -> void:
 	_expect(pool.worst_ready_wait_usec() >= pool.last_ready_wait_usec(), "pool preserves worst observed ready latency")
 	_expect(pool.total_deferred_ready_frames() >= 0, "pool exposes cumulative adaptive deferrals")
 	_expect(not pool.is_busy(), "pool becomes idle after adaptive collection")
+
+	var payload: Dictionary = StreamingRuntimeMetrics.append_pool_metrics({}, pool)
+	_expect(payload.has("stream_ready_queue_depth"), "runtime payload includes ready queue depth")
+	_expect(payload.has("stream_inflight_chunks"), "runtime payload includes inflight chunk count")
+	_expect(payload.has("stream_adaptive_frame_usec"), "runtime payload includes adaptive frame timing")
+	_expect(payload.has("stream_adaptive_commit_limit"), "runtime payload includes adaptive commit decision")
+	_expect(payload.has("stream_deferred_ready_frames"), "runtime payload includes current deferral streak")
+	_expect(payload.has("stream_total_deferred_ready_frames"), "runtime payload includes cumulative deferrals")
+	_expect(payload.has("stream_last_ready_wait_usec"), "runtime payload includes latest ready wait")
+	_expect(payload.has("stream_worst_ready_wait_usec"), "runtime payload includes worst ready wait")
 
 	if _failures == 0:
 		print("CHUNK_BUILD_POOL_TEST_RESULT PASS waited_ms=", waited_ms)
