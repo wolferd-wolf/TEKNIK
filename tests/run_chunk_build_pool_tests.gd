@@ -30,6 +30,7 @@ func _init() -> void:
 	_expect(budget.critical_usec() == 36_000, "sustained stalls cannot train away the critical-frame ceiling")
 
 	_test_ready_buffer_releases_worker()
+	_test_stale_buffer_pruning()
 
 	var pool: TeknikChunkBuildPool = ChunkBuildPool.new()
 	pool.configure(2)
@@ -67,6 +68,7 @@ func _init() -> void:
 		_expect(int(report.get("mesh_worker_usec", 0)) > 0, "worker reports mesh timing")
 		_expect(int(report.get("build_thread_usec", 0)) > 0, "worker reports pure thread build timing")
 		_expect(int(report.get("ready_wait_usec", -1)) >= 0, "worker reports completed-to-delivery latency")
+		_expect(int(report.get("harvest_ready_wait_usec")
 		_expect(int(report.get("harvest_ready_wait_usec", -1)) >= 0, "worker reports completed-to-buffer latency")
 		_expect(int(report.get("ready_buffer_wait_usec", -1)) >= 0, "worker reports buffer-to-delivery latency")
 		_expect(bool(report.get("worker_released_before_commit", false)), "report proves worker release precedes mesh commit")
@@ -102,6 +104,8 @@ func _init() -> void:
 	_expect(payload.has("stream_pipeline_capacity"), "runtime payload includes bounded pipeline capacity")
 	_expect(payload.has("stream_last_harvested_reports"), "runtime payload includes latest harvested workers")
 	_expect(payload.has("stream_total_harvested_reports"), "runtime payload includes total harvested workers")
+	_expect(payload.has("stream_last_discarded_buffered_reports"), "runtime payload includes latest stale-buffer pruning")
+	_expect(payload.has("stream_total_discarded_buffered_reports"), "runtime payload includes cumulative stale-buffer pruning")
 	_expect(payload.has("stream_inflight_chunks"), "runtime payload includes inflight chunk count")
 	_expect(payload.has("stream_adaptive_frame_usec"), "runtime payload includes adaptive frame timing")
 	_expect(payload.has("stream_adaptive_commit_limit"), "runtime payload includes adaptive commit decision")
@@ -140,8 +144,7 @@ func _test_ready_buffer_releases_worker() -> void:
 	_expect(pool.buffered_ready_count() == 1, "completed report moves into the bounded ready buffer")
 	_expect(pool.inflight_count() == 0, "harvesting releases the finished worker slot")
 	_expect(pool.has_capacity(), "released worker can accept more generation work")
-	_expect(pool.has_coordinate(first), "buffered coordinates remain protected from duplicate dispatch")
-	_expect(pool.start(73_421, first, {}) == ERR_ALREADY_IN_USE, "buffer prevents duplicate buffered chunk work")
+	_expect(pool.has_coordinate(first), "73_421, first, {}) == ERR_ALREADY_IN_USE, "buffer prevents duplicate buffered chunk work")
 	_expect(pool.start(73_421, second, {}) == OK, "freed worker starts the next chunk before first mesh commit")
 	while pool.ready_count() < 2 and waited_ms < 60_000:
 		OS.delay_msec(10)
@@ -153,6 +156,28 @@ func _test_ready_buffer_releases_worker() -> void:
 	_expect(not pool.is_busy(), "buffer test leaves no worker or report behind")
 	for report: Dictionary in delivered:
 		_expect(bool(report.get("worker_released_before_commit", false)), "buffer test reports worker-first release ordering")
+
+
+func _test_stale_buffer_pruning() -> void:
+	var pool: TeknikChunkBuildPool = ChunkBuildPool.new()
+	pool.configure(1)
+	var stale := Vector3i(-9, 0, 4)
+	_expect(pool.start(73_421, stale, {}) == OK, "stale prune test dispatches a chunk")
+	var waited_ms: int = 0
+	while pool.ready_count() < 1 and waited_ms < 30_000:
+		OS.delay_msec(10)
+		waited_ms += 10
+	_expect(pool.ready_count() == 1, "stale prune test worker completes")
+	pool.collect_ready(0)
+	_expect(pool.buffered_ready_count() == 1, "stale prune test buffers the completed report")
+	var keep: Dictionary = {Vector3i(99, 0, 99): true}
+	var discarded: Array[Vector3i] = pool.discard_buffered_outside(keep, {})
+	_expect(discarded.size() == 1 and discarded.has(stale), "obsolete buffered report is discarded immediately")
+	_expect(pool.last_discarded_buffered_reports() == 1, "pool reports the latest stale prune count")
+	_expect(pool.total_discarded_buffered_reports() == 1, "pool accumulates stale prune telemetry")
+	_expect(pool.buffered_ready_count() == 0, "stale pruning releases ready buffer memory")
+	_expect(pool.has_capacity(), "stale pruning restores generation capacity")
+	_expect(not pool.is_busy(), "stale prune test leaves no work behind")
 
 
 func _expect(condition: bool, label: String) -> void:
