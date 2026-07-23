@@ -68,8 +68,15 @@ func _test_shipping_scene() -> void:
 		"res://src/main/main.tscn"
 	)
 	_expect(
-		scene_text.contains("mobile_shipping_main.gd"),
-		"shipping scene enables mobile input and visual fixes"
+		scene_text.contains("procedural_world_main.gd"),
+		"shipping scene enables procedural voxel ecology"
+	)
+	var procedural_text: String = FileAccess.get_file_as_string(
+		"res://src/main/procedural_world_main.gd"
+	)
+	_expect(
+		procedural_text.contains("mobile_shipping_main.gd"),
+		"procedural world preserves mobile input and visual fixes"
 	)
 
 
