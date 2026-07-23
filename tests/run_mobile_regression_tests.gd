@@ -137,13 +137,20 @@ func _test_distant_terrain_planner() -> void:
 	var first: Dictionary = planner.build(73_421, Vector3i.ZERO, 32, 1, 64, 4)
 	var second: Dictionary = planner.build(73_421, Vector3i.ZERO, 32, 1, 64, 4)
 	var quads: int = int(first.get("quads", 0))
+	var top_quads: int = int(first.get("top_quads", 0))
+	var side_quads: int = int(first.get("side_quads", 0))
 	var vertices: PackedVector3Array = first.get("vertices", PackedVector3Array())
+	var normals: PackedVector3Array = first.get("normals", PackedVector3Array())
 	var indices: PackedInt32Array = first.get("indices", PackedInt32Array())
-	_expect(quads > 0, "background distant terrain planner produces geometry")
+	_expect(top_quads > 0, "background distant terrain planner produces top geometry")
+	_expect(side_quads > 0, "distant terrain emits vertical faces between height steps")
+	_expect(quads == top_quads + side_quads, "distant terrain quad accounting includes top and side faces")
 	_expect(vertices.size() == quads * 4, "distant terrain emits four vertices per quad")
+	_expect(normals.size() == vertices.size(), "distant terrain emits one normal per vertex")
 	_expect(indices.size() == quads * 6, "distant terrain emits six indices per quad")
 	_expect(
 		vertices == second.get("vertices", PackedVector3Array())
+		and normals == second.get("normals", PackedVector3Array())
 		and indices == second.get("indices", PackedInt32Array()),
 		"background distant terrain planning remains deterministic"
 	)
