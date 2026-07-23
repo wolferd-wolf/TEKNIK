@@ -31,7 +31,7 @@ func start(seed: int, coordinate_value: Vector3i, edit_snapshots: Dictionary = {
 	_edit_snapshots = edit_snapshots.duplicate(true)
 	_started_usec = Time.get_ticks_usec()
 	_busy = true
-	return _thread.start(Callable(self, "_build"))
+	return _thread.start(Callable(self, "_run_build"))
 
 
 func is_ready() -> bool:
@@ -41,10 +41,21 @@ func is_ready() -> bool:
 func collect() -> Dictionary:
 	if not is_ready():
 		return {}
+	var collected_usec: int = Time.get_ticks_usec()
 	var result: Dictionary = _thread.wait_to_finish()
 	_busy = false
-	result["worker_usec"] = Time.get_ticks_usec() - _started_usec
+	result["worker_usec"] = collected_usec - _started_usec
+	result["ready_wait_usec"] = maxi(collected_usec - int(result.get("build_finished_usec", collected_usec)), 0)
 	return result
+
+
+func _run_build() -> Dictionary:
+	var build_started_usec: int = Time.get_ticks_usec()
+	var report: Dictionary = _build()
+	var build_finished_usec: int = Time.get_ticks_usec()
+	report["build_thread_usec"] = build_finished_usec - build_started_usec
+	report["build_finished_usec"] = build_finished_usec
+	return report
 
 
 func _build() -> Dictionary:
