@@ -1,6 +1,7 @@
 extends SceneTree
 
 const ChunkBuildPool = preload("res://src/world/chunk_build_pool.gd")
+const AdaptiveFrameBudget = preload("res://src/diagnostics/adaptive_frame_budget.gd")
 const StreamingRuntimeMetrics = preload("res://src/diagnostics/streaming_runtime_metrics.gd")
 
 var _failures: int = 0
@@ -12,6 +13,21 @@ func _init() -> void:
 	_expect(ChunkBuildPool.adaptive_report_limit(24_000, 3, 0) == 1, "backpressure drains a growing ready queue")
 	_expect(ChunkBuildPool.adaptive_report_limit(35_000, 3, 0) == 0, "critical frames defer mesh commits")
 	_expect(ChunkBuildPool.adaptive_report_limit(35_000, 1, 4) == 1, "starvation protection guarantees progress")
+	_expect(ChunkBuildPool.adaptive_report_limit(25_000, 1, 0, 26_000, 36_000) == 1, "measured budget permits frames inside the device baseline")
+
+	var budget: TeknikAdaptiveFrameBudget = AdaptiveFrameBudget.new()
+	budget.configure(60)
+	for frame_usec: int in [15_800, 16_100, 16_400, 16_700, 17_000, 17_300, 18_000, 19_500, 23_000, 31_000]:
+		budget.record(frame_usec)
+	_expect(budget.sample_count() == 10, "rolling budget records frame samples")
+	_expect(budget.p50_usec() >= 16_000 and budget.p50_usec() <= 18_000, "rolling budget calculates a representative median")
+	_expect(budget.p90_usec() >= budget.p50_usec(), "rolling budget preserves percentile ordering")
+	_expect(budget.slow_usec() >= 20_000 and budget.slow_usec() <= 26_000, "slow threshold stays inside safe bounds")
+	_expect(budget.critical_usec() >= 28_000 and budget.critical_usec() <= 36_000, "critical threshold stays inside safe bounds")
+	for _index: int in range(80):
+		budget.record(80_000)
+	_expect(budget.slow_usec() == 26_000, "sustained stalls cannot train away the slow-frame ceiling")
+	_expect(budget.critical_usec() == 36_000, "sustained stalls cannot train away the critical-frame ceiling")
 
 	var pool: TeknikChunkBuildPool = ChunkBuildPool.new()
 	pool.configure(2)
@@ -49,6 +65,10 @@ func _init() -> void:
 		_expect(int(report.get("ready_queue_depth", 0)) >= 1, "pool records ready queue depth at collection")
 		_expect(int(report.get("adaptive_commit_limit", 0)) == 1, "pool records adaptive commit decision")
 		_expect(int(report.get("adaptive_frame_usec", -1)) >= 0, "pool records frame time used by adaptive policy")
+		_expect(int(report.get("adaptive_p50_usec", 0)) > 0, "pool reports rolling median frame time")
+		_expect(int(report.get("adaptive_p90_usec", 0)) >= int(report.get("adaptive_p50_usec", 0)), "pool reports ordered frame percentiles")
+		_expect(int(report.get("adaptive_slow_usec", 0)) >= 20_000, "pool reports measured slow threshold")
+		_expect(int(report.get("adaptive_critical_usec", 0)) >= 28_000, "pool reports measured critical threshold")
 		_expect(int(report.get("worst_ready_wait_usec", -1)) >= int(report.get("ready_wait_usec", 0)), "pool tracks worst ready latency")
 		_expect(int(report.get("boundary_column_count", 0)) <= 140, "boundary terrain columns are cached instead of resampled per voxel")
 	_expect(coordinates.has(Vector3i.ZERO) and coordinates.has(Vector3i.RIGHT), "parallel results preserve requested coordinates")
@@ -57,6 +77,7 @@ func _init() -> void:
 	_expect(pool.last_ready_wait_usec() >= 0, "pool exposes the most recent ready latency")
 	_expect(pool.worst_ready_wait_usec() >= pool.last_ready_wait_usec(), "pool preserves worst observed ready latency")
 	_expect(pool.total_deferred_ready_frames() >= 0, "pool exposes cumulative adaptive deferrals")
+	_expect(pool.adaptive_sample_count() >= 1, "pool accumulates adaptive frame samples")
 	_expect(not pool.is_busy(), "pool becomes idle after adaptive collection")
 
 	var payload: Dictionary = StreamingRuntimeMetrics.append_pool_metrics({}, pool)
@@ -68,6 +89,12 @@ func _init() -> void:
 	_expect(payload.has("stream_total_deferred_ready_frames"), "runtime payload includes cumulative deferrals")
 	_expect(payload.has("stream_last_ready_wait_usec"), "runtime payload includes latest ready wait")
 	_expect(payload.has("stream_worst_ready_wait_usec"), "runtime payload includes worst ready wait")
+	_expect(payload.has("stream_adaptive_target_usec"), "runtime payload includes target frame budget")
+	_expect(payload.has("stream_adaptive_p50_usec"), "runtime payload includes rolling median")
+	_expect(payload.has("stream_adaptive_p90_usec"), "runtime payload includes rolling tail percentile")
+	_expect(payload.has("stream_adaptive_slow_usec"), "runtime payload includes measured slow threshold")
+	_expect(payload.has("stream_adaptive_critical_usec"), "runtime payload includes measured critical threshold")
+	_expect(payload.has("stream_adaptive_sample_count"), "runtime payload includes frame sample count")
 
 	if _failures == 0:
 		print("CHUNK_BUILD_POOL_TEST_RESULT PASS waited_ms=", waited_ms)
