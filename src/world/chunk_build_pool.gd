@@ -21,6 +21,8 @@ var _worst_ready_wait_usec: int = 0
 var _last_harvested_reports: int = 0
 var _total_harvested_reports: int = 0
 var _peak_buffered_ready_reports: int = 0
+var _last_discarded_buffered_reports: int = 0
+var _total_discarded_buffered_reports: int = 0
 
 
 func configure(worker_count: int) -> void:
@@ -57,6 +59,14 @@ func last_harvested_reports() -> int:
 
 func total_harvested_reports() -> int:
 	return _total_harvested_reports
+
+
+func last_discarded_buffered_reports() -> int:
+	return _last_discarded_buffered_reports
+
+
+func total_discarded_buffered_reports() -> int:
+	return _total_discarded_buffered_reports
 
 
 func available_slots() -> int:
@@ -96,6 +106,29 @@ func start(seed: int, coordinate: Vector3i, edit_snapshots: Dictionary = {}) -> 
 			_inflight[coordinate] = worker
 		return result
 	return ERR_BUSY
+
+
+func discard_buffered_outside(
+	primary_keep: Dictionary,
+	secondary_keep: Dictionary = {}
+) -> Array[Vector3i]:
+	_harvest_ready_workers()
+	var retained: Array[Dictionary] = []
+	var discarded: Array[Vector3i] = []
+	for report: Dictionary in _ready_reports:
+		var coordinate: Vector3i = report.get("coordinate", Vector3i.ZERO)
+		if primary_keep.has(coordinate) or secondary_keep.has(coordinate):
+			retained.append(report)
+		else:
+			discarded.append(coordinate)
+	_ready_reports = retained
+	_last_discarded_buffered_reports = discarded.size()
+	_total_discarded_buffered_reports += discarded.size()
+	if _ready_reports.is_empty():
+		_deferred_ready_frames = 0
+		_last_ready_count = 0
+		_last_ready_wait_usec = 0
+	return discarded
 
 
 func collect_ready(max_reports: int = 1) -> Array[Dictionary]:
