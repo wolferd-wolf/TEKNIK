@@ -20,6 +20,8 @@ func begin(world: Node, player: TeknikExplorationController) -> void:
 
 func _run() -> void:
 	await _wait_for_world_idle()
+	if not await _wait_for_visible_vegetation():
+		return
 	var seed: int = _world.qa_world_seed()
 	var spawn: Vector3 = _player.global_position
 	var forward := -_player.global_transform.basis.z
@@ -71,8 +73,30 @@ func _run() -> void:
 		print("QA_GAMEPLAY_POSTER_SAVED ", absolute_path)
 
 	_world.qa_save_edits_now()
-	print("QA_GAMEPLAY_RESULT PASS blocks=", blocks.size())
+	print(
+		"QA_GAMEPLAY_RESULT PASS blocks=", blocks.size(),
+		" trees=", int(_world.get("_tree_count")),
+		" feature_instances=", int(_world.get("_streamed_feature_instances"))
+	)
 	get_tree().quit(0)
+
+
+func _wait_for_visible_vegetation() -> bool:
+	var frames: int = 0
+	while frames < 1800:
+		var trees: int = int(_world.get("_tree_count"))
+		var instances: int = int(_world.get("_streamed_feature_instances"))
+		if trees > 0 and instances > 1:
+			print("QA_VEGETATION_READY trees=", trees, " feature_instances=", instances)
+			return true
+		await get_tree().process_frame
+		frames += 1
+	push_error(
+		"QA_GAMEPLAY vegetation did not become visible: trees=%d feature_instances=%d"
+		% [int(_world.get("_tree_count")), int(_world.get("_streamed_feature_instances"))]
+	)
+	get_tree().quit(1)
+	return false
 
 
 func _house_blocks(origin: Vector3i) -> Array[Vector3i]:
