@@ -6,6 +6,7 @@ const FeaturePlanner = preload("res://src/world/procedural_feature_planner.gd")
 const DistantPlanner = preload("res://src/world/distant_terrain_planner.gd")
 const TerrainGenerator = preload("res://src/world/voxel_terrain_generator.gd")
 const BiomePalette = preload("res://src/world/biome_surface_palette.gd")
+const BiomeRegionField = preload("res://src/world/biome_region_field.gd")
 
 var _failures: int = 0
 
@@ -16,6 +17,7 @@ func _init() -> void:
 	_test_auto_jump_evidence_signal()
 	_test_shipping_scene()
 	_test_feature_planner()
+	_test_biome_region_field()
 	_test_biome_surface_palette()
 	_test_distant_terrain_planner()
 
@@ -143,6 +145,26 @@ func _test_feature_planner() -> void:
 	)
 
 
+func _test_biome_region_field() -> void:
+	var seed: int = 73_421
+	var first: Vector4 = BiomeRegionField.signature(seed, -128, 96)
+	var second: Vector4 = BiomeRegionField.signature(seed, -128, 96)
+	_expect(first == second, "macro biome regions remain deterministic")
+	var nearby: Vector4 = BiomeRegionField.signature(seed, -112, 104)
+	_expect(
+		first.distance_to(nearby) < 0.24,
+		"nearby samples stay inside coherent broad biome regions"
+	)
+	var distant_changes: int = 0
+	var previous: Vector4 = BiomeRegionField.signature(seed, -768, 0)
+	for world_x: int in range(-512, 769, 256):
+		var current: Vector4 = BiomeRegionField.signature(seed, world_x, world_x / 3)
+		if previous.distance_to(current) > 0.10:
+			distant_changes += 1
+		previous = current
+	_expect(distant_changes >= 3, "long-distance travel crosses distinct macro regions")
+
+
 func _test_biome_surface_palette() -> void:
 	var seed: int = 73_421
 	var first: Vector4 = BiomePalette.biome_weights(seed, -96, 64, 14.0)
@@ -153,8 +175,8 @@ func _test_biome_surface_palette() -> void:
 	var normalized: bool = true
 	var biome_colors: Dictionary = {}
 	var cache: Dictionary = {}
-	for world_z: int in range(-256, 257, 32):
-		for world_x: int in range(-256, 257, 32):
+	for world_z: int in range(-768, 769, 64):
+		for world_x: int in range(-768, 769, 64):
 			var height: int = TerrainGenerator.surface_height(seed, world_x, world_z)
 			var weights: Vector4 = BiomePalette.biome_weights(
 				seed,
@@ -163,7 +185,7 @@ func _test_biome_surface_palette() -> void:
 				float(height)
 			)
 			var claimed: float = weights.x + weights.y + weights.z + weights.w
-			if claimed < -0.0001 or claimed > 0.9201:
+			if claimed < -0.0001 or claimed > 0.9401:
 				normalized = false
 			var biome: int = BiomePalette.dominant_biome(weights)
 			represented[biome] = true
@@ -176,13 +198,13 @@ func _test_biome_surface_palette() -> void:
 					cache
 				)
 	_expect(normalized, "biome masks leave a normalized plains remainder")
-	_expect(represented.size() >= 3, "the world seed exposes at least three terrain biomes")
+	_expect(represented.size() >= 4, "the world seed exposes at least four terrain biomes")
 
 	var unique_colors: Dictionary = {}
 	for value: Variant in biome_colors.values():
 		var color: Color = value
 		unique_colors[color.to_html(false)] = true
-	_expect(unique_colors.size() >= 3, "biomes produce visibly distinct terrain palettes")
+	_expect(unique_colors.size() >= 4, "biomes produce visibly distinct terrain palettes")
 
 
 func _test_distant_terrain_planner() -> void:
