@@ -68,7 +68,6 @@ func _init() -> void:
 		_expect(int(report.get("mesh_worker_usec", 0)) > 0, "worker reports mesh timing")
 		_expect(int(report.get("build_thread_usec", 0)) > 0, "worker reports pure thread build timing")
 		_expect(int(report.get("ready_wait_usec", -1)) >= 0, "worker reports completed-to-delivery latency")
-		_expect(int(report.get("harvest_ready_wait_usec")
 		_expect(int(report.get("harvest_ready_wait_usec", -1)) >= 0, "worker reports completed-to-buffer latency")
 		_expect(int(report.get("ready_buffer_wait_usec", -1)) >= 0, "worker reports buffer-to-delivery latency")
 		_expect(bool(report.get("worker_released_before_commit", false)), "report proves worker release precedes mesh commit")
@@ -144,7 +143,8 @@ func _test_ready_buffer_releases_worker() -> void:
 	_expect(pool.buffered_ready_count() == 1, "completed report moves into the bounded ready buffer")
 	_expect(pool.inflight_count() == 0, "harvesting releases the finished worker slot")
 	_expect(pool.has_capacity(), "released worker can accept more generation work")
-	_expect(pool.has_coordinate(first), "73_421, first, {}) == ERR_ALREADY_IN_USE, "buffer prevents duplicate buffered chunk work")
+	_expect(pool.has_coordinate(first), "buffered coordinates remain protected from duplicate dispatch")
+	_expect(pool.start(73_421, first, {}) == ERR_ALREADY_IN_USE, "buffer prevents duplicate buffered chunk work")
 	_expect(pool.start(73_421, second, {}) == OK, "freed worker starts the next chunk before first mesh commit")
 	while pool.ready_count() < 2 and waited_ms < 60_000:
 		OS.delay_msec(10)
