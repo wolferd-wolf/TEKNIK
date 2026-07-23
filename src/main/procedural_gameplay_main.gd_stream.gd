@@ -97,7 +97,7 @@ func _begin_ecology_generation() -> void:
 
 func _add_tree_multimesh(
 	mesh: Mesh,
-	transforms: Array[Transform3D],
+	transforms: Array,
 	cast_shadows: bool = true,
 	streamed: bool = true
 ) -> void:
@@ -108,11 +108,11 @@ func _add_tree_multimesh(
 	multimesh.mesh = mesh
 	multimesh.instance_count = transforms.size()
 	for index: int in range(transforms.size()):
-		multimesh.set_instance_transform(index, transforms[index])
-	# MultiMesh instances use world-space transforms while their owner node remains
-	# at the origin. Vulkan/mobile cannot reliably infer those remote bounds, so an
-	# explicit active-window AABB is required or the complete vegetation batch can
-	# be frustum-culled.
+		var transform: Variant = transforms[index]
+		if not transform is Transform3D:
+			push_error("Ecology transform is not Transform3D at index %d" % index)
+			return
+		multimesh.set_instance_transform(index, transform)
 	var half_span: float = float((CHUNK_RADIUS + 2) * VoxelChunk.SIZE)
 	var center_world := Vector3(
 		float(_feature_refresh_target.x * VoxelChunk.SIZE),
