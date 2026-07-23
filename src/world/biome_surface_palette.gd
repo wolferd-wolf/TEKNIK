@@ -3,6 +3,7 @@ extends RefCounted
 
 const TerrainGenerator = preload("res://src/world/voxel_terrain_generator.gd")
 const WorldSeed = preload("res://src/world/world_seed.gd")
+const BiomeRegionField = preload("res://src/world/biome_region_field.gd")
 
 const BIOME_PLAINS: int = 0
 const BIOME_FOREST: int = 1
@@ -18,66 +19,80 @@ static func biome_weights(
 	surface_y: float,
 	slope_hint: float = 0.0
 ) -> Vector4:
-	# Four explicit masks are stored in the vector. Plains is the unclaimed
-	# remainder, which keeps transitions continuous instead of drawing biome borders.
+	# Broad macro regions establish biome identity first. Climate, river distance,
+	# elevation and slope then modulate that identity without hard borders.
 	var climate: Vector2 = TerrainGenerator.climate_at(seed, world_x, world_z)
+	var macro: Dictionary = BiomeRegionField.sample(seed, world_x, world_z)
 	var river_gap: float = TerrainGenerator.river_distance(seed, world_x, world_z)
-	var river_influence: float = 1.0 - smoothstep(5.0, 25.0, river_gap)
+	var river_influence: float = 1.0 - smoothstep(5.0, 29.0, river_gap)
 	var elevation: float = clampf(
 		(surface_y - float(TerrainGenerator.WATER_LEVEL + 1))
 		/ float(TerrainGenerator.MAX_SURFACE_HEIGHT - TerrainGenerator.WATER_LEVEL - 1),
 		0.0,
 		1.0
 	)
-	var region: float = WorldSeed.sample_value_noise(
-		seed + 3023, float(world_x), float(world_z), 78.0
+	var local_patch: float = WorldSeed.sample_value_noise(
+		seed + 3089, float(world_x), float(world_z), 42.0
 	)
-	var patch: float = WorldSeed.sample_value_noise(
-		seed + 3089, float(world_x), float(world_z), 31.0
-	)
-	var rugged: float = WorldSeed.sample_value_noise(
-		seed + 3167, float(world_x), float(world_z), 54.0
+	var local_rugged: float = WorldSeed.sample_value_noise(
+		seed + 3167, float(world_x), float(world_z), 58.0
 	)
 
 	var moisture: float = clampf(
-		climate.x * 0.82 + (region - 0.5) * 0.24 + river_influence * 0.26,
+		float(macro.moisture) * 0.56
+		+ climate.x * 0.34
+		+ river_influence * 0.24
+		+ (local_patch - 0.5) * 0.10,
 		0.0,
 		1.0
 	)
 	var temperature: float = clampf(
-		climate.y * 0.88 + (patch - 0.5) * 0.18 - elevation * 0.20,
+		float(macro.temperature) * 0.62
+		+ climate.y * 0.30
+		- elevation * 0.20
+		+ (local_patch - 0.5) * 0.07,
 		0.0,
 		1.0
 	)
-	var rocky: float = smoothstep(
-		0.49,
-		0.84,
-		elevation * 0.58 + rugged * 0.34 + clampf(slope_hint, 0.0, 1.0) * 0.34
+	var ruggedness: float = clampf(
+		float(macro.ruggedness) * 0.50
+		+ local_rugged * 0.18
+		+ elevation * 0.28
+		+ clampf(slope_hint, 0.0, 1.0) * 0.42,
+		0.0,
+		1.0
+	)
+	var identity: float = float(macro.identity)
+
+	var rocky: float = (
+		smoothstep(0.52, 0.82, ruggedness)
+		* smoothstep(0.30, 0.72, identity + elevation * 0.22)
+		* (1.0 - river_influence * 0.72)
 	)
 	var riverbank: float = (
 		river_influence
-		* smoothstep(0.20, 0.74, moisture)
-		* (1.0 - rocky * 0.72)
+		* smoothstep(0.24, 0.70, moisture)
+		* (1.0 - rocky * 0.80)
 	)
 	var forest: float = (
-		smoothstep(0.48, 0.79, moisture)
-		* (1.0 - smoothstep(0.76, 0.96, temperature))
-		* smoothstep(0.28, 0.68, region)
+		smoothstep(0.49, 0.76, moisture)
+		* (1.0 - smoothstep(0.78, 0.96, temperature))
+		* smoothstep(0.34, 0.68, 1.0 - absf(identity - 0.58) * 1.7)
 		* (1.0 - rocky)
-		* (1.0 - riverbank * 0.78)
+		* (1.0 - riverbank * 0.70)
 	)
 	var dry_scrub: float = (
-		smoothstep(0.42, 0.76, 1.0 - moisture)
-		* smoothstep(0.46, 0.75, temperature)
-		* smoothstep(0.30, 0.72, patch)
+		smoothstep(0.45, 0.75, 1.0 - moisture)
+		* smoothstep(0.48, 0.74, temperature)
+		* smoothstep(0.34, 0.70, identity)
 		* (1.0 - rocky)
 		* (1.0 - riverbank)
 	)
 
 	var weights := Vector4(forest, dry_scrub, rocky, riverbank)
 	var claimed: float = weights.x + weights.y + weights.z + weights.w
-	if claimed > 0.92:
-		weights *= 0.92 / claimed
+	if claimed > 0.94:
+		weights *= 0.94 / claimed
 	return weights
 
 
@@ -94,6 +109,20 @@ static func dominant_biome(weights: Vector4) -> int:
 			strongest = values[index]
 			result = index + 1
 	return result
+
+
+static func biome_name(biome: int) -> String:
+	match biome:
+		BIOME_FOREST:
+			return "forest"
+		BIOME_DRY_SCRUB:
+			return "dry_scrub"
+		BIOME_ROCKY_UPLAND:
+			return "rocky_upland"
+		BIOME_RIVERBANK:
+			return "riverbank"
+		_:
+			return "plains"
 
 
 static func color(
@@ -121,41 +150,41 @@ static func color(
 	match material:
 		TerrainGenerator.GRASS:
 			result = _weighted_color(
-				Color("4f713f"),
-				Color("2f5938"),
-				Color("817844"),
-				Color("506050"),
-				Color("3f6949"),
+				Color("527443"),
+				Color("2c5637"),
+				Color("847746"),
+				Color("536054"),
+				Color("3b6949"),
 				plains,
 				weights
 			)
 		TerrainGenerator.SOIL:
 			result = _weighted_color(
-				Color("624634"),
-				Color("403a31"),
-				Color("745238"),
-				Color("514d46"),
-				Color("493d32"),
+				Color("644734"),
+				Color("3d392f"),
+				Color("775237"),
+				Color("504c46"),
+				Color("473b31"),
 				plains,
 				weights
 			)
 		TerrainGenerator.SAND:
 			result = _weighted_color(
 				Color("aa915c"),
-				Color("8d805c"),
-				Color("b29a60"),
-				Color("918566"),
-				Color("796d52"),
+				Color("8b805d"),
+				Color("b59a5d"),
+				Color("918568"),
+				Color("75694f"),
 				plains,
 				weights
 			)
 		TerrainGenerator.STONE:
 			result = _weighted_color(
 				Color("626b68"),
+				Color("53605b"),
+				Color("786b57"),
+				Color("737c79"),
 				Color("56625d"),
-				Color("766b59"),
-				Color("707977"),
-				Color("58645f"),
 				plains,
 				weights
 			)
@@ -176,7 +205,7 @@ static func color(
 		world_position.x * 3 + world_position.y,
 		world_position.z * 3 - world_position.y
 	)
-	var tint: float = (micro - 0.5) * 0.075
+	var tint: float = (micro - 0.5) * 0.060
 	if tint > 0.0:
 		result = result.lightened(tint)
 	elif tint < 0.0:
