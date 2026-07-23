@@ -185,7 +185,7 @@ func _append_north_wall(
 			Vector3(float(world_x), bottom_y, float(world_z)),
 			Vector3(float(world_x + step), bottom_y, float(world_z)),
 		],
-		Vector3.BACK,
+		Vector3.FORWARD,
 		top_color.darkened(0.20)
 	)
 
@@ -211,7 +211,7 @@ func _append_south_wall(
 			Vector3(float(world_x + step), bottom_y, edge_z),
 			Vector3(float(world_x), bottom_y, edge_z),
 		],
-		Vector3.FORWARD,
+		Vector3.BACK,
 		top_color.darkened(0.24)
 	)
 
