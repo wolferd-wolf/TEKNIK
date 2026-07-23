@@ -1,4 +1,4 @@
-# Production terrain warp must pass procedural, native parity, and Android export gates.
+# Production terrain warp must pass procedural, native parity, visual gameplay, and Android export gates.
 name: TEKNIK CI
 
 on:
@@ -89,7 +89,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang lld scons git curl unzip libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
+          sudo apt-get install -y build-essential clang lld scons git curl unzip ffmpeg xvfb libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
 
       - name: Install Godot and export templates
         run: |
@@ -154,6 +154,37 @@ jobs:
           godot --headless --path . --script res://tests/run_chunk_build_pool_tests.gd
           godot --headless --path . --script res://tests/run_world_interaction_tests.gd
           godot --headless --path . --script res://tests/run_block_placement_tests.gd
+
+      - name: Record automated gameplay
+        run: |
+          mkdir -p artifacts/gameplay
+          xvfb-run -a -s "-screen 0 1280x720x24" bash -c '
+            set -euo pipefail
+            ffmpeg -y -loglevel warning \
+              -f x11grab -draw_mouse 0 -framerate 30 -video_size 1280x720 \
+              -i "${DISPLAY}.0" -c:v libx264 -preset veryfast -pix_fmt yuv420p \
+              artifacts/gameplay/TEKNIK-gameplay.mp4 &
+            recorder_pid=$!
+            cleanup() {
+              kill -INT "$recorder_pid" 2>/dev/null || true
+              wait "$recorder_pid" 2>/dev/null || true
+            }
+            trap cleanup EXIT
+            godot --path . --rendering-method gl_compatibility --resolution 1280x720 \
+              -- --qa-gameplay --qa-gameplay-poster=res://artifacts/gameplay/TEKNIK-gameplay-poster.png \
+              2>&1 | tee artifacts/gameplay/gameplay.log
+            test -s artifacts/gameplay/TEKNIK-gameplay-poster.png
+          '
+          test -s artifacts/gameplay/TEKNIK-gameplay.mp4
+
+      - name: Publish gameplay recording
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TEKNIK-Gameplay-${{ github.sha }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: artifacts/gameplay/
 
       - name: Set up Android command-line tools
         uses: android-actions/setup-android@v3
