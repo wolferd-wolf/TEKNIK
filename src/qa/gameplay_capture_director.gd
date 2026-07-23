@@ -102,7 +102,8 @@ func _verify_chunk_local_vegetation() -> bool:
 
 	var seed: int = _world.qa_world_seed()
 	var original_position: Vector3 = _player.global_position
-	var current_chunk_x: int = floori(original_position.x / float(VoxelChunk.SIZE))
+	var original_chunk_x: int = floori(original_position.x / float(VoxelChunk.SIZE))
+	var current_chunk_x: int = original_chunk_x
 	var target_chunk_x: int = current_chunk_x + 1
 	var target_x: float = float(target_chunk_x * VoxelChunk.SIZE) + float(VoxelChunk.SIZE) * 0.5
 	var target_z: float = original_position.z
@@ -145,7 +146,15 @@ func _verify_chunk_local_vegetation() -> bool:
 		original_position.z
 	)
 	_player.velocity = Vector3.ZERO
+	# The teleport occurs inside this coroutine after the world's process callback.
+	# Yield once so streaming observes the return center before qa_world_idle() is read.
+	await get_tree().process_frame
 	await _wait_for_world_idle()
+	var returned_chunk_x: int = floori(_player.global_position.x / float(VoxelChunk.SIZE))
+	if returned_chunk_x != original_chunk_x:
+		push_error("QA_GAMEPLAY backtracking did not return to the original chunk")
+		get_tree().quit(1)
+		return false
 	var snapshot: Dictionary = _world.qa_playability_snapshot()
 	var cache_hits: int = int(snapshot.get("chunk_cache_hits", 0))
 	if cache_hits <= 0:
