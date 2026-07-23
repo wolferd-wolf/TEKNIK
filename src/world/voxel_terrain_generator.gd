@@ -3,6 +3,7 @@ class_name TeknikVoxelTerrainGenerator
 
 const WorldSeed = preload("res://src/world/world_seed.gd")
 const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
+const TerrainDomainWarp = preload("res://src/world/terrain_domain_warp.gd")
 
 const STONE: int = 1
 const SOIL: int = 2
@@ -21,11 +22,16 @@ static func climate_at(seed: int, world_x: int, world_z: int) -> Vector2:
 
 
 static func terrain_landmark_profile(seed: int, world_x: int, world_z: int) -> Vector3:
-	var ridge_noise: float = WorldSeed.sample_value_noise(seed + 1709, float(world_x), float(world_z), 118.0)
+	var warped: Vector2 = TerrainDomainWarp.coordinates(seed, world_x, world_z)
+	return _terrain_landmark_profile_at(seed, warped.x, warped.y)
+
+
+static func _terrain_landmark_profile_at(seed: int, sample_x: float, sample_z: float) -> Vector3:
+	var ridge_noise: float = WorldSeed.sample_value_noise(seed + 1709, sample_x, sample_z, 118.0)
 	var ridge: float = pow(absf(ridge_noise * 2.0 - 1.0), 2.35)
-	var basin_noise: float = WorldSeed.sample_value_noise(seed + 1783, float(world_x), float(world_z), 164.0)
+	var basin_noise: float = WorldSeed.sample_value_noise(seed + 1783, sample_x, sample_z, 164.0)
 	var basin: float = smoothstep(0.58, 0.84, basin_noise)
-	var escarpment_noise: float = WorldSeed.sample_value_noise(seed + 1861, float(world_x), float(world_z), 76.0)
+	var escarpment_noise: float = WorldSeed.sample_value_noise(seed + 1861, sample_x, sample_z, 76.0)
 	var escarpment: float = smoothstep(0.60, 0.88, escarpment_noise) * ridge
 	return Vector3(ridge, basin, escarpment)
 
@@ -194,10 +200,11 @@ static func surface_height(seed: int, world_x: int, world_z: int) -> int:
 
 
 static func _terrain_height_profile(seed: int, world_x: int, world_z: int) -> Vector4:
-	var continental: float = WorldSeed.sample_value_noise(seed + 19, float(world_x), float(world_z), 88.0)
-	var rolling: float = WorldSeed.sample_value_noise(seed + 131, float(world_x), float(world_z), 34.0)
-	var detail: float = WorldSeed.sample_value_noise(seed + 227, float(world_x), float(world_z), 17.0)
-	var landmark: Vector3 = terrain_landmark_profile(seed, world_x, world_z)
+	var warped: Vector2 = TerrainDomainWarp.coordinates(seed, world_x, world_z)
+	var continental: float = WorldSeed.sample_value_noise(seed + 19, warped.x, warped.y, 88.0)
+	var rolling: float = WorldSeed.sample_value_noise(seed + 131, warped.x, warped.y, 34.0)
+	var detail: float = WorldSeed.sample_value_noise(seed + 227, warped.x, warped.y, 17.0)
+	var landmark: Vector3 = _terrain_landmark_profile_at(seed, warped.x, warped.y)
 	var upland_height: float = (
 		10.0
 		+ continental * 7.5

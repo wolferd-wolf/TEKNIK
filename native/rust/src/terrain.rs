@@ -1,4 +1,6 @@
 use crate::EditMap;
+#[path = "terrain_domain_warp.rs"]
+mod terrain_domain_warp;
 
 pub const SIZE: usize = 32;
 pub const VOLUME: usize = SIZE * SIZE * SIZE;
@@ -91,15 +93,19 @@ fn sample_value_noise(seed: i64, x: f64, z: f64, cell_size: f64) -> f64 {
     lerp(north, south, blend_z)
 }
 
-fn terrain_landmark_profile(seed: i64, world_x: i32, world_z: i32) -> (f64, f64, f64) {
-    let ridge_noise = sample_value_noise(seed + 1_709, world_x as f64, world_z as f64, 118.0);
+fn terrain_landmark_profile_at(seed: i64, sample_x: f64, sample_z: f64) -> (f64, f64, f64) {
+    let ridge_noise = sample_value_noise(seed + 1_709, sample_x, sample_z, 118.0);
     let ridge = (ridge_noise * 2.0 - 1.0).abs().powf(2.35);
-    let basin_noise = sample_value_noise(seed + 1_783, world_x as f64, world_z as f64, 164.0);
+    let basin_noise = sample_value_noise(seed + 1_783, sample_x, sample_z, 164.0);
     let basin = smoothstep(0.58, 0.84, basin_noise);
-    let escarpment_noise =
-        sample_value_noise(seed + 1_861, world_x as f64, world_z as f64, 76.0);
+    let escarpment_noise = sample_value_noise(seed + 1_861, sample_x, sample_z, 76.0);
     let escarpment = smoothstep(0.60, 0.88, escarpment_noise) * ridge;
     (ridge, basin, escarpment)
+}
+
+fn terrain_landmark_profile(seed: i64, world_x: i32, world_z: i32) -> (f64, f64, f64) {
+    let warped = terrain_domain_warp::coordinates(seed, world_x, world_z);
+    terrain_landmark_profile_at(seed, warped.0, warped.1)
 }
 
 fn river_center_z(seed: i64, world_x: i32) -> f64 {
@@ -113,10 +119,11 @@ fn river_distance(seed: i64, world_x: i32, world_z: i32) -> f64 {
 }
 
 fn terrain_height_profile(seed: i64, world_x: i32, world_z: i32) -> HeightProfile {
-    let continental = sample_value_noise(seed + 19, world_x as f64, world_z as f64, 88.0);
-    let rolling = sample_value_noise(seed + 131, world_x as f64, world_z as f64, 34.0);
-    let detail = sample_value_noise(seed + 227, world_x as f64, world_z as f64, 17.0);
-    let (ridge, basin, escarpment) = terrain_landmark_profile(seed, world_x, world_z);
+    let warped = terrain_domain_warp::coordinates(seed, world_x, world_z);
+    let continental = sample_value_noise(seed + 19, warped.0, warped.1, 88.0);
+    let rolling = sample_value_noise(seed + 131, warped.0, warped.1, 34.0);
+    let detail = sample_value_noise(seed + 227, warped.0, warped.1, 17.0);
+    let (ridge, basin, escarpment) = terrain_landmark_profile_at(seed, warped.0, warped.1);
     let upland_height = 10.0
         + continental * 7.5
         + (rolling - 0.5) * 3.5
