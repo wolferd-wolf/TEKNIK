@@ -7,6 +7,7 @@ const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
 const WALK_SECONDS: float = 1.5
 const EDIT_PAUSE_SECONDS: float = 0.10
 const STAGE_PAUSE_SECONDS: float = 0.8
+const STREAM_TEST_MAX_FRAMES: int = 900
 
 var _world: Node
 var _player: TeknikExplorationController
@@ -21,6 +22,8 @@ func begin(world: Node, player: TeknikExplorationController) -> void:
 func _run() -> void:
 	await _wait_for_world_idle()
 	if not await _wait_for_visible_vegetation():
+		return
+	if not await _verify_chunk_local_vegetation():
 		return
 	var seed: int = _world.qa_world_seed()
 	var spawn: Vector3 = _player.global_position
@@ -76,9 +79,55 @@ func _run() -> void:
 	print(
 		"QA_GAMEPLAY_RESULT PASS blocks=", blocks.size(),
 		" trees=", int(_world.get("_tree_count")),
-		" feature_instances=", int(_world.get("_streamed_feature_instances"))
+		" feature_instances=", int(_world.get("_streamed_feature_instances")),
+		" ecology_chunks=", int(_world.call("qa_ecology_ready_chunk_count"))
 	)
 	get_tree().quit(0)
+
+
+func _verify_chunk_local_vegetation() -> bool:
+	if not _world.has_method("qa_ecology_ready_chunk_count") or not _world.has_method("qa_ecology_chunk_unload_count"):
+		push_error("QA_GAMEPLAY chunk-local ecology diagnostics unavailable")
+		get_tree().quit(1)
+		return false
+	var ready_before: int = int(_world.call("qa_ecology_ready_chunk_count"))
+	var unloads_before: int = int(_world.call("qa_ecology_chunk_unload_count"))
+	if ready_before <= 1:
+		push_error("QA_GAMEPLAY insufficient ecology chunks before stream test: %d" % ready_before)
+		get_tree().quit(1)
+		return false
+
+	var seed: int = _world.qa_world_seed()
+	var current_chunk_x: int = floori(_player.global_position.x / float(VoxelChunk.SIZE))
+	var target_chunk_x: int = current_chunk_x + 1
+	var target_x: float = float(target_chunk_x * VoxelChunk.SIZE) + float(VoxelChunk.SIZE) * 0.5
+	var target_z: float = _player.global_position.z
+	var target_y: int = TerrainGenerator.surface_height(seed, floori(target_x), floori(target_z))
+	_player.set_scripted_mode(true)
+	_player.global_position = Vector3(target_x, float(target_y) + 3.0, target_z)
+	_player.velocity = Vector3.ZERO
+
+	var frames: int = 0
+	while frames < STREAM_TEST_MAX_FRAMES:
+		var unloads_now: int = int(_world.call("qa_ecology_chunk_unload_count"))
+		if unloads_now > unloads_before:
+			var ready_now: int = int(_world.call("qa_ecology_ready_chunk_count"))
+			if ready_now <= 0:
+				push_error("QA_GAMEPLAY all vegetation vanished after one chunk unload")
+				get_tree().quit(1)
+				return false
+			print(
+				"QA_ECOLOGY_STREAM_PASS ready_before=", ready_before,
+				" ready_after_first_unload=", ready_now,
+				" unloads=", unloads_now - unloads_before
+			)
+			await _wait_for_world_idle()
+			return true
+		await get_tree().process_frame
+		frames += 1
+	push_error("QA_GAMEPLAY chunk stream test did not observe an ecology unload")
+	get_tree().quit(1)
+	return false
 
 
 func _wait_for_visible_vegetation() -> bool:
