@@ -97,7 +97,6 @@ static func _recolor_packed(
 			continue
 		var direction: int = int(decoded.direction)
 		var face_light: float = _face_light(direction)
-		var material: int = int(decoded.material)
 		var base_vertex: int = face_index * 4
 		var local_center: Vector3 = _face_center(vertices, base_vertex)
 		var surface_y: float = _face_max_y(vertices, base_vertex) + float(world_origin.y)
@@ -105,6 +104,18 @@ static func _recolor_packed(
 			world_origin.x + roundi(local_center.x),
 			world_origin.y + roundi(local_center.y),
 			world_origin.z + roundi(local_center.z)
+		)
+		var weights: Vector4 = BiomePalette.biome_weights(
+			seed,
+			sample.x,
+			sample.z,
+			surface_y
+		)
+		var material: int = _visible_material(
+			int(decoded.material),
+			direction == PackedFaceCodec.FACE_POS_Y,
+			weights,
+			surface_y
 		)
 		var base: Color = BiomePalette.color(
 			seed,
@@ -140,7 +151,6 @@ static func _recolor_legacy(arrays: Array, world_origin: Vector3i, seed: int) ->
 	var face_count: int = vertices.size() / 4
 	for face_index: int in range(face_count):
 		var base_vertex: int = face_index * 4
-		var material: int = _infer_face_material(old_colors, base_vertex)
 		var normal: Vector3 = normals[base_vertex]
 		var face_light: float = _face_light_from_normal(normal)
 		var local_center: Vector3 = _face_center(vertices, base_vertex)
@@ -149,6 +159,18 @@ static func _recolor_legacy(arrays: Array, world_origin: Vector3i, seed: int) ->
 			world_origin.x + roundi(local_center.x),
 			world_origin.y + roundi(local_center.y),
 			world_origin.z + roundi(local_center.z)
+		)
+		var weights: Vector4 = BiomePalette.biome_weights(
+			seed,
+			sample.x,
+			sample.z,
+			surface_y
+		)
+		var material: int = _visible_material(
+			_infer_face_material(old_colors, base_vertex),
+			normal.y > 0.5,
+			weights,
+			surface_y
 		)
 		var base: Color = BiomePalette.color(
 			seed,
@@ -166,6 +188,25 @@ static func _recolor_legacy(arrays: Array, world_origin: Vector3i, seed: int) ->
 		)
 		_write_flat_face(colors, base_vertex, face_color)
 	arrays[Mesh.ARRAY_COLOR] = colors
+
+
+static func _visible_material(
+	voxel_material: int,
+	is_upward_face: bool,
+	weights: Vector4,
+	surface_y: float
+) -> int:
+	if is_upward_face:
+		return voxel_material
+	if voxel_material == TerrainGenerator.GRASS:
+		return (
+			TerrainGenerator.STONE
+			if weights.z > 0.44 or surface_y >= 18.0
+			else TerrainGenerator.SOIL
+		)
+	if voxel_material == TerrainGenerator.SOIL and weights.z > 0.64:
+		return TerrainGenerator.STONE
+	return voxel_material
 
 
 static func _face_center(vertices: PackedVector3Array, base_vertex: int) -> Vector3:
