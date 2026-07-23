@@ -11,16 +11,32 @@ static func ordered_square(
 	for z: int in range(center.z - radius, center.z + radius + 1):
 		for x: int in range(center.x - radius, center.x + radius + 1):
 			coordinates.append(Vector3i(x, center.y, z))
-	coordinates.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
-		var distance_a: int = _distance_squared(a, priority)
-		var distance_b: int = _distance_squared(b, priority)
-		if distance_a != distance_b:
-			return distance_a < distance_b
+	return sort_directional(coordinates, center, priority, Vector2i.ZERO)
+
+
+static func sort_directional(
+	coordinates: Array[Vector3i],
+	center: Vector3i,
+	priority: Vector3i,
+	direction: Vector2i
+) -> Array[Vector3i]:
+	var ordered: Array[Vector3i] = coordinates.duplicate()
+	var normalized_direction := Vector2(
+		float(clampi(direction.x, -1, 1)),
+		float(clampi(direction.y, -1, 1))
+	)
+	if normalized_direction.length_squared() > 0.0:
+		normalized_direction = normalized_direction.normalized()
+	ordered.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
+		var score_a: float = _priority_score(a, center, priority, normalized_direction)
+		var score_b: float = _priority_score(b, center, priority, normalized_direction)
+		if not is_equal_approx(score_a, score_b):
+			return score_a < score_b
 		if a.z != b.z:
 			return a.z < b.z
 		return a.x < b.x
 	)
-	return coordinates
+	return ordered
 
 
 static func outside_square(
@@ -36,6 +52,25 @@ static func outside_square(
 		):
 			outside.append(coordinate)
 	return outside
+
+
+static func _priority_score(
+	coordinate: Vector3i,
+	center: Vector3i,
+	priority: Vector3i,
+	direction: Vector2
+) -> float:
+	var distance_score: float = float(_distance_squared(coordinate, priority))
+	if direction.length_squared() == 0.0:
+		return distance_score
+	var offset := Vector2(
+		float(coordinate.x - center.x),
+		float(coordinate.z - center.z)
+	)
+	# Negative projection rewards chunks in front of the player. The distance term
+	# remains dominant enough that nearby safety chunks always precede far chunks.
+	var forward_projection: float = offset.dot(direction)
+	return distance_score - forward_projection * 2.25
 
 
 static func _distance_squared(a: Vector3i, b: Vector3i) -> int:
