@@ -98,7 +98,7 @@ func _test_directional_cache_guards() -> void:
 	var source: String = FileAccess.get_file_as_string(
 		"res://src/main/movement_streaming_main.gd"
 	)
-	_expect(source.contains("CHUNK_CACHE_LIMIT: int = 8"), "chunk reuse cache is bounded")
+	_expect(source.contains("CHUNK_CACHE_LIMIT: int = 16"), "chunk reuse cache retains both strips of a reversal")
 	_expect(source.contains("CACHE_COMMITS_PER_FRAME: int = 1"), "cache commits remain frame budgeted")
 	_expect(source.contains("snapshot_neighborhood(coordinate).is_empty()"), "edited neighborhoods bypass cached terrain")
 	_expect(source.contains("_cache_chunk_before_unload(coordinate)"), "unloaded terrain is captured before destruction")
@@ -115,7 +115,7 @@ func _test_collision_window_plan() -> void:
 		active[coordinate] = true
 	var shifted: Dictionary = CollisionWindowPlan.reconcile(active, Vector3i(1, 0, 0), 1)
 	_expect(shifted.add.size() == 3, "one chunk shift adds only the leading collision edge")
-	_expect(shifted.remove.size() == 3, "one chunk shift removes only the trailing collision edge")
+	_expect(shifted.remove.size() == 3, "one chunk shift removes only the trailing edge")
 	_expect(shifted.add[0] == Vector3i(2, 0, 0), "nearest new collision chunk is prioritized")
 
 
