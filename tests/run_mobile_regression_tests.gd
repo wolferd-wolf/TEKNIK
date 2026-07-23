@@ -4,6 +4,8 @@ const AutoJumpAssistant = preload("res://src/player/auto_jump_assistant.gd")
 const MeshVisualSanitizer = preload("res://src/world/mesh_visual_sanitizer.gd")
 const FeaturePlanner = preload("res://src/world/procedural_feature_planner.gd")
 const DistantPlanner = preload("res://src/world/distant_terrain_planner.gd")
+const TerrainGenerator = preload("res://src/world/voxel_terrain_generator.gd")
+const BiomePalette = preload("res://src/world/biome_surface_palette.gd")
 
 var _failures: int = 0
 
@@ -14,6 +16,7 @@ func _init() -> void:
 	_test_auto_jump_evidence_signal()
 	_test_shipping_scene()
 	_test_feature_planner()
+	_test_biome_surface_palette()
 	_test_distant_terrain_planner()
 
 	if _failures == 0:
@@ -72,12 +75,20 @@ func _test_shipping_scene() -> void:
 		"res://src/main/main.tscn"
 	)
 	_expect(
-		scene_text.contains("procedural_gameplay_main.gd"),
-		"shipping scene enables procedural mobile gameplay"
+		scene_text.contains("biome_visual_main.gd"),
+		"shipping scene enables biome-driven terrain visuals"
+	)
+	var biome_main_source: String = FileAccess.get_file_as_string(
+		"res://src/main/biome_visual_main.gd"
 	)
 	_expect(
-		scene_text.contains("gd_stream.gd"),
-		"shipping scene enables player-following ecology streaming"
+		biome_main_source.contains("procedural_gameplay_main.gd_stream.gd"),
+		"biome visuals retain the proven gameplay and ecology streaming stack"
+	)
+	_expect(
+		biome_main_source.contains("BiomeColorizer.recolor_report")
+		and biome_main_source.contains("BiomeDistantTerrainPlanner"),
+		"near and distant terrain share the biome palette"
 	)
 
 
@@ -130,6 +141,48 @@ func _test_feature_planner() -> void:
 		).contains("QA_ECOLOGY_STREAM_PASS"),
 		"gameplay QA verifies neighboring vegetation survives a chunk unload"
 	)
+
+
+func _test_biome_surface_palette() -> void:
+	var seed: int = 73_421
+	var first: Vector4 = BiomePalette.biome_weights(seed, -96, 64, 14.0)
+	var second: Vector4 = BiomePalette.biome_weights(seed, -96, 64, 14.0)
+	_expect(first == second, "biome masks remain deterministic")
+
+	var represented: Dictionary = {}
+	var normalized: bool = true
+	var biome_colors: Dictionary = {}
+	var cache: Dictionary = {}
+	for world_z: int in range(-256, 257, 32):
+		for world_x: int in range(-256, 257, 32):
+			var height: int = TerrainGenerator.surface_height(seed, world_x, world_z)
+			var weights: Vector4 = BiomePalette.biome_weights(
+				seed,
+				world_x,
+				world_z,
+				float(height)
+			)
+			var claimed: float = weights.x + weights.y + weights.z + weights.w
+			if claimed < -0.0001 or claimed > 0.9201:
+				normalized = false
+			var biome: int = BiomePalette.dominant_biome(weights)
+			represented[biome] = true
+			if not biome_colors.has(biome):
+				biome_colors[biome] = BiomePalette.color(
+					seed,
+					TerrainGenerator.GRASS,
+					Vector3i(world_x, height, world_z),
+					float(height),
+					cache
+				)
+	_expect(normalized, "biome masks leave a normalized plains remainder")
+	_expect(represented.size() >= 3, "the world seed exposes at least three terrain biomes")
+
+	var unique_colors: Dictionary = {}
+	for value: Variant in biome_colors.values():
+		var color: Color = value
+		unique_colors[color.to_html(false)] = true
+	_expect(unique_colors.size() >= 3, "biomes produce visibly distinct terrain palettes")
 
 
 func _test_distant_terrain_planner() -> void:
