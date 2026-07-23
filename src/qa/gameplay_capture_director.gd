@@ -76,11 +76,14 @@ func _run() -> void:
 		print("QA_GAMEPLAY_POSTER_SAVED ", absolute_path)
 
 	_world.qa_save_edits_now()
+	var snapshot: Dictionary = _world.qa_playability_snapshot()
 	print(
 		"QA_GAMEPLAY_RESULT PASS blocks=", blocks.size(),
 		" trees=", int(_world.get("_tree_count")),
 		" feature_instances=", int(_world.get("_streamed_feature_instances")),
-		" ecology_chunks=", int(_world.call("qa_ecology_ready_chunk_count"))
+		" ecology_chunks=", int(_world.call("qa_ecology_ready_chunk_count")),
+		" cache_hits=", int(snapshot.get("chunk_cache_hits", 0)),
+		" cache_size=", int(snapshot.get("chunk_cache_size", 0))
 	)
 	get_tree().quit(0)
 
@@ -98,10 +101,11 @@ func _verify_chunk_local_vegetation() -> bool:
 		return false
 
 	var seed: int = _world.qa_world_seed()
-	var current_chunk_x: int = floori(_player.global_position.x / float(VoxelChunk.SIZE))
+	var original_position: Vector3 = _player.global_position
+	var current_chunk_x: int = floori(original_position.x / float(VoxelChunk.SIZE))
 	var target_chunk_x: int = current_chunk_x + 1
 	var target_x: float = float(target_chunk_x * VoxelChunk.SIZE) + float(VoxelChunk.SIZE) * 0.5
-	var target_z: float = _player.global_position.z
+	var target_z: float = original_position.z
 	var target_y: int = TerrainGenerator.surface_height(seed, floori(target_x), floori(target_z))
 	_player.set_scripted_mode(true)
 	_player.global_position = Vector3(target_x, float(target_y) + 3.0, target_z)
@@ -122,12 +126,43 @@ func _verify_chunk_local_vegetation() -> bool:
 				" unloads=", unloads_now - unloads_before
 			)
 			await _wait_for_world_idle()
-			return true
+			break
 		await get_tree().process_frame
 		frames += 1
-	push_error("QA_GAMEPLAY chunk stream test did not observe an ecology unload")
-	get_tree().quit(1)
-	return false
+	if frames >= STREAM_TEST_MAX_FRAMES:
+		push_error("QA_GAMEPLAY chunk stream test did not observe an ecology unload")
+		get_tree().quit(1)
+		return false
+
+	var original_y: int = TerrainGenerator.surface_height(
+		seed,
+		floori(original_position.x),
+		floori(original_position.z)
+	)
+	_player.global_position = Vector3(
+		original_position.x,
+		float(original_y) + 3.0,
+		original_position.z
+	)
+	_player.velocity = Vector3.ZERO
+	await _wait_for_world_idle()
+	var snapshot: Dictionary = _world.qa_playability_snapshot()
+	var cache_hits: int = int(snapshot.get("chunk_cache_hits", 0))
+	if cache_hits <= 0:
+		push_error("QA_GAMEPLAY backtracking did not reuse any cached terrain chunks")
+		get_tree().quit(1)
+		return false
+	var ready_after_return: int = int(_world.call("qa_ecology_ready_chunk_count"))
+	if ready_after_return <= 0:
+		push_error("QA_GAMEPLAY vegetation vanished during cached backtracking")
+		get_tree().quit(1)
+		return false
+	print(
+		"QA_CHUNK_CACHE_PASS hits=", cache_hits,
+		" cache_size=", int(snapshot.get("chunk_cache_size", 0)),
+		" ecology_chunks=", ready_after_return
+	)
+	return true
 
 
 func _wait_for_visible_vegetation() -> bool:
