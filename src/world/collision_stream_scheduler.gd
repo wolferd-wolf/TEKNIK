@@ -11,7 +11,8 @@ static func ordered_adds(
 	center: Vector3i,
 	movement_direction: Vector2i
 ) -> Array[Vector3i]:
-	var result: Array[Vector3i] = coordinates.duplicate()
+	var result: Array[Vector3i] = []
+	result.assign(coordinates)
 	result.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
 		var a_dx: int = a.x - center.x
 		var a_dz: int = a.z - center.z
@@ -33,7 +34,8 @@ static func ordered_adds(
 
 
 static func ordered_removes(coordinates: Array[Vector3i], center: Vector3i) -> Array[Vector3i]:
-	var result: Array[Vector3i] = coordinates.duplicate()
+	var result: Array[Vector3i] = []
+	result.assign(coordinates)
 	result.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
 		var a_distance: int = absi(a.x - center.x) + absi(a.z - center.z)
 		var b_distance: int = absi(b.x - center.x) + absi(b.z - center.z)
