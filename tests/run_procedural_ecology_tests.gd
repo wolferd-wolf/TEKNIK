@@ -130,11 +130,9 @@ func _test_seed_diversity_and_terrain_continuity() -> void:
 			var second_height: int = Terrain.surface_height(91_777, world_x, world_z)
 			if first_height != second_height:
 				changed_samples += 1
-			maximum_neighbor_step = maxi(
-				maximum_neighbor_step,
-				absi(first_height - Terrain.surface_height(73_421, world_x + 1, world_z)),
-				absi(first_height - Terrain.surface_height(73_421, world_x, world_z + 1))
-			)
+			var east_step: int = absi(first_height - Terrain.surface_height(73_421, world_x + 1, world_z))
+			var south_step: int = absi(first_height - Terrain.surface_height(73_421, world_x, world_z + 1))
+			maximum_neighbor_step = maxi(maximum_neighbor_step, maxi(east_step, south_step))
 	_expect(changed_samples > 180, "different seeds produce materially different terrain")
 	_expect(maximum_neighbor_step <= 8, "terrain remains locally continuous without broken vertical spikes")
 
