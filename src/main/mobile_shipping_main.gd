@@ -2,6 +2,7 @@ extends "res://src/main/shipping_main.gd"
 
 const AutoJumpAssistant = preload("res://src/player/auto_jump_assistant.gd")
 const MeshVisualSanitizer = preload("res://src/world/mesh_visual_sanitizer.gd")
+const StreamingRuntimeMetrics = preload("res://src/diagnostics/streaming_runtime_metrics.gd")
 
 var _auto_jump_count: int = 0
 
@@ -55,6 +56,31 @@ func _commit_terrain_chunk(report: Dictionary) -> void:
 	super._commit_terrain_chunk(report)
 
 
+func _report_performance_if_due() -> void:
+	var now_ms: int = Time.get_ticks_msec()
+	if now_ms < _next_telemetry_report_ms:
+		return
+	var report: Dictionary = _performance_telemetry.snapshot()
+	report["timestamp_unix_ms"] = Time.get_unix_time_from_system() * 1000.0
+	report["world_center"] = str(_world_center)
+	report["active_render_chunks"] = _terrain_nodes.size()
+	report["active_collision_chunks"] = _collision_bodies.size()
+	report["world_edit_overrides"] = _world_edits.override_count()
+	report["static_memory_bytes"] = Performance.get_monitor(Performance.MEMORY_STATIC)
+	report["last_mesh_commit_usec"] = _last_mesh_commit_usec
+	report["last_collision_commit_usec"] = _last_collision_commit_usec
+	report["last_environment_refresh_usec"] = _last_environment_refresh_usec
+	StreamingRuntimeMetrics.append_pool_metrics(report, _playable_pool)
+	print("WORLD_PERF ", JSON.stringify(report))
+	var file := FileAccess.open("user://teknik-performance-latest.json", FileAccess.WRITE)
+	if file != null:
+		file.store_string(JSON.stringify(report, "\t"))
+	_runtime_log.event("info", "performance", "telemetry", report)
+	_runtime_log.write_support_snapshot(_diagnostic_context())
+	_performance_telemetry.reset_event_peaks()
+	_next_telemetry_report_ms = now_ms + TELEMETRY_REPORT_INTERVAL_MS
+
+
 func _flatten_loaded_terrain_colors() -> void:
 	for value: Variant in _terrain_nodes.values():
 		var terrain := value as MeshInstance3D
@@ -78,3 +104,10 @@ func _on_auto_jump_triggered(position: Vector3, upward_velocity: float) -> void:
 		"upward_velocity": upward_velocity,
 		"count": _auto_jump_count,
 	})
+
+
+func _diagnostic_context() -> Dictionary:
+	var context: Dictionary = super._diagnostic_context()
+	StreamingRuntimeMetrics.append_pool_metrics(context, _playable_pool)
+	context["mobile_auto_jump_count"] = _auto_jump_count
+	return context
