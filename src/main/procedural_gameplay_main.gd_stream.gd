@@ -1,6 +1,25 @@
 extends "res://src/main/procedural_gameplay_main.gd"
 
 
+func _rebuild_streamed_features() -> void:
+	# Keep the last complete ecology root visible while the replacement is planned
+	# and committed. Removing it here leaves the world barren whenever continuous
+	# movement prevents the idle-gated ecology worker from starting.
+	if _feature_root == null:
+		_feature_root = Node3D.new()
+		_feature_root.name = "StreamedWorldFeatures"
+		add_child(_feature_root)
+		_streamed_feature_instances = 0
+		_build_water()
+	_feature_refresh_pending = true
+	_runtime_log.event("info", "environment", "ecology_refresh_queued", {
+		"current_center": str(_feature_center),
+		"target_center": str(_world_center),
+		"visible_instances": _streamed_feature_instances,
+		"preserved_visible_root": true,
+	})
+
+
 func _begin_ecology_generation() -> void:
 	_feature_refresh_target = _world_center
 	_ecology_refresh_started_usec = Time.get_ticks_usec()
