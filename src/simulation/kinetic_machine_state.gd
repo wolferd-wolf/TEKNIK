@@ -1,53 +1,49 @@
-class_name TeknikKineticMachineState
 extends RefCounted
 
 const KineticNetwork = preload("res://src/simulation/kinetic_network.gd")
-const SCHEMA: int = 1
-const TYPE_WORKBENCH: StringName = &"workbench"
-const TYPE_SHAFT: StringName = &"shaft"
-const TYPE_CRANK: StringName = &"hand_crank"
-const TYPE_CRUSHER: StringName = &"stone_crusher"
+const SCHEMA = 1
+const TYPE_WORKBENCH = "workbench"
+const TYPE_SHAFT = "shaft"
+const TYPE_CRANK = "hand_crank"
+const TYPE_CRUSHER = "stone_crusher"
 
-var machines: Dictionary = {}
-var crusher_input: int = 0
-var crusher_output: int = 0
-var stored_turns: int = 0
+var machines = {}
+var crusher_input = 0
+var crusher_output = 0
+var stored_turns = 0
 
-
-func place(machine_id: StringName, machine_type: StringName, position: Vector3i) -> bool:
-	if machine_id == &"" or machines.has(machine_id):
+func place(machine_id, machine_type, position):
+	machine_id = str(machine_id)
+	machine_type = str(machine_type)
+	if machine_id.is_empty() or machines.has(machine_id):
 		return false
-	if machine_type not in [TYPE_WORKBENCH, TYPE_SHAFT, TYPE_CRANK, TYPE_CRUSHER]:
+	if not machine_type in [TYPE_WORKBENCH, TYPE_SHAFT, TYPE_CRANK, TYPE_CRUSHER]:
 		return false
-	for row_variant: Variant in machines.values():
-		var row: Dictionary = row_variant
-		if row.get("position", Vector3i.ZERO) == position:
+	for row in machines.values():
+		if row["position"] == position:
 			return false
 	machines[machine_id] = {"type": machine_type, "position": position}
 	return true
 
-
-func remove(machine_id: StringName) -> bool:
+func remove(machine_id):
+	machine_id = str(machine_id)
 	if not machines.has(machine_id):
 		return false
 	machines.erase(machine_id)
 	return true
 
-
-func insert_stone(amount: int) -> int:
-	var accepted: int = mini(maxi(amount, 0), 16 - crusher_input)
+func insert_stone(amount):
+	var accepted = min(max(int(amount), 0), 16 - crusher_input)
 	crusher_input += accepted
 	return accepted
 
-
-func crank(turns: int) -> Dictionary:
-	stored_turns = mini(stored_turns + maxi(turns, 0), 32)
+func crank(turns):
+	stored_turns = min(stored_turns + max(int(turns), 0), 32)
 	return network_report()
 
-
-func process() -> bool:
-	var report: Dictionary = network_report()
-	if bool(report.get("overstressed", true)) or float(report.get("source_rpm", 0.0)) <= 0.0:
+func process():
+	var report = network_report()
+	if report["overstressed"] or report["source_rpm"] <= 0.0:
 		return false
 	if crusher_input < 2 or stored_turns < 4:
 		return false
@@ -56,106 +52,92 @@ func process() -> bool:
 	stored_turns -= 4
 	return true
 
-
-func collect_output() -> int:
-	var amount: int = crusher_output
+func collect_output():
+	var amount = crusher_output
 	crusher_output = 0
 	return amount
 
-
-func network_report() -> Dictionary:
-	var network := KineticNetwork.new()
-	var connected: bool = _has_connected_chain()
+func network_report():
+	var network = KineticNetwork.new()
+	var connected = _has_connected_chain()
 	network.configure_source(24.0 if connected and stored_turns > 0 else 0.0, 1.0)
 	if connected:
-		network.add_consumer(&"stone_crusher", 1.0, 0.55)
-	var report: Dictionary = network.report()
+		network.add_consumer("stone_crusher", 1.0, 0.55)
+	var report = network.report()
 	report["connected"] = connected
 	report["stored_turns"] = stored_turns
 	return report
 
-
-func _has_connected_chain() -> bool:
-	var crank_id: StringName = _first_id_of_type(TYPE_CRANK)
-	var crusher_id: StringName = _first_id_of_type(TYPE_CRUSHER)
-	if crank_id == &"" or crusher_id == &"":
+func _has_connected_chain():
+	var crank_id = _first_id_of_type(TYPE_CRANK)
+	var crusher_id = _first_id_of_type(TYPE_CRUSHER)
+	if crank_id.is_empty() or crusher_id.is_empty():
 		return false
-	var visited: Dictionary = {crank_id: true}
-	var frontier: Array[StringName] = [crank_id]
+	var visited = {crank_id: true}
+	var frontier = [crank_id]
 	while not frontier.is_empty():
-		var current: StringName = frontier.pop_front()
+		var current = frontier.pop_front()
 		if current == crusher_id:
 			return true
-		var current_row: Dictionary = machines[current]
-		var current_position: Vector3i = current_row.get("position", Vector3i.ZERO)
-		for candidate_variant: Variant in machines.keys():
-			var candidate := StringName(candidate_variant)
+		var current_position = machines[current]["position"]
+		for candidate in machines.keys():
 			if visited.has(candidate):
 				continue
-			var candidate_row: Dictionary = machines[candidate]
-			var candidate_type := StringName(str(candidate_row.get("type", "")))
-			if candidate_type not in [TYPE_SHAFT, TYPE_CRANK, TYPE_CRUSHER]:
+			var row = machines[candidate]
+			if not row["type"] in [TYPE_SHAFT, TYPE_CRANK, TYPE_CRUSHER]:
 				continue
-			var candidate_position: Vector3i = candidate_row.get("position", Vector3i.ZERO)
-			var delta: Vector3i = candidate_position - current_position
-			if absi(delta.x) + absi(delta.y) + absi(delta.z) != 1:
+			var delta = row["position"] - current_position
+			if abs(delta.x) + abs(delta.y) + abs(delta.z) != 1:
 				continue
 			visited[candidate] = true
 			frontier.append(candidate)
 	return false
 
-
-func _first_id_of_type(machine_type: StringName) -> StringName:
-	var ids: Array = machines.keys()
+func _first_id_of_type(machine_type):
+	var ids = machines.keys()
 	ids.sort()
-	for id_variant: Variant in ids:
-		var id := StringName(id_variant)
-		var row: Dictionary = machines[id]
-		if StringName(str(row.get("type", ""))) == machine_type:
-			return id
-	return &""
+	for machine_id in ids:
+		if machines[machine_id]["type"] == machine_type:
+			return machine_id
+	return ""
 
-
-func encode() -> Dictionary:
-	var rows: Array[Dictionary] = []
-	var ids: Array = machines.keys()
+func encode():
+	var rows = []
+	var ids = machines.keys()
 	ids.sort()
-	for id_variant: Variant in ids:
-		var id := StringName(id_variant)
-		var row: Dictionary = machines[id]
-		var position: Vector3i = row.get("position", Vector3i.ZERO)
-		rows.append({"id": str(id), "type": str(row.get("type", "")), "position": [position.x, position.y, position.z]})
+	for machine_id in ids:
+		var row = machines[machine_id]
+		var position = row["position"]
+		rows.append({"id": machine_id, "type": row["type"], "position": [position.x, position.y, position.z]})
 	return {"schema": SCHEMA, "machines": rows, "crusher_input": crusher_input, "crusher_output": crusher_output, "stored_turns": stored_turns}
 
-
-func decode(payload: Dictionary) -> bool:
-	if int(payload.get("schema", -1)) != SCHEMA:
+func decode(payload):
+	if not payload is Dictionary or int(payload.get("schema", -1)) != SCHEMA:
 		return false
-	var rows: Variant = payload.get("machines", [])
+	var rows = payload.get("machines", [])
 	if not rows is Array:
 		return false
-	var restored_machines: Dictionary = {}
-	var occupied: Dictionary = {}
-	for value: Variant in rows:
-		if not value is Dictionary:
+	var restored = {}
+	var occupied = {}
+	for row in rows:
+		if not row is Dictionary:
 			return false
-		var row: Dictionary = value
-		var machine_id := StringName(str(row.get("id", "")))
-		var machine_type := StringName(str(row.get("type", "")))
-		var encoded_position: Variant = row.get("position", [])
-		if machine_id == &"" or restored_machines.has(machine_id):
+		var machine_id = str(row.get("id", ""))
+		var machine_type = str(row.get("type", ""))
+		var position_data = row.get("position", [])
+		if machine_id.is_empty() or restored.has(machine_id):
 			return false
-		if machine_type not in [TYPE_WORKBENCH, TYPE_SHAFT, TYPE_CRANK, TYPE_CRUSHER]:
+		if not machine_type in [TYPE_WORKBENCH, TYPE_SHAFT, TYPE_CRANK, TYPE_CRUSHER]:
 			return false
-		if not encoded_position is Array or (encoded_position as Array).size() != 3:
+		if not position_data is Array or position_data.size() != 3:
 			return false
-		var position := Vector3i(int(encoded_position[0]), int(encoded_position[1]), int(encoded_position[2]))
+		var position = Vector3i(int(position_data[0]), int(position_data[1]), int(position_data[2]))
 		if occupied.has(position):
 			return false
 		occupied[position] = true
-		restored_machines[machine_id] = {"type": machine_type, "position": position}
-	machines = restored_machines
-	crusher_input = clampi(int(payload.get("crusher_input", 0)), 0, 16)
-	crusher_output = maxi(int(payload.get("crusher_output", 0)), 0)
-	stored_turns = clampi(int(payload.get("stored_turns", 0)), 0, 32)
+		restored[machine_id] = {"type": machine_type, "position": position}
+	machines = restored
+	crusher_input = clamp(int(payload.get("crusher_input", 0)), 0, 16)
+	crusher_output = max(int(payload.get("crusher_output", 0)), 0)
+	stored_turns = clamp(int(payload.get("stored_turns", 0)), 0, 32)
 	return true
