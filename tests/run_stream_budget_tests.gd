@@ -1,21 +1,22 @@
 extends SceneTree
 
-const WorkBudget = preload("res://src/world/chunk_work_budget.gd")
+const ChunkWorkBudget = preload("res://src/world/chunk_work_budget.gd")
 const CollisionWindowPlan = preload("res://src/world/collision_window_plan.gd")
-const MobileControlLayout = preload("res://src/player/mobile_control_layout.gd")
-const MovementStreamingMain = preload("res://src/main/movement_streaming_main.gd")
+const MobileControlMath = preload("res://src/player/mobile_control_math.gd")
+const ChunkStreamPlan = preload("res://src/world/chunk_stream_plan.gd")
 
 var _failures: int = 0
 
 
 func _init() -> void:
-	_test_budgeted_queue_order()
-	_test_queue_replacement()
-	_test_negative_budgets()
-	_test_directional_load_order()
+	_test_frame_budgeting()
+	_test_replacement_cancels_stale_work()
+	_test_negative_budgets_are_safe()
+	_test_directional_chunk_priority()
 	_test_directional_cache_guards()
 	_test_collision_window_plan()
-	_test_mobile_layout()
+	_test_mobile_control_geometry()
+
 	if _failures == 0:
 		print("STREAM_BUDGET_TEST_RESULT PASS")
 		quit(0)
@@ -24,89 +25,66 @@ func _init() -> void:
 		quit(1)
 
 
-func _test_budgeted_queue_order() -> void:
-	var budget := WorkBudget.new()
-	var load_order: Array[Vector3i] = [Vector3i(2, 0, 0), Vector3i(1, 0, 0), Vector3i(0, 0, 0)]
-	var unload_order: Array[Vector3i] = [Vector3i(-2, 0, 0), Vector3i(-1, 0, 0)]
-	budget.replace(load_order, unload_order)
-	var first_loads: Array[Vector3i] = []
-	var first_unloads: Array[Vector3i] = []
-	var first: Dictionary = budget.process(
-		func(coordinate: Vector3i) -> void:
-			first_loads.append(coordinate),
-		func(coordinate: Vector3i) -> void:
-			first_unloads.append(coordinate),
-		2,
-		1
-	)
-	_expect(first_loads == [Vector3i(2, 0, 0), Vector3i(1, 0, 0)], "load order is deterministic")
-	_expect(first_unloads == [Vector3i(-2, 0, 0)], "unload order is deterministic")
-	_expect(int(first.loads) == 2, "load work remains budgeted")
-	_expect(int(first.unloads) == 1, "unload work remains budgeted")
-	var second_loads: Array[Vector3i] = []
-	var second_unloads: Array[Vector3i] = []
-	var second: Dictionary = budget.process(
-		func(coordinate: Vector3i) -> void:
-			second_loads.append(coordinate),
-		func(coordinate: Vector3i) -> void:
-			second_unloads.append(coordinate),
-		2,
-		1
-	)
-	_expect(second_loads == [Vector3i(0, 0, 0)], "later frame drains remaining loads")
-	_expect(second_unloads == [Vector3i(-1, 0, 0)], "later frame drains remaining unloads")
-	_expect(bool(second.complete), "queue reports completion")
+func _test_frame_budgeting() -> void:
+	var budget := ChunkWorkBudget.new()
+	var loads: Array[Vector3i] = [
+		Vector3i(1, 0, 0), Vector3i(2, 0, 0), Vector3i(3, 0, 0)
+	]
+	var unloads: Array[Vector3i] = [Vector3i(-1, 0, 0), Vector3i(-2, 0, 0)]
+	budget.replace(loads, unloads)
+
+	var first: Dictionary = budget.take_frame(1, 1)
+	_expect(first.load == [Vector3i(1, 0, 0)], "load order is deterministic")
+	_expect(first.unload == [Vector3i(-1, 0, 0)], "unload order is deterministic")
+	_expect(int(first.remaining_loads) == 2, "load work remains budgeted")
+	_expect(int(first.remaining_unloads) == 1, "unload work remains budgeted")
+
+	var second: Dictionary = budget.take_frame(2, 4)
+	_expect(second.load == [Vector3i(2, 0, 0), Vector3i(3, 0, 0)], "later frame drains remaining loads")
+	_expect(second.unload == [Vector3i(-2, 0, 0)], "later frame drains remaining unloads")
+	_expect(not budget.has_work(), "queue reports completion")
 
 
-func _test_queue_replacement() -> void:
-	var budget := WorkBudget.new()
-	budget.replace([Vector3i(9, 0, 0)], [Vector3i(-9, 0, 0)])
-	budget.replace([Vector3i(4, 0, 0)], [Vector3i(-4, 0, 0)])
-	var loads: Array[Vector3i] = []
-	var unloads: Array[Vector3i] = []
-	budget.process(
-		func(coordinate: Vector3i) -> void:
-			loads.append(coordinate),
-		func(coordinate: Vector3i) -> void:
-			unloads.append(coordinate),
-		1,
-		1
-	)
-	_expect(loads == [Vector3i(4, 0, 0)], "new stream plan replaces stale loads")
-	_expect(unloads == [Vector3i(-4, 0, 0)], "new stream plan replaces stale unloads")
+func _test_replacement_cancels_stale_work() -> void:
+	var budget := ChunkWorkBudget.new()
+	budget.replace([Vector3i(10, 0, 0)], [Vector3i(-10, 0, 0)])
+	budget.replace([Vector3i(20, 0, 0)], [])
+	var frame: Dictionary = budget.take_frame(1, 1)
+	_expect(frame.load == [Vector3i(20, 0, 0)], "new stream plan replaces stale loads")
+	_expect(frame.unload.is_empty(), "new stream plan replaces stale unloads")
 
 
-func _test_negative_budgets() -> void:
-	var budget := WorkBudget.new()
-	budget.replace([Vector3i.ONE], [Vector3i(-1, -1, -1)])
-	var report: Dictionary = budget.process(Callable(), Callable(), -1, -1)
-	_expect(int(report.loads) == 0 and int(report.unloads) == 0, "negative budgets perform no work")
+func _test_negative_budgets_are_safe() -> void:
+	var budget := ChunkWorkBudget.new()
+	budget.replace([Vector3i.ONE], [Vector3i.ZERO])
+	var frame: Dictionary = budget.take_frame(-1, -1)
+	_expect(frame.load.is_empty() and frame.unload.is_empty(), "negative budgets perform no work")
 	_expect(budget.pending_load_count() == 1, "negative load budget preserves queue")
 	_expect(budget.pending_unload_count() == 1, "negative unload budget preserves queue")
 
 
-func _test_directional_load_order() -> void:
-	var incoming: Array[Vector3i] = [
-		Vector3i(-2, 0, 0),
-		Vector3i(-1, 0, 0),
-		Vector3i(1, 0, 0),
-		Vector3i(2, 0, 0),
-		Vector3i(3, 0, 0),
+func _test_directional_chunk_priority() -> void:
+	var coordinates: Array[Vector3i] = [
+		Vector3i(-2, 0, 0), Vector3i(2, 0, 0),
+		Vector3i(0, 0, -2), Vector3i(0, 0, 2),
 	]
-	var eastward: Array[Vector3i] = MovementStreamingMain.directional_priority_order(
-		incoming,
-		Vector3i.ZERO,
-		Vector2i.RIGHT
+	var east: Array[Vector3i] = ChunkStreamPlan.sort_directional(
+		coordinates, Vector3i.ZERO, Vector3i.ZERO, Vector2i.RIGHT
 	)
-	_expect(eastward.slice(0, 3) == [Vector3i(1, 0, 0), Vector3i(2, 0, 0), Vector3i(3, 0, 0)], "eastward motion prioritizes the leading terrain edge")
-	var northward: Array[Vector3i] = MovementStreamingMain.directional_priority_order(
-		[Vector3i(0, 0, -3), Vector3i(0, 0, -2), Vector3i(0, 0, 1)],
-		Vector3i.ZERO,
-		Vector2i(0, -1)
+	_expect(
+		east.find(Vector3i(2, 0, 0)) < east.find(Vector3i(-2, 0, 0)),
+		"eastward motion prioritizes the leading terrain edge"
 	)
-	_expect(northward.slice(0, 2) == [Vector3i(0, 0, -2), Vector3i(0, 0, -3)], "northward motion prioritizes the leading terrain edge")
-	var stationary: Array[Vector3i] = MovementStreamingMain.directional_priority_order(
+	var north: Array[Vector3i] = ChunkStreamPlan.sort_directional(
+		coordinates, Vector3i.ZERO, Vector3i.ZERO, Vector2i(0, -1)
+	)
+	_expect(
+		north.find(Vector3i(0, 0, -2)) < north.find(Vector3i(0, 0, 2)),
+		"northward motion prioritizes the leading terrain edge"
+	)
+	var stationary: Array[Vector3i] = ChunkStreamPlan.sort_directional(
 		[Vector3i(3, 0, 0), Vector3i(1, 0, 0), Vector3i(2, 0, 0)],
+		Vector3i.ZERO,
 		Vector3i.ZERO,
 		Vector2i.ZERO
 	)
@@ -117,9 +95,7 @@ func _test_directional_load_order() -> void:
 
 
 func _test_directional_cache_guards() -> void:
-	var source: String = FileAccess.get_file_as_string(
-		"res://src/main/movement_streaming_main.gd"
-	)
+	var source: String = FileAccess.get_file_as_string("res://src/main/movement_streaming_main.gd")
 	_expect(source.contains("CHUNK_CACHE_LIMIT: int = 16"), "chunk reuse cache retains both strips of a reversal")
 	_expect(source.contains("CACHE_COMMITS_PER_FRAME: int = 1"), "cache commits remain frame budgeted")
 	_expect(source.contains("snapshot_neighborhood(coordinate).is_empty()"), "edited neighborhoods bypass cached terrain")
@@ -150,29 +126,26 @@ func _test_collision_window_plan() -> void:
 	var active: Dictionary = {}
 	for coordinate: Vector3i in desired:
 		active[coordinate] = true
-	var shifted: Array[Vector3i] = CollisionWindowPlan.desired(Vector3i.RIGHT, 1)
-	var additions: Array[Vector3i] = CollisionWindowPlan.additions(active, shifted, Vector3i.RIGHT)
-	var removals: Array[Vector3i] = CollisionWindowPlan.removals(active, shifted, Vector3i.RIGHT)
-	_expect(additions.size() == 3, "one chunk shift adds only the leading collision edge")
-	_expect(removals.size() == 3, "one chunk shift removes only the trailing edge")
-	_expect(additions[0].distance_squared_to(Vector3i.RIGHT) <= additions[-1].distance_squared_to(Vector3i.RIGHT), "nearest new collision chunk is prioritized")
+	var shifted: Dictionary = CollisionWindowPlan.reconcile(active, Vector3i(1, 0, 0), 1)
+	_expect(shifted.add.size() == 3, "one chunk shift adds only the leading collision edge")
+	_expect(shifted.remove.size() == 3, "one chunk shift removes only the trailing edge")
+	_expect(shifted.add[0] == Vector3i(2, 0, 0), "nearest new collision chunk is prioritized")
 
 
-func _test_mobile_layout() -> void:
-	var layout: Dictionary = MobileControlLayout.for_viewport(Vector2(1280.0, 720.0))
-	var move_rect: Rect2 = layout.move_rect
-	var look_rect: Rect2 = layout.look_rect
-	var jump_rect: Rect2 = layout.jump_rect
-	_expect(move_rect.end.x <= 640.0, "left screen is reserved for movement")
-	_expect(look_rect.position.x >= 640.0, "right screen is reserved for camera look")
-	_expect(jump_rect.position.x > 640.0 and jump_rect.position.y > 360.0, "jump button uses deterministic lower-right placement")
-	_expect(MobileControlLayout.clamp_stick(Vector2(0.5, 0.0)) == Vector2(0.5, 0.0), "virtual stick preserves partial analog movement")
-	_expect(MobileControlLayout.clamp_stick(Vector2(2.0, 0.0)).is_equal_approx(Vector2.RIGHT), "virtual stick clamps movement magnitude")
+func _test_mobile_control_geometry() -> void:
+	var viewport := Vector2(1280.0, 720.0)
+	_expect(MobileControlMath.is_movement_zone(Vector2(120.0, 600.0), viewport), "left screen is reserved for movement")
+	_expect(MobileControlMath.is_look_zone(Vector2(760.0, 300.0), viewport), "right screen is reserved for camera look")
+	_expect(MobileControlMath.is_jump_zone(Vector2(1113.6, 561.6), viewport), "jump button uses deterministic lower-right placement")
+	var half_stick: Vector2 = MobileControlMath.stick_vector(Vector2.ZERO, Vector2(46.0, 0.0), 92.0)
+	_expect(is_equal_approx(half_stick.x, 0.5), "virtual stick preserves partial analog movement")
+	var clamped: Vector2 = MobileControlMath.stick_vector(Vector2.ZERO, Vector2(400.0, 0.0), 92.0)
+	_expect(is_equal_approx(clamped.length(), 1.0), "virtual stick clamps movement magnitude")
 
 
-func _expect(condition: bool, label: String) -> void:
+func _expect(condition: bool, message: String) -> void:
 	if condition:
-		print("PASS ", label)
+		print("PASS ", message)
 	else:
 		_failures += 1
-		push_error("FAIL %s" % label)
+		push_error("FAIL %s" % message)
