@@ -2,6 +2,7 @@ extends SceneTree
 
 const ItemRegistry = preload("res://src/survival/item_registry.gd")
 const StackInventory = preload("res://src/survival/stack_inventory.gd")
+const HotbarSelectionState = preload("res://src/survival/hotbar_selection_state.gd")
 
 var _failures: int = 0
 
@@ -10,6 +11,7 @@ func _init() -> void:
 	_test_registry()
 	_test_stacking_and_removal()
 	_test_capacity_and_codec()
+	_test_hotbar_selection()
 	_test_shipping_scene()
 	if _failures == 0:
 		print("SURVIVAL_INVENTORY_TEST_RESULT PASS")
@@ -25,6 +27,7 @@ func _test_registry() -> void:
 		_expect(item_id != &"", "terrain material maps to an item")
 		_expect(ItemRegistry.material_for_item(item_id) == material, "item mapping round-trips")
 	_expect(ItemRegistry.item_for_material(ItemRegistry.AIR) == &"", "air never becomes an item")
+	_expect(ItemRegistry.placeable_items() == [ItemRegistry.ITEM_STONE, ItemRegistry.ITEM_SOIL, ItemRegistry.ITEM_GRASS, ItemRegistry.ITEM_SAND], "hotbar placeable order is deterministic")
 
 
 func _test_stacking_and_removal() -> void:
@@ -51,6 +54,24 @@ func _test_capacity_and_codec() -> void:
 	_expect(not restored.decode(invalid), "unknown inventory schema is rejected")
 
 
+func _test_hotbar_selection() -> void:
+	var inventory: TeknikStackInventory = StackInventory.new()
+	inventory.add(ItemRegistry.ITEM_SOIL, 3)
+	inventory.add(ItemRegistry.ITEM_GRASS, 2)
+	var state := HotbarSelectionState.new()
+	_expect(state.choose_available(Callable(inventory, "count")) == ItemRegistry.ITEM_SOIL, "empty default selection falls back to the first available placeable")
+	_expect(state.select(ItemRegistry.ITEM_GRASS), "available placeable can be selected")
+	_expect(not state.select(ItemRegistry.ITEM_STONE_GEAR), "non-placeable engineering item cannot enter the hotbar")
+	var encoded: Dictionary = state.encode()
+	var restored := HotbarSelectionState.new()
+	_expect(restored.decode(encoded), "hotbar selection save decodes")
+	_expect(restored.selected_item == ItemRegistry.ITEM_GRASS, "hotbar selection survives reload")
+	inventory.remove(ItemRegistry.ITEM_GRASS, 2)
+	_expect(restored.choose_available(Callable(inventory, "count")) == ItemRegistry.ITEM_SOIL, "depleted selected stack switches to an available placeable")
+	var invalid := {"schema": HotbarSelectionState.SCHEMA, "selected_item": str(ItemRegistry.ITEM_STONE_GEAR)}
+	_expect(not restored.decode(invalid), "invalid non-placeable hotbar save is rejected")
+
+
 func _test_shipping_scene() -> void:
 	var scene_text: String = FileAccess.get_file_as_string("res://src/main/main.tscn")
 	var survival_source: String = FileAccess.get_file_as_string("res://src/main/survival_main.gd")
@@ -59,7 +80,9 @@ func _test_shipping_scene() -> void:
 	_expect(survival_source.contains("_survival_break_voxel"), "breaking blocks creates inventory drops")
 	_expect(survival_source.contains("_survival_place_voxel"), "placing blocks consumes inventory")
 	_expect(survival_source.contains("INVENTORY_PATH"), "inventory has a persistent save path")
-	_expect(survival_source.contains("SurvivalInventoryHUD"), "mobile survival inventory HUD is present")
+	_expect(survival_source.contains("HOTBAR_STATE_PATH"), "selected placeable has a persistent save path")
+	_expect(survival_source.contains("PlaceableHotbar"), "mobile placeable hotbar is present")
+	_expect(survival_source.contains("qa_reload_hotbar_for_test"), "runtime exposes hotbar reload proof")
 	_expect(qa_source.contains("QA_SURVIVAL_PASS"), "gameplay recording verifies survival persistence")
 
 
