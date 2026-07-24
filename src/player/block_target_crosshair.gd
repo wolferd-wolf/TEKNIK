@@ -1,13 +1,13 @@
 class_name TeknikBlockTargetCrosshair
 extends Control
 
-const IDLE_COLOR := Color(0.96, 0.98, 1.0, 0.98)
-const TARGET_COLOR := Color(1.0, 0.72, 0.18, 1.0)
-const PENDING_COLOR := Color(1.0, 0.32, 0.16, 1.0)
-const SHADOW_COLOR := Color(0.0, 0.0, 0.0, 0.86)
-const ARM_LENGTH: float = 15.0
-const CENTER_GAP: float = 5.0
-const PROGRESS_RADIUS: float = 21.0
+# Keep the reticle visually stable. Target state and mining progress are shown
+# on the block itself through its outline and crack overlay, not by changing the
+# crosshair into large coloured warning graphics.
+const RETICLE_COLOR := Color(0.98, 0.99, 1.0, 0.96)
+const SHADOW_COLOR := Color(0.0, 0.0, 0.0, 0.88)
+const ARM_LENGTH: float = 10.0
+const CENTER_GAP: float = 3.5
 
 var _targeted: bool = false
 var _pending: bool = false
@@ -21,25 +21,15 @@ func _ready() -> void:
 
 
 func set_targeted(targeted: bool) -> void:
-	if targeted == _targeted:
-		return
 	_targeted = targeted
-	queue_redraw()
 
 
 func set_pending(pending: bool) -> void:
-	if pending == _pending:
-		return
 	_pending = pending
-	queue_redraw()
 
 
 func set_mining_progress(progress: float) -> void:
-	var next_progress: float = clampf(progress, 0.0, 1.0)
-	if is_equal_approx(next_progress, _mining_progress):
-		return
-	_mining_progress = next_progress
-	queue_redraw()
+	_mining_progress = clampf(progress, 0.0, 1.0)
 
 
 func is_targeted() -> bool:
@@ -63,12 +53,8 @@ func _draw() -> void:
 		PackedVector2Array([center + Vector2(0.0, CENTER_GAP), center + Vector2(0.0, ARM_LENGTH)]),
 	]
 	for segment: PackedVector2Array in segments:
-		draw_line(segment[0], segment[1], SHADOW_COLOR, 6.0, true)
-	var color: Color = PENDING_COLOR if _pending else TARGET_COLOR if _targeted else IDLE_COLOR
+		draw_line(segment[0], segment[1], SHADOW_COLOR, 4.0, true)
 	for segment: PackedVector2Array in segments:
-		draw_line(segment[0], segment[1], color, 3.0, true)
-	draw_circle(center, 3.0, SHADOW_COLOR)
-	draw_circle(center, 1.6, color)
-	if _targeted and not _pending and _mining_progress > 0.0:
-		draw_arc(center, PROGRESS_RADIUS, -PI * 0.5, -PI * 0.5 + TAU * _mining_progress, 40, SHADOW_COLOR, 6.0, true)
-		draw_arc(center, PROGRESS_RADIUS, -PI * 0.5, -PI * 0.5 + TAU * _mining_progress, 40, TARGET_COLOR, 3.0, true)
+		draw_line(segment[0], segment[1], RETICLE_COLOR, 1.8, true)
+	draw_circle(center, 2.0, SHADOW_COLOR)
+	draw_circle(center, 0.9, RETICLE_COLOR)
