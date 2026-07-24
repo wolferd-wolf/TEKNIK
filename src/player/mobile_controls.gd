@@ -15,6 +15,7 @@ const KNOB_RADIUS: float = 38.0
 
 var _move_touch_id: int = -1
 var _look_touch_id: int = -1
+var _break_touch_id: int = -1
 var _move_origin: Vector2 = Vector2.ZERO
 var _move_position: Vector2 = Vector2.ZERO
 var _jump_active: bool = false
@@ -50,7 +51,8 @@ func _handle_touch(event: InputEventScreenTouch) -> void:
 			jump_pressed.emit()
 			queue_redraw()
 			return
-		if ControlMath.is_break_zone(event.position, viewport_size):
+		if _break_touch_id == -1 and ControlMath.is_break_zone(event.position, viewport_size):
+			_break_touch_id = event.index
 			_break_active = true
 			break_hold_changed.emit(true)
 			break_pressed.emit()
@@ -78,11 +80,12 @@ func _handle_touch(event: InputEventScreenTouch) -> void:
 			movement_changed.emit(Vector2.ZERO)
 		if event.index == _look_touch_id:
 			_look_touch_id = -1
-		if ControlMath.is_jump_zone(event.position, viewport_size):
-			_jump_active = false
-		if _break_active and ControlMath.is_break_zone(event.position, viewport_size):
+		if event.index == _break_touch_id:
+			_break_touch_id = -1
 			_break_active = false
 			break_hold_changed.emit(false)
+		if ControlMath.is_jump_zone(event.position, viewport_size):
+			_jump_active = false
 		if ControlMath.is_place_zone(event.position, viewport_size):
 			_place_active = false
 		if ControlMath.is_log_zone(event.position, viewport_size):
