@@ -1,7 +1,7 @@
 [gd_scene load_steps=2 format=3]
 
-; kinetic_capture_shipping_main.gd adds QA-only evidence freezing above the
-; functional kinetic runtime. The inherited production stack remains:
+; kinetic_capture_shipping_main.gd extends kinetic_machine_main.gd and adds
+; QA-only evidence freezing. The inherited production stack remains:
 ; kinetic machines -> survival progression -> multi-LOD terrain -> incremental
 ; collision -> movement-aware caching -> chunk-local vegetation.
 [ext_resource type="Script" path="res://src/main/kinetic_capture_shipping_main.gd" id="1_main"]
