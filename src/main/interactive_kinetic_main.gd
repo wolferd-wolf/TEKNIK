@@ -51,6 +51,7 @@ func _build_interaction_hud() -> void:
 	_interaction_hint.position = Vector2(-185.0, 34.0)
 	_interaction_hint.size = Vector2(370.0, 34.0)
 	_interaction_hint.add_theme_font_size_override("font_size", 17)
+	_interaction_hint.visible = false
 	layer.add_child(_interaction_hint)
 	_interact_button = Button.new()
 	_interact_button.name = "InteractMachine"
@@ -58,6 +59,7 @@ func _build_interaction_hud() -> void:
 	_interact_button.custom_minimum_size = Vector2(132.0, 54.0)
 	_interact_button.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	_interact_button.position = Vector2(-290.0, -154.0)
+	_interact_button.visible = false
 	_interact_button.pressed.connect(_interact_with_target)
 	layer.add_child(_interact_button)
 
@@ -115,12 +117,15 @@ func _add_crusher_rollers(body: StaticBody3D) -> void:
 
 func _refresh_target_machine() -> void:
 	_target_machine = _raycast_machine()
+	var has_target: bool = _target_machine != null
 	if _interact_button != null:
-		_interact_button.disabled = _target_machine == null
+		_interact_button.disabled = not has_target
+		_interact_button.visible = has_target
 	if _interaction_hint == null:
 		return
-	if _target_machine == null:
-		_interaction_hint.text = "Aim at a machine to interact"
+	_interaction_hint.visible = has_target
+	if not has_target:
+		_interaction_hint.text = ""
 		return
 	var machine_type := StringName(_target_machine.get_meta("teknik_machine_type", &""))
 	_interaction_hint.text = _interaction_prompt(machine_type)
@@ -211,5 +216,6 @@ func qa_save_edits_now() -> void:
 		"QA_KINETIC_INTERACTION_PASS targetable=", annotated,
 		" rotating_visuals=", _rotating_visuals.size(),
 		" range=", MACHINE_INTERACTION_DISTANCE,
-		" legacy_actions_hidden=", not _load_button.visible and not _crank_button.visible and not _collect_button.visible
+		" legacy_actions_hidden=", not _load_button.visible and not _crank_button.visible and not _collect_button.visible,
+		" idle_prompt_hidden=", not _interaction_hint.visible
 	)
