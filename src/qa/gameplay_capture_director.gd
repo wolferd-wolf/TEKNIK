@@ -64,6 +64,12 @@ func _run() -> void:
 	_player.look_at_world(site_center + Vector3(0.0, 1.0, 0.0))
 	await get_tree().create_timer(2.0).timeout
 
+	# Finalize survival, crafting, and kinetic QA before the poster is captured.
+	# This makes the placed machines visible evidence instead of log-only proof.
+	_world.qa_save_edits_now()
+	await get_tree().process_frame
+	await _focus_runtime_evidence()
+
 	var poster_path: String = _argument_value("--qa-gameplay-poster=")
 	if not poster_path.is_empty():
 		await RenderingServer.frame_post_draw
@@ -77,7 +83,6 @@ func _run() -> void:
 			return
 		print("QA_GAMEPLAY_POSTER_SAVED ", absolute_path)
 
-	_world.qa_save_edits_now()
 	var snapshot: Dictionary = _world.qa_playability_snapshot()
 	print(
 		"QA_GAMEPLAY_RESULT PASS blocks=", blocks.size(),
@@ -90,6 +95,31 @@ func _run() -> void:
 		" intermediate_lod_ring_chunks=", int(snapshot.get("intermediate_lod_ring_chunks", 0))
 	)
 	get_tree().quit(0)
+
+
+func _focus_runtime_evidence() -> void:
+	var machine_root: Variant = _world.get("_machine_root")
+	if not machine_root is Node3D:
+		return
+	var root := machine_root as Node3D
+	var machine_count: int = root.get_child_count()
+	if machine_count <= 0:
+		return
+	var center := Vector3.ZERO
+	var counted: int = 0
+	for child: Node in root.get_children():
+		if child is Node3D:
+			center += (child as Node3D).global_position
+			counted += 1
+	if counted <= 0:
+		return
+	center /= float(counted)
+	_player.global_position = center + Vector3(5.5, 3.4, 7.0)
+	_player.velocity = Vector3.ZERO
+	_player.look_at_world(center)
+	await get_tree().process_frame
+	await get_tree().create_timer(1.5).timeout
+	print("QA_KINETIC_VISUAL_PASS instances=", counted, " target=", center)
 
 
 func _verify_runtime_lod() -> bool:
