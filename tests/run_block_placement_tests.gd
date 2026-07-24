@@ -1,6 +1,7 @@
 extends SceneTree
 
 const ControlMath = preload("res://src/player/mobile_control_math.gd")
+const ExplorationController = preload("res://src/player/exploration_controller.gd")
 const InteractionMath = preload("res://src/world/world_interaction_math.gd")
 const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
 const ItemRegistry = preload("res://src/survival/item_registry.gd")
@@ -12,6 +13,7 @@ var _failures: int = 0
 
 func _init() -> void:
 	_test_face_targeting()
+	_test_straight_down_mining_aim()
 	_test_boundary_rebuilds()
 	_test_mobile_action_zones()
 	_test_survival_inventory_rules()
@@ -29,6 +31,18 @@ func _test_face_targeting() -> void:
 	var hit := Vector3(10.0, 5.4, -2.6)
 	_expect(InteractionMath.removal_voxel(hit, Vector3.RIGHT) == Vector3i(9, 5, -3), "break targets voxel behind face")
 	_expect(InteractionMath.placement_voxel(hit, Vector3.RIGHT) == Vector3i(10, 5, -3), "place targets empty voxel outside face")
+
+
+func _test_straight_down_mining_aim() -> void:
+	var pitch: float = ExplorationController.clamp_look_pitch(-PI * 0.5)
+	var direction: Vector3 = Basis(Vector3.RIGHT, pitch) * Vector3.FORWARD
+	_expect(rad_to_deg(pitch) <= -89.0, "camera can aim almost vertically downward")
+	_expect(direction.normalized().dot(Vector3.DOWN) > 0.9999, "mining ray points at the block directly below the player")
+	var floor_hit := Vector3(12.5, 4.0, 8.5)
+	_expect(
+		InteractionMath.removal_voxel(floor_hit, Vector3.UP) == Vector3i(12, 3, 8),
+		"downward mining removes the floor voxel below the hit face"
+	)
 
 
 func _test_boundary_rebuilds() -> void:
