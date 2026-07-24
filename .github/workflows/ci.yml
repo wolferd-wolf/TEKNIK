@@ -113,21 +113,33 @@ jobs:
           test -s native/bin/libteknik_native.linux.template_debug.x86_64.so
       - name: Import project and run essential tests
         run: |
-          godot --headless --path . --editor --quit
-          godot --headless --path . --script res://tests/run_mobile_regression_tests.gd
-          godot --headless --path . --script res://tests/run_multi_lod_tests.gd
-          godot --headless --path . --script res://tests/run_native_chunk_parity_tests.gd
-          godot --headless --path . --script res://tests/run_native_worker_integration_tests.gd
-          godot --headless --path . --script res://tests/run_tests.gd
-          godot --headless --path . --script res://tests/run_stream_budget_tests.gd
-          godot --headless --path . --script res://tests/run_collision_stream_scheduler_tests.gd
-          godot --headless --path . --script res://tests/run_world_edit_store_tests.gd
-          godot --headless --path . --script res://tests/run_chunk_edit_worker_tests.gd
-          godot --headless --path . --script res://tests/run_chunk_build_pool_tests.gd
-          godot --headless --path . --script res://tests/run_world_interaction_tests.gd
-          godot --headless --path . --script res://tests/run_block_placement_tests.gd
-          godot --headless --path . --script res://tests/run_engineering_progression_tests.gd
-          godot --headless --path . --script res://tests/run_kinetic_machine_tests.gd
+          set -o pipefail
+          mkdir -p artifacts/test-logs
+          {
+            godot --headless --path . --editor --quit
+            godot --headless --path . --script res://tests/run_mobile_regression_tests.gd
+            godot --headless --path . --script res://tests/run_multi_lod_tests.gd
+            godot --headless --path . --script res://tests/run_native_chunk_parity_tests.gd
+            godot --headless --path . --script res://tests/run_native_worker_integration_tests.gd
+            godot --headless --path . --script res://tests/run_tests.gd
+            godot --headless --path . --script res://tests/run_stream_budget_tests.gd
+            godot --headless --path . --script res://tests/run_collision_stream_scheduler_tests.gd
+            godot --headless --path . --script res://tests/run_world_edit_store_tests.gd
+            godot --headless --path . --script res://tests/run_chunk_edit_worker_tests.gd
+            godot --headless --path . --script res://tests/run_chunk_build_pool_tests.gd
+            godot --headless --path . --script res://tests/run_world_interaction_tests.gd
+            godot --headless --path . --script res://tests/run_block_placement_tests.gd
+            godot --headless --path . --script res://tests/run_engineering_progression_tests.gd
+            godot --headless --path . --script res://tests/run_kinetic_machine_tests.gd
+          } 2>&1 | tee artifacts/test-logs/essential-tests.log
+      - name: Publish essential test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TEKNIK-Essential-Tests-${{ github.sha }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: artifacts/test-logs/
       - name: Record automated gameplay
         run: |
           mkdir -p artifacts/gameplay
