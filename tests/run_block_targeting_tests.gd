@@ -98,10 +98,11 @@ func _test_busy_rebuild_retention() -> void:
 func _test_shipping_feedback_stack() -> void:
 	var scene: String = FileAccess.get_file_as_string("res://src/main/main.tscn")
 	var capture: String = FileAccess.get_file_as_string("res://src/main/kinetic_capture_shipping_main.gd")
+	var placement: String = FileAccess.get_file_as_string("res://src/main/placement_preview_main.gd")
 	var targeting: String = FileAccess.get_file_as_string("res://src/main/targeted_interaction_main.gd")
 	var crosshair: String = FileAccess.get_file_as_string("res://src/player/block_target_crosshair.gd")
 	_expect(scene.contains("kinetic_capture_shipping_main.gd"), "shipping scene retains the validated capture entry point")
-	_expect(capture.contains("targeted_interaction_main.gd"), "shipping runtime enables precise block targeting")
+	_expect(capture.contains("placement_preview_main.gd") and placement.contains("targeted_interaction_main.gd"), "shipping runtime retains precise block targeting through placement preview")
 	_expect(targeting.contains("VoxelRaycast.cast"), "runtime targets authoritative voxel data instead of stale collision only")
 	_expect(targeting.contains("_survival_break_voxel(voxel"), "break action removes the same voxel shown by the target feedback")
 	_expect(targeting.contains("VisibleMiningLock") and targeting.contains("complete_if_visible_commit"), "runtime blocks mining through stale visible terrain")
