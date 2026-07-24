@@ -57,6 +57,15 @@ static func is_placeable(item_id: StringName) -> bool:
 	return material_for_item(item_id) != AIR
 
 
+static func placeable_items() -> Array[StringName]:
+	return [
+		ITEM_STONE,
+		ITEM_SOIL,
+		ITEM_GRASS,
+		ITEM_SAND,
+	]
+
+
 static func max_stack(item_id: StringName) -> int:
 	if not is_registered(item_id):
 		return 0
