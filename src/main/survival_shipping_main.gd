@@ -30,7 +30,7 @@ func qa_apply_voxel_edit(voxel: Vector3i, material: int, action: String) -> void
 
 
 func qa_save_edits_now() -> void:
-	var needed: int = maxi(0, 24 - _inventory.count(ItemRegistry.ITEM_STONE))
+	var needed: int = maxi(0, 30 - _inventory.count(ItemRegistry.ITEM_STONE))
 	if needed > 0:
 		if _inventory.add(ItemRegistry.ITEM_STONE, needed) != 0:
 			push_error("QA_ENGINEERING could not grant progression materials")
@@ -45,6 +45,9 @@ func qa_save_edits_now() -> void:
 		RecipeBook.RECIPE_STONE_SHAFT,
 		RecipeBook.RECIPE_STONE_GEAR,
 		RecipeBook.RECIPE_HAND_CRANK,
+		RecipeBook.RECIPE_CRUSHED_STONE,
+		RecipeBook.RECIPE_STONE_SHAFT,
+		RecipeBook.RECIPE_STONE_CRUSHER,
 	]
 	for recipe_id: StringName in sequence:
 		if not qa_craft_recipe(recipe_id):
@@ -64,6 +67,8 @@ func qa_save_edits_now() -> void:
 		and _qa_consumed_items > 0
 		and _inventory.count(ItemRegistry.ITEM_WORKBENCH) == 1
 		and _inventory.count(ItemRegistry.ITEM_HAND_CRANK) == 1
+		and _inventory.count(ItemRegistry.ITEM_STONE_SHAFT) == 1
+		and _inventory.count(ItemRegistry.ITEM_STONE_CRUSHER) == 1
 		and qa_progression_unlocked(ProgressionState.UNLOCK_STONE_PROCESSING)
 		and qa_progression_unlocked(ProgressionState.UNLOCK_KINETIC_STARTER)
 	)
@@ -75,12 +80,16 @@ func qa_save_edits_now() -> void:
 		"QA_CRAFTING_PASS crafted=", _qa_crafted_items,
 		" workbenches=", _inventory.count(ItemRegistry.ITEM_WORKBENCH),
 		" hand_cranks=", _inventory.count(ItemRegistry.ITEM_HAND_CRANK),
+		" shafts=", _inventory.count(ItemRegistry.ITEM_STONE_SHAFT),
+		" crushers=", _inventory.count(ItemRegistry.ITEM_STONE_CRUSHER),
 		" persisted=", inventory_persisted and progression_persisted
 	)
 	print(
 		"QA_ENGINEERING_PASS crafted=", _qa_crafted_items,
 		" workbenches=", _inventory.count(ItemRegistry.ITEM_WORKBENCH),
 		" hand_cranks=", _inventory.count(ItemRegistry.ITEM_HAND_CRANK),
+		" shafts=", _inventory.count(ItemRegistry.ITEM_STONE_SHAFT),
+		" crushers=", _inventory.count(ItemRegistry.ITEM_STONE_CRUSHER),
 		" processing_unlocked=", qa_progression_unlocked(ProgressionState.UNLOCK_STONE_PROCESSING),
 		" kinetic_unlocked=", qa_progression_unlocked(ProgressionState.UNLOCK_KINETIC_STARTER),
 		" persisted=", inventory_persisted and progression_persisted
