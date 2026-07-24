@@ -98,6 +98,8 @@ func _recipe_button_text(definition: Dictionary) -> String:
 func _refresh_inventory_hud() -> void:
 	super._refresh_inventory_hud()
 	_refresh_recipe_panel()
+	if has_method("_refresh_machine_status"):
+		call("_refresh_machine_status")
 
 
 func _load_progression() -> void:
