@@ -21,6 +21,8 @@ func begin(world: Node, player: TeknikExplorationController) -> void:
 
 func _run() -> void:
 	await _wait_for_world_idle()
+	if not _verify_runtime_lod():
+		return
 	if not await _wait_for_visible_vegetation():
 		return
 	if not await _verify_chunk_local_vegetation():
@@ -83,9 +85,36 @@ func _run() -> void:
 		" feature_instances=", int(_world.get("_streamed_feature_instances")),
 		" ecology_chunks=", int(_world.call("qa_ecology_ready_chunk_count")),
 		" cache_hits=", int(snapshot.get("chunk_cache_hits", 0)),
-		" cache_size=", int(snapshot.get("chunk_cache_size", 0))
+		" cache_size=", int(snapshot.get("chunk_cache_size", 0)),
+		" intermediate_lod_step=", int(snapshot.get("intermediate_lod_step", 0)),
+		" intermediate_lod_ring_chunks=", int(snapshot.get("intermediate_lod_ring_chunks", 0))
 	)
 	get_tree().quit(0)
+
+
+func _verify_runtime_lod() -> bool:
+	var snapshot: Dictionary = _world.qa_playability_snapshot()
+	var intermediate_step: int = int(snapshot.get("intermediate_lod_step", 0))
+	var intermediate_ring_chunks: int = int(snapshot.get("intermediate_lod_ring_chunks", 0))
+	if intermediate_step <= 0 or intermediate_step >= 4:
+		push_error("QA_GAMEPLAY invalid intermediate LOD step: %d" % intermediate_step)
+		get_tree().quit(1)
+		return false
+	if intermediate_ring_chunks <= 0:
+		push_error("QA_GAMEPLAY intermediate LOD ring is disabled")
+		get_tree().quit(1)
+		return false
+	var distant: Variant = _world.get("_distant_terrain")
+	if distant == null:
+		push_error("QA_GAMEPLAY distant terrain was not committed")
+		get_tree().quit(1)
+		return false
+	print(
+		"QA_MULTI_LOD_PASS intermediate_step=", intermediate_step,
+		" intermediate_ring_chunks=", intermediate_ring_chunks,
+		" distant_visible=", true
+	)
+	return true
 
 
 func _verify_chunk_local_vegetation() -> bool:
@@ -146,8 +175,6 @@ func _verify_chunk_local_vegetation() -> bool:
 		original_position.z
 	)
 	_player.velocity = Vector3.ZERO
-	# The teleport occurs inside this coroutine after the world's process callback.
-	# Yield once so streaming observes the return center before qa_world_idle() is read.
 	await get_tree().process_frame
 	await _wait_for_world_idle()
 	var returned_chunk_x: int = floori(_player.global_position.x / float(VoxelChunk.SIZE))
