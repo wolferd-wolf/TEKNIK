@@ -131,25 +131,31 @@ func encode() -> Dictionary:
 func decode(payload: Dictionary) -> bool:
 	if int(payload.get("schema", -1)) != SCHEMA:
 		return false
-	var restored := TeknikKineticMachineState.new()
 	var rows: Variant = payload.get("machines", [])
 	if not rows is Array:
 		return false
+	var restored_machines: Dictionary = {}
+	var occupied: Dictionary = {}
 	for value: Variant in rows:
 		if not value is Dictionary:
 			return false
 		var row: Dictionary = value
+		var machine_id := StringName(str(row.get("id", "")))
+		var machine_type := StringName(str(row.get("type", "")))
 		var encoded_position: Variant = row.get("position", [])
+		if machine_id == &"" or restored_machines.has(machine_id):
+			return false
+		if machine_type not in [TYPE_WORKBENCH, TYPE_SHAFT, TYPE_CRANK, TYPE_CRUSHER]:
+			return false
 		if not encoded_position is Array or (encoded_position as Array).size() != 3:
 			return false
 		var position := Vector3i(int(encoded_position[0]), int(encoded_position[1]), int(encoded_position[2]))
-		if not restored.place(StringName(str(row.get("id", ""))), StringName(str(row.get("type", ""))), position):
+		if occupied.has(position):
 			return false
-	restored.crusher_input = clampi(int(payload.get("crusher_input", 0)), 0, 16)
-	restored.crusher_output = maxi(int(payload.get("crusher_output", 0)), 0)
-	restored.stored_turns = clampi(int(payload.get("stored_turns", 0)), 0, 32)
-	machines = restored.machines
-	crusher_input = restored.crusher_input
-	crusher_output = restored.crusher_output
-	stored_turns = restored.stored_turns
+		occupied[position] = true
+		restored_machines[machine_id] = {"type": machine_type, "position": position}
+	machines = restored_machines
+	crusher_input = clampi(int(payload.get("crusher_input", 0)), 0, 16)
+	crusher_output = maxi(int(payload.get("crusher_output", 0)), 0)
+	stored_turns = clampi(int(payload.get("stored_turns", 0)), 0, 32)
 	return true
