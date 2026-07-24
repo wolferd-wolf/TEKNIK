@@ -23,7 +23,10 @@ func attach_world(value: Node) -> void:
 
 func _process(_delta: float) -> void:
 	if is_instance_valid(world):
-		stats_label.text = "FPS %d\n%s" % [Engine.get_frames_per_second(), world.get_status_text()]
+		var player_status := "stream-hold unavailable"
+		if is_instance_valid(player) and player.has_method("get_stream_status_text"):
+			player_status = player.get_stream_status_text()
+		stats_label.text = "FPS %d\n%s\n%s" % [Engine.get_frames_per_second(), world.get_status_text(), player_status]
 
 func _build_ui() -> void:
 	stats_label = Label.new()
