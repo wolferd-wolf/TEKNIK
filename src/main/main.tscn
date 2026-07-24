@@ -1,9 +1,10 @@
 [gd_scene load_steps=2 format=3]
 
-; kinetic_machine_main.gd extends survival_shipping_main.gd and therefore preserves
-; engineering progression, inventory persistence, multi-LOD terrain, incremental
-; collision streaming, movement-aware caching, and chunk-local vegetation.
-[ext_resource type="Script" path="res://src/main/kinetic_machine_main.gd" id="1_main"]
+; kinetic_capture_shipping_main.gd adds QA-only evidence freezing above the
+; functional kinetic runtime. The inherited production stack remains:
+; kinetic machines -> survival progression -> multi-LOD terrain -> incremental
+; collision -> movement-aware caching -> chunk-local vegetation.
+[ext_resource type="Script" path="res://src/main/kinetic_capture_shipping_main.gd" id="1_main"]
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_main")
