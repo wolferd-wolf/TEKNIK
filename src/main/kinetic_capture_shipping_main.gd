@@ -1,5 +1,7 @@
 extends "res://src/main/survival_vitals_main.gd"
 
+# Shipping inheritance remains survival_vitals_main.gd -> placement_preview_main.gd
+# -> targeted_interaction_main.gd -> interactive kinetic and survival systems.
 
 func qa_save_edits_now() -> void:
 	super.qa_save_edits_now()
