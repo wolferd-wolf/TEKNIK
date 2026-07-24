@@ -130,6 +130,7 @@ jobs:
             godot --headless --path . --script res://tests/run_world_interaction_tests.gd
             godot --headless --path . --script res://tests/run_block_placement_tests.gd
             godot --headless --path . --script res://tests/run_block_targeting_tests.gd
+            godot --headless --path . --script res://tests/run_placement_preview_tests.gd
             godot --headless --path . --script res://tests/run_survival_inventory_tests.gd
             godot --headless --path . --script res://tests/run_engineering_progression_tests.gd
             godot --headless --path . --script res://tests/run_kinetic_machine_tests.gd
@@ -157,6 +158,7 @@ jobs:
           test -s artifacts/gameplay/TEKNIK-gameplay.mp4
           grep -q "QA_KINETIC_MACHINE_PASS" artifacts/gameplay/gameplay.log
           grep -q "QA_BLOCK_TARGETING_PASS" artifacts/gameplay/gameplay.log
+          grep -q "QA_PLACEMENT_PREVIEW_PASS" artifacts/gameplay/gameplay.log
           grep -q "QA_HOTBAR_PASS" artifacts/gameplay/gameplay.log
       - name: Publish gameplay recording
         if: always()
