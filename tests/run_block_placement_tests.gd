@@ -87,7 +87,7 @@ func _test_rapid_sequential_mining() -> void:
 
 
 func _test_hold_to_mine_timing() -> void:
-	var mining: TeknikMiningController = MiningController.new()
+	var mining = MiningController.new()
 	var first_target := Vector3i(0, 2, 0)
 	mining.set_target(first_target, ItemRegistry.STONE, 1.0)
 	mining.set_pressed(true)
