@@ -10,10 +10,18 @@ const RECIPE_WORKBENCH: StringName = &"workbench"
 const RECIPE_CRUSHED_STONE: StringName = &"crushed_stone"
 const RECIPE_STONE_SHAFT: StringName = &"stone_shaft"
 const RECIPE_HAND_CRANK: StringName = &"hand_crank"
+const RECIPE_STONE_CRUSHER: StringName = &"stone_crusher"
 
 
 static func registered_recipes() -> Array[StringName]:
-	return [RECIPE_STONE_GEAR, RECIPE_WORKBENCH, RECIPE_CRUSHED_STONE, RECIPE_STONE_SHAFT, RECIPE_HAND_CRANK]
+	return [
+		RECIPE_STONE_GEAR,
+		RECIPE_WORKBENCH,
+		RECIPE_CRUSHED_STONE,
+		RECIPE_STONE_SHAFT,
+		RECIPE_HAND_CRANK,
+		RECIPE_STONE_CRUSHER,
+	]
 
 
 static func recipe(recipe_id: StringName) -> Dictionary:
@@ -28,6 +36,8 @@ static func recipe(recipe_id: StringName) -> Dictionary:
 			return _definition(recipe_id, "Stone Shaft", "Components", {ItemRegistry.ITEM_CRUSHED_STONE: 2}, ItemRegistry.ITEM_STONE_SHAFT, 1, ProgressionState.UNLOCK_STONE_PROCESSING)
 		RECIPE_HAND_CRANK:
 			return _definition(recipe_id, "Hand Crank", "Kinetics", {ItemRegistry.ITEM_STONE_GEAR: 1, ItemRegistry.ITEM_STONE_SHAFT: 1}, ItemRegistry.ITEM_HAND_CRANK, 1, ProgressionState.UNLOCK_STONE_PROCESSING, ProgressionState.UNLOCK_KINETIC_STARTER)
+		RECIPE_STONE_CRUSHER:
+			return _definition(recipe_id, "Stone Crusher", "Kinetics", {ItemRegistry.ITEM_STONE: 6, ItemRegistry.ITEM_CRUSHED_STONE: 2}, ItemRegistry.ITEM_STONE_CRUSHER, 1, ProgressionState.UNLOCK_KINETIC_STARTER)
 		_:
 			return {}
 
