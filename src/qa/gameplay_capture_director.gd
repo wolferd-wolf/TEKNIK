@@ -64,11 +64,12 @@ func _run() -> void:
 	_player.look_at_world(site_center + Vector3(0.0, 1.0, 0.0))
 	await get_tree().create_timer(2.0).timeout
 
-	# Finalize survival, crafting, and kinetic QA before the poster is captured.
-	# This makes the placed machines visible evidence instead of log-only proof.
+	# Finalize all inherited QA, then deliberately frame the mining block. The
+	# poster is accepted only when the real outline and crack overlay are visible.
 	_world.qa_save_edits_now()
 	await get_tree().process_frame
-	await _focus_runtime_evidence()
+	if not await _focus_mining_evidence():
+		return
 
 	var poster_path: String = _argument_value("--qa-gameplay-poster=")
 	if not poster_path.is_empty():
@@ -97,41 +98,48 @@ func _run() -> void:
 	get_tree().quit(0)
 
 
-func _focus_runtime_evidence() -> void:
-	var machine_root: Variant = _world.get("_machine_root")
-	if not machine_root is Node3D:
-		return
-	var root := machine_root as Node3D
-	var machine_count: int = root.get_child_count()
-	if machine_count <= 0:
-		return
-	var center := Vector3.ZERO
-	var counted: int = 0
-	for child: Node in root.get_children():
-		if child is Node3D:
-			center += (child as Node3D).global_position
-			counted += 1
-	if counted <= 0:
-		return
-	center /= float(counted)
-	var camera_x: float = center.x + 5.5
-	var camera_z: float = center.z + 7.0
+func _focus_mining_evidence() -> bool:
+	var mining_visual_value: Variant = _world.get("_mining_visual")
+	if not mining_visual_value is TeknikMiningBlockVisual:
+		push_error("QA_MINING_VISUAL mining visual is unavailable")
+		get_tree().quit(1)
+		return false
+	var mining_visual := mining_visual_value as TeknikMiningBlockVisual
+	if not mining_visual.visible or not mining_visual.outline_visible() or not mining_visual.cracks_visible():
+		push_error("QA_MINING_VISUAL outline or cracks are not visible")
+		get_tree().quit(1)
+		return false
+	var target: Vector3 = mining_visual.global_position
+	var camera_x: float = target.x + 3.4
+	var camera_z: float = target.z + 4.8
 	var camera_ground: int = TerrainGenerator.surface_height(
 		int(_world.qa_world_seed()),
 		floori(camera_x),
 		floori(camera_z)
 	)
-	var camera_y: float = maxf(center.y + 7.0, float(camera_ground) + 4.0)
+	var camera_y: float = maxf(target.y + 3.0, float(camera_ground) + 2.8)
 	_player.global_position = Vector3(camera_x, camera_y, camera_z)
 	_player.velocity = Vector3.ZERO
-	_player.look_at_world(center)
+	_player.look_at_world(target)
 	await get_tree().process_frame
-	await get_tree().create_timer(1.5).timeout
+	await get_tree().create_timer(1.2).timeout
+	var placement_preview: Variant = _world.get("_placement_preview_root")
+	var placement_hidden: bool = not (placement_preview is Node3D) or not (placement_preview as Node3D).visible
+	var machine_hint: Variant = _world.get("_interaction_hint")
+	var machine_prompt_hidden: bool = not (machine_hint is Control) or not (machine_hint as Control).visible
+	if not placement_hidden or not machine_prompt_hidden:
+		push_error("QA_MINING_VISUAL another interaction overlay is competing with mining")
+		get_tree().quit(1)
+		return false
 	print(
-		"QA_KINETIC_VISUAL_PASS instances=", counted,
-		" target=", center,
-		" camera=", _player.global_position
+		"QA_MINING_VISUAL_PASS target=", target,
+		" camera=", _player.global_position,
+		" outline_visible=", mining_visual.outline_visible(),
+		" cracks_visible=", mining_visual.cracks_visible(),
+		" placement_preview_hidden=", placement_hidden,
+		" machine_prompt_hidden=", machine_prompt_hidden
 	)
+	return true
 
 
 func _verify_runtime_lod() -> bool:
