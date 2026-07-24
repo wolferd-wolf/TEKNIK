@@ -1,10 +1,9 @@
 [gd_scene load_steps=2 format=3]
 
-; multi_lod_main.gd extends incremental_collision_main.gd, which extends
-; movement_streaming_main.gd -> biome_visual_main.gd ->
-; procedural_gameplay_main.gd_stream.gd. The proven directional streaming,
-; safe cache, biome palette, and chunk-local vegetation stack remain active.
-[ext_resource type="Script" path="res://src/main/multi_lod_main.gd" id="1_main"]
+; survival_shipping_main.gd extends the verified multi-LOD, collision, directional
+; streaming, safe cache, biome palette, and chunk-local vegetation stack.
+; It adds survival-only inventory, drops, placement costs, persistence, and HUD.
+[ext_resource type="Script" path="res://src/main/survival_shipping_main.gd" id="1_main"]
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_main")
