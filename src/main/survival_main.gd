@@ -3,26 +3,33 @@ extends "res://src/main/multi_lod_main.gd"
 const ItemRegistry = preload("res://src/survival/item_registry.gd")
 const StackInventory = preload("res://src/survival/stack_inventory.gd")
 const RecipeBook = preload("res://src/survival/recipe_book.gd")
+const HotbarSelectionState = preload("res://src/survival/hotbar_selection_state.gd")
 
 const INVENTORY_PATH: String = "user://teknik-inventory.json"
+const HOTBAR_STATE_PATH: String = "user://teknik-hotbar-state.json"
 const INVENTORY_SAVE_DELAY_MS: int = 700
 
 var _inventory: TeknikStackInventory = StackInventory.new()
+var _hotbar_selection: TeknikHotbarSelectionState = HotbarSelectionState.new()
 var _selected_item: StringName = ItemRegistry.ITEM_STONE
 var _inventory_save_due_ms: int = 0
 var _inventory_label: Label
+var _hotbar_buttons: Dictionary = {}
 var _craft_button: Button
 var _craft_status: Label
 
 
 func _ready() -> void:
 	_load_inventory()
+	_load_hotbar_selection()
+	_selected_item = _hotbar_selection.choose_available(Callable(_inventory, "count"))
 	super._ready()
 	_build_inventory_hud()
 	_refresh_inventory_hud()
 	_runtime_log.event("info", "survival", "inventory_ready", {
 		"slots": StackInventory.SLOT_COUNT,
 		"items": _inventory.encode(),
+		"selected_item": str(_selected_item),
 		"recipes": RecipeBook.registered_recipes(),
 		"creative_mode": false,
 	})
@@ -37,6 +44,7 @@ func _process(delta: float) -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_PREDELETE:
 		_save_inventory_now()
+		_save_hotbar_selection_now()
 	super._notification(what)
 
 
@@ -120,6 +128,21 @@ func _craft_recipe(recipe_id: StringName) -> bool:
 	return true
 
 
+func _select_hotbar_item(item_id: StringName) -> bool:
+	if not ItemRegistry.is_placeable(item_id) or _inventory.count(item_id) <= 0:
+		return false
+	if not _hotbar_selection.select(item_id):
+		return false
+	_selected_item = _hotbar_selection.selected_item
+	_save_hotbar_selection_now()
+	_refresh_inventory_hud()
+	_runtime_log.event("info", "survival", "hotbar_selected", {
+		"item": str(_selected_item),
+		"count": _inventory.count(_selected_item),
+	})
+	return true
+
+
 func _current_material(voxel: Vector3i) -> int:
 	var generated: int = TerrainGenerator.voxel_at(WORLD_SEED, voxel)
 	return _world_edits.get_override(voxel, generated)
@@ -127,11 +150,16 @@ func _current_material(voxel: Vector3i) -> int:
 
 func _mark_inventory_changed(event_name: String, item_id: StringName, delta: int) -> void:
 	_inventory_save_due_ms = Time.get_ticks_msec() + INVENTORY_SAVE_DELAY_MS
+	var previous_selection: StringName = _selected_item
+	_selected_item = _hotbar_selection.choose_available(Callable(_inventory, "count"))
+	if previous_selection != _selected_item:
+		_save_hotbar_selection_now()
 	_refresh_inventory_hud()
 	_runtime_log.event("info", "survival", event_name, {
 		"item": str(item_id),
 		"delta": delta,
 		"count": _inventory.count(item_id),
+		"selected_item": str(_selected_item),
 	})
 
 
@@ -142,7 +170,7 @@ func _build_inventory_hud() -> void:
 	add_child(layer)
 	var panel := PanelContainer.new()
 	panel.position = Vector2(12.0, 54.0)
-	panel.custom_minimum_size = Vector2(300.0, 124.0)
+	panel.custom_minimum_size = Vector2(360.0, 176.0)
 	layer.add_child(panel)
 	var content := VBoxContainer.new()
 	content.add_theme_constant_override("separation", 4)
@@ -153,6 +181,19 @@ func _build_inventory_hud() -> void:
 	_inventory_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_inventory_label.add_theme_font_size_override("font_size", 16)
 	content.add_child(_inventory_label)
+
+	var hotbar := HBoxContainer.new()
+	hotbar.name = "PlaceableHotbar"
+	hotbar.add_theme_constant_override("separation", 5)
+	content.add_child(hotbar)
+	for item_id: StringName in ItemRegistry.placeable_items():
+		var button := Button.new()
+		button.name = "Hotbar_%s" % str(item_id)
+		button.custom_minimum_size = Vector2(82.0, 42.0)
+		button.pressed.connect(func() -> void: _select_hotbar_item(item_id))
+		hotbar.add_child(button)
+		_hotbar_buttons[item_id] = button
+
 	var craft_row := HBoxContainer.new()
 	craft_row.add_theme_constant_override("separation", 8)
 	content.add_child(craft_row)
@@ -174,10 +215,19 @@ func _refresh_inventory_hud() -> void:
 	var parts: Array[String] = []
 	for item_id: StringName in ItemRegistry.registered_items():
 		var amount: int = _inventory.count(item_id)
-		if amount > 0 or item_id == _selected_item:
-			var marker: String = ">" if item_id == _selected_item else ""
-			parts.append("%s%s %d" % [marker, ItemRegistry.display_name(item_id), amount])
-	_inventory_label.text = "SURVIVAL INVENTORY\n" + "   ".join(parts)
+		if amount > 0 and not ItemRegistry.is_placeable(item_id):
+			parts.append("%s %d" % [ItemRegistry.display_name(item_id), amount])
+	_inventory_label.text = "SURVIVAL INVENTORY\nSelected: %s" % ItemRegistry.display_name(_selected_item)
+	if not parts.is_empty():
+		_inventory_label.text += "\n" + "   ".join(parts)
+	for item_id: StringName in ItemRegistry.placeable_items():
+		var button := _hotbar_buttons.get(item_id) as Button
+		if button == null:
+			continue
+		var amount: int = _inventory.count(item_id)
+		button.text = "%s\n%d" % [ItemRegistry.display_name(item_id), amount]
+		button.disabled = amount <= 0
+		button.button_pressed = item_id == _selected_item
 	if _craft_button != null:
 		_craft_button.disabled = not RecipeBook.can_craft(_inventory, RecipeBook.RECIPE_STONE_GEAR)
 
@@ -193,6 +243,19 @@ func _load_inventory() -> void:
 		return
 	push_warning("SURVIVAL inventory save was invalid; starting empty")
 	_inventory.clear()
+
+
+func _load_hotbar_selection() -> void:
+	if not FileAccess.file_exists(HOTBAR_STATE_PATH):
+		return
+	var file := FileAccess.open(HOTBAR_STATE_PATH, FileAccess.READ)
+	if file == null:
+		return
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	if parsed is Dictionary and _hotbar_selection.decode(parsed):
+		return
+	push_warning("SURVIVAL hotbar save was invalid; using Stone")
+	_hotbar_selection = HotbarSelectionState.new()
 
 
 func _save_inventory_now() -> void:
@@ -221,6 +284,24 @@ func _save_inventory_now() -> void:
 	})
 
 
+func _save_hotbar_selection_now() -> void:
+	var temporary_path: String = HOTBAR_STATE_PATH + ".tmp"
+	var file := FileAccess.open(temporary_path, FileAccess.WRITE)
+	if file == null:
+		push_error("SURVIVAL hotbar save could not open temporary file")
+		return
+	file.store_string(JSON.stringify(_hotbar_selection.encode(), "\t"))
+	file.flush()
+	file = null
+	var absolute_target: String = ProjectSettings.globalize_path(HOTBAR_STATE_PATH)
+	var absolute_temporary: String = ProjectSettings.globalize_path(temporary_path)
+	if FileAccess.file_exists(HOTBAR_STATE_PATH):
+		DirAccess.remove_absolute(absolute_target)
+	var result: Error = DirAccess.rename_absolute(absolute_temporary, absolute_target)
+	if result != OK:
+		push_error("SURVIVAL hotbar save rename failed: %s" % error_string(result))
+
+
 func qa_survival_break(voxel: Vector3i, action: String = "qa_survival_removed") -> bool:
 	return _survival_break_voxel(voxel, action)
 
@@ -241,6 +322,10 @@ func qa_grant_item(item_id: StringName, amount: int) -> bool:
 	return true
 
 
+func qa_select_hotbar_item(item_id: StringName) -> bool:
+	return _select_hotbar_item(item_id)
+
+
 func qa_craft_recipe(recipe_id: StringName) -> bool:
 	return _craft_recipe(recipe_id)
 
@@ -248,6 +333,7 @@ func qa_craft_recipe(recipe_id: StringName) -> bool:
 func qa_save_inventory_now() -> void:
 	_inventory_save_due_ms = maxi(_inventory_save_due_ms, 1)
 	_save_inventory_now()
+	_save_hotbar_selection_now()
 
 
 func qa_reload_inventory_for_test() -> bool:
@@ -260,6 +346,15 @@ func qa_reload_inventory_for_test() -> bool:
 	if not parsed is Dictionary or not restored.decode(parsed):
 		return false
 	return restored.encode() == expected
+
+
+func qa_reload_hotbar_for_test() -> bool:
+	var restored := HotbarSelectionState.new()
+	var file := FileAccess.open(HOTBAR_STATE_PATH, FileAccess.READ)
+	if file == null:
+		return false
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	return parsed is Dictionary and restored.decode(parsed) and restored.selected_item == _selected_item
 
 
 func qa_playability_snapshot() -> Dictionary:
