@@ -129,6 +129,7 @@ jobs:
             godot --headless --path . --script res://tests/run_chunk_build_pool_tests.gd
             godot --headless --path . --script res://tests/run_world_interaction_tests.gd
             godot --headless --path . --script res://tests/run_block_placement_tests.gd
+            godot --headless --path . --script res://tests/run_block_targeting_tests.gd
             godot --headless --path . --script res://tests/run_engineering_progression_tests.gd
             godot --headless --path . --script res://tests/run_kinetic_machine_tests.gd
           } 2>&1 | tee artifacts/test-logs/essential-tests.log
@@ -154,6 +155,7 @@ jobs:
           '
           test -s artifacts/gameplay/TEKNIK-gameplay.mp4
           grep -q "QA_KINETIC_MACHINE_PASS" artifacts/gameplay/gameplay.log
+          grep -q "QA_BLOCK_TARGETING_PASS" artifacts/gameplay/gameplay.log
       - name: Publish gameplay recording
         if: always()
         uses: actions/upload-artifact@v4
