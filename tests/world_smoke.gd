@@ -1,6 +1,7 @@
 extends SceneTree
 
 const SAVE_PATH := "user://teknik_world_v1.json"
+const SUMMARY_PATH := "user://teknik_telemetry_summary.json"
 const COLLISION_RADIUS := 1
 
 var failed := false
@@ -9,7 +10,7 @@ func _init() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
-	_remove_test_save()
+	_remove_test_files()
 
 	var main := _instantiate_main()
 	if main == null:
@@ -67,6 +68,10 @@ func _run() -> void:
 		_fail("Placed block did not enter authoritative world data")
 	world.call("_save_world")
 
+	if not bool(main.call("write_session_summary", true)):
+		_fail("Session summary could not be written")
+	_validate_session_summary()
+
 	main.queue_free()
 	await process_frame
 	await process_frame
@@ -82,6 +87,32 @@ func _run() -> void:
 		_fail("Saved block edit did not survive a world reload")
 
 	await _finish(reloaded_main)
+
+func _validate_session_summary() -> void:
+	if not FileAccess.file_exists(SUMMARY_PATH):
+		_fail("Session summary file was not created")
+		return
+	var file := FileAccess.open(SUMMARY_PATH, FileAccess.READ)
+	if file == null:
+		_fail("Session summary file could not be opened")
+		return
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	if not parsed is Dictionary:
+		_fail("Session summary is not valid JSON")
+		return
+	var summary: Dictionary = parsed
+	if int(summary.get("schema", 0)) != 1:
+		_fail("Session summary schema is incorrect")
+	if not bool(summary.get("clean_shutdown", false)):
+		_fail("Session summary did not record clean shutdown")
+	if int(summary.get("session_frame_count", 0)) <= 0:
+		_fail("Session summary did not record frame samples")
+	if not summary.has("session_peak_frame_ms"):
+		_fail("Session summary is missing peak frame time")
+	if not summary.has("peak_build_queue"):
+		_fail("Session summary is missing peak build queue")
+	if not summary.has("renderer_name"):
+		_fail("Session summary is missing renderer identity")
 
 func _instantiate_main() -> Node:
 	var packed: PackedScene = load("res://scenes/main.tscn")
@@ -140,12 +171,13 @@ func _finish(main: Node) -> void:
 	if is_instance_valid(main):
 		main.queue_free()
 	await process_frame
-	_remove_test_save()
+	_remove_test_files()
 	quit(1 if failed else 0)
 
-func _remove_test_save() -> void:
-	if FileAccess.file_exists(SAVE_PATH):
-		DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
+func _remove_test_files() -> void:
+	for path in [SAVE_PATH, SUMMARY_PATH]:
+		if FileAccess.file_exists(path):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 
 func _fail(message: String) -> void:
 	failed = true
