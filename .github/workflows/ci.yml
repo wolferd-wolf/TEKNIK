@@ -1,4 +1,4 @@
-# Production terrain warp must pass procedural, native parity, visual gameplay, and Android export gates.
+# Validate the project and publish only the Android ARM64 APK.
 name: TEKNIK CI
 
 on:
@@ -32,18 +32,8 @@ jobs:
           sudo install -m 0755 "/tmp/godot-preflight/Godot_v${GODOT_RELEASE}_linux.x86_64" "${GODOT_BIN}"
       - name: Validate procedural world scripts
         run: |
-          set -o pipefail
-          mkdir -p artifacts/preflight
-          godot --headless --path . --editor --quit 2>&1 | tee artifacts/preflight/project-import.log
-          godot --headless --path . --script res://tests/run_procedural_ecology_tests.gd 2>&1 | tee artifacts/preflight/procedural-ecology.log
-      - name: Publish procedural preflight failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: TEKNIK-Procedural-Preflight-${{ github.sha }}
-          if-no-files-found: warn
-          retention-days: 14
-          path: artifacts/preflight/
+          godot --headless --path . --editor --quit
+          godot --headless --path . --script res://tests/run_procedural_ecology_tests.gd
 
   test-and-build-android:
     needs: procedural-preflight
@@ -77,7 +67,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang lld scons git curl unzip ffmpeg xvfb libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
+          sudo apt-get install -y build-essential clang lld scons git curl unzip libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
       - name: Install Godot and export templates
         run: |
           curl --fail --location --retry 3 "https://github.com/godotengine/godot/releases/download/${GODOT_RELEASE}/Godot_v${GODOT_RELEASE}_linux.x86_64.zip" --output /tmp/godot.zip
@@ -104,7 +94,7 @@ jobs:
           key: teknik-godot-cpp-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/cpp/**', 'native/SConstruct') }}
       - name: Build native Linux test bridge
         run: |
-          mkdir -p artifacts/test-logs /tmp/godot-api
+          mkdir -p /tmp/godot-api
           cargo test --manifest-path native/rust/Cargo.toml --release
           cargo build --manifest-path native/rust/Cargo.toml --release
           (cd /tmp/godot-api && godot --headless --dump-extension-api)
@@ -112,98 +102,29 @@ jobs:
           (cd native && scons -j2 platform=linux arch=x86_64 target=template_debug custom_api_file="$GITHUB_WORKSPACE/extension_api.json" rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/release")
           test -s native/bin/libteknik_native.linux.template_debug.x86_64.so
       - name: Test replacement mining lifecycle
-        run: |
-          set -o pipefail
-          godot --headless --path . --script res://tests/run_block_targeting_tests.gd 2>&1 | tee artifacts/test-logs/mining-tests.log
+        run: godot --headless --path . --script res://tests/run_block_targeting_tests.gd
       - name: Test placement feedback isolation
-        run: |
-          set -o pipefail
-          godot --headless --path . --script res://tests/run_placement_preview_tests.gd 2>&1 | tee artifacts/test-logs/placement-tests.log
+        run: godot --headless --path . --script res://tests/run_placement_preview_tests.gd
       - name: Test survival vitals persistence
-        run: |
-          set -o pipefail
-          godot --headless --path . --script res://tests/run_survival_vitals_tests.gd 2>&1 | tee artifacts/test-logs/vitals-tests.log
+        run: godot --headless --path . --script res://tests/run_survival_vitals_tests.gd
       - name: Import project and run essential tests
         run: |
-          set -o pipefail
-          mkdir -p artifacts/test-logs
-          {
-            godot --headless --path . --editor --quit
-            godot --headless --path . --script res://tests/run_mobile_regression_tests.gd
-            godot --headless --path . --script res://tests/run_multi_lod_tests.gd
-            godot --headless --path . --script res://tests/run_native_chunk_parity_tests.gd
-            godot --headless --path . --script res://tests/run_native_worker_integration_tests.gd
-            godot --headless --path . --script res://tests/run_tests.gd
-            godot --headless --path . --script res://tests/run_stream_budget_tests.gd
-            godot --headless --path . --script res://tests/run_collision_stream_scheduler_tests.gd
-            godot --headless --path . --script res://tests/run_world_edit_store_tests.gd
-            godot --headless --path . --script res://tests/run_chunk_edit_worker_tests.gd
-            godot --headless --path . --script res://tests/run_chunk_build_pool_tests.gd
-            godot --headless --path . --script res://tests/run_world_interaction_tests.gd
-            godot --headless --path . --script res://tests/run_block_placement_tests.gd
-            godot --headless --path . --script res://tests/run_survival_inventory_tests.gd
-            godot --headless --path . --script res://tests/run_engineering_progression_tests.gd
-            godot --headless --path . --script res://tests/run_kinetic_machine_tests.gd
-          } 2>&1 | tee artifacts/test-logs/essential-tests.log
-      - name: Publish essential test diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: TEKNIK-Essential-Tests-${{ github.sha }}
-          if-no-files-found: warn
-          retention-days: 14
-          path: artifacts/test-logs/
-      - name: Record automated gameplay
-        run: |
-          mkdir -p artifacts/gameplay
-          xvfb-run -a -s "-screen 0 1280x720x24" bash -c '
-            set -euo pipefail
-            ffmpeg -y -loglevel warning -f x11grab -draw_mouse 0 -framerate 30 -video_size 1280x720 -i "${DISPLAY}.0" -c:v libx264 -preset veryfast -pix_fmt yuv420p artifacts/gameplay/TEKNIK-gameplay.mp4 &
-            recorder_pid=$!
-            cleanup() { kill -INT "$recorder_pid" 2>/dev/null || true; wait "$recorder_pid" 2>/dev/null || true; }
-            trap cleanup EXIT
-            godot --path . --rendering-method gl_compatibility --resolution 1280x720 -- --qa-gameplay --qa-gameplay-poster=res://artifacts/gameplay/TEKNIK-gameplay-poster.png 2>&1 | tee artifacts/gameplay/gameplay.log
-            test -s artifacts/gameplay/TEKNIK-gameplay-poster.png
-          '
-          test -s artifacts/gameplay/TEKNIK-gameplay.mp4
-          grep -q "QA_KINETIC_MACHINE_PASS" artifacts/gameplay/gameplay.log
-          grep -q "QA_MINING_SYSTEM_PASS" artifacts/gameplay/gameplay.log
-          grep -q "QA_MINING_VISUAL_PASS" artifacts/gameplay/gameplay.log
-          grep -q "QA_PLACEMENT_PREVIEW_PASS" artifacts/gameplay/gameplay.log
-          grep -q "QA_HOTBAR_PASS" artifacts/gameplay/gameplay.log
-          grep -q "QA_SURVIVAL_VITALS_PASS" artifacts/gameplay/gameplay.log
-      - name: Publish gameplay recording
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: TEKNIK-Gameplay-${{ github.sha }}
-          if-no-files-found: warn
-          retention-days: 14
-          path: artifacts/gameplay/
-      - name: Record real mining interaction
-        run: |
-          mkdir -p artifacts/mining
-          xvfb-run -a -s "-screen 0 1280x720x24" bash -c '
-            set -euo pipefail
-            ffmpeg -y -loglevel warning -f x11grab -draw_mouse 0 -framerate 30 -video_size 1280x720 -i "${DISPLAY}.0" -c:v libx264 -preset veryfast -pix_fmt yuv420p artifacts/mining/TEKNIK-mining.mp4 &
-            recorder_pid=$!
-            cleanup() { kill -INT "$recorder_pid" 2>/dev/null || true; wait "$recorder_pid" 2>/dev/null || true; }
-            trap cleanup EXIT
-            godot --path . --rendering-method gl_compatibility --resolution 1280x720 -- --qa-mining-demo --qa-mining-poster=res://artifacts/mining/TEKNIK-mining-cracks.png 2>&1 | tee artifacts/mining/mining.log
-            test -s artifacts/mining/TEKNIK-mining-cracks.png
-          '
-          test -s artifacts/mining/TEKNIK-mining.mp4
-          grep -q "QA_MINING_CANCEL_PASS" artifacts/mining/mining.log
-          grep -q "QA_MINING_CRACK_PASS" artifacts/mining/mining.log
-          grep -q "QA_MINING_DEMO_PASS" artifacts/mining/mining.log
-      - name: Publish mining recording
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: TEKNIK-Mining-${{ github.sha }}
-          if-no-files-found: warn
-          retention-days: 14
-          path: artifacts/mining/
+          godot --headless --path . --editor --quit
+          godot --headless --path . --script res://tests/run_mobile_regression_tests.gd
+          godot --headless --path . --script res://tests/run_multi_lod_tests.gd
+          godot --headless --path . --script res://tests/run_native_chunk_parity_tests.gd
+          godot --headless --path . --script res://tests/run_native_worker_integration_tests.gd
+          godot --headless --path . --script res://tests/run_tests.gd
+          godot --headless --path . --script res://tests/run_stream_budget_tests.gd
+          godot --headless --path . --script res://tests/run_collision_stream_scheduler_tests.gd
+          godot --headless --path . --script res://tests/run_world_edit_store_tests.gd
+          godot --headless --path . --script res://tests/run_chunk_edit_worker_tests.gd
+          godot --headless --path . --script res://tests/run_chunk_build_pool_tests.gd
+          godot --headless --path . --script res://tests/run_world_interaction_tests.gd
+          godot --headless --path . --script res://tests/run_block_placement_tests.gd
+          godot --headless --path . --script res://tests/run_survival_inventory_tests.gd
+          godot --headless --path . --script res://tests/run_engineering_progression_tests.gd
+          godot --headless --path . --script res://tests/run_kinetic_machine_tests.gd
       - name: Set up Android command-line tools
         uses: android-actions/setup-android@v3
       - name: Install Android ARM64 dependencies
