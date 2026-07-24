@@ -65,14 +65,23 @@ func _test_disconnected_network() -> void:
 
 func _test_shipping_runtime() -> void:
 	var scene_text: String = FileAccess.get_file_as_string("res://src/main/main.tscn")
+	var capture_runtime: String = FileAccess.get_file_as_string("res://src/main/kinetic_capture_shipping_main.gd")
 	var runtime: String = FileAccess.get_file_as_string("res://src/main/kinetic_machine_main.gd")
-	_expect(scene_text.contains("kinetic_machine_main.gd"), "shipping scene enables functional kinetic machines")
-	_expect(runtime.contains("AssembleStarterKinetics"), "machine assembly is a separate player action")
-	_expect(runtime.contains("LoadCrusherStone"), "crusher loading is a separate player action")
-	_expect(runtime.contains("TurnHandCrank"), "hand cranking is a separate player action")
-	_expect(runtime.contains("CollectCrusherOutput"), "machine output collection is a separate player action")
+	var interactive: String = FileAccess.get_file_as_string("res://src/main/interactive_kinetic_main.gd")
+	_expect(scene_text.contains("kinetic_capture_shipping_main.gd"), "shipping scene enables kinetic capture runtime")
+	_expect(capture_runtime.contains("interactive_kinetic_main.gd"), "shipping runtime inherits world interaction and animation")
+	_expect(runtime.contains("AssembleStarterKinetics"), "machine assembly remains a separate player action")
 	_expect(runtime.contains("ITEM_STONE_CRUSHER"), "assembly requires the crafted crusher item")
 	_expect(runtime.contains("QA_KINETIC_MACHINE_PASS"), "recorded gameplay verifies the complete kinetic loop")
+	_expect(interactive.contains("InteractMachine"), "mobile machine interaction control is present")
+	_expect(interactive.contains("MACHINE_INTERACTION_DISTANCE"), "machine interaction is range limited")
+	_expect(interactive.contains("teknik_machine_type"), "placed machine bodies expose deterministic interaction metadata")
+	_expect(interactive.contains("_raycast_machine"), "crosshair ray selects machines in the world")
+	_expect(interactive.contains("_rotating_visuals"), "crank, shaft and crusher visuals animate while powered")
+	_expect(interactive.contains("QA_KINETIC_INTERACTION_PASS"), "recorded gameplay verifies interaction and animation setup")
+	_expect(interactive.contains("_load_button.visible = false"), "legacy load button is removed from the active interaction loop")
+	_expect(interactive.contains("_crank_button.visible = false"), "legacy crank button is removed from the active interaction loop")
+	_expect(interactive.contains("_collect_button.visible = false"), "legacy collect button is removed from the active interaction loop")
 
 
 func _expect(condition: bool, label: String) -> void:
