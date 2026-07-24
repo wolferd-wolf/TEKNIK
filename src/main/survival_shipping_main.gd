@@ -55,16 +55,30 @@ func qa_save_edits_now() -> void:
 			get_tree().quit(1)
 			return
 		_qa_crafted_items += 1
+	if _inventory.count(ItemRegistry.ITEM_GRASS) <= 0:
+		if _inventory.add(ItemRegistry.ITEM_GRASS, 1) != 0:
+			push_error("QA_SURVIVAL could not grant hotbar proof item")
+			get_tree().quit(1)
+			return
+		_qa_granted_items += 1
+		_mark_inventory_changed("qa_hotbar_supply", ItemRegistry.ITEM_GRASS, 1)
+	if not qa_select_hotbar_item(ItemRegistry.ITEM_GRASS):
+		push_error("QA_SURVIVAL could not select Grass in the placeable hotbar")
+		get_tree().quit(1)
+		return
 	super.qa_save_edits_now()
 	qa_save_inventory_now()
 	qa_save_progression_now()
 	var inventory_persisted: bool = qa_reload_inventory_for_test()
+	var hotbar_persisted: bool = qa_reload_hotbar_for_test()
 	var progression_persisted: bool = qa_reload_progression_for_test()
 	var passed: bool = (
 		inventory_persisted
+		and hotbar_persisted
 		and progression_persisted
 		and _qa_collected_items > 0
 		and _qa_consumed_items > 0
+		and _selected_item == ItemRegistry.ITEM_GRASS
 		and _inventory.count(ItemRegistry.ITEM_WORKBENCH) == 1
 		and _inventory.count(ItemRegistry.ITEM_HAND_CRANK) == 1
 		and _inventory.count(ItemRegistry.ITEM_STONE_SHAFT) == 1
@@ -73,7 +87,7 @@ func qa_save_edits_now() -> void:
 		and qa_progression_unlocked(ProgressionState.UNLOCK_KINETIC_STARTER)
 	)
 	if not passed:
-		push_error("QA_ENGINEERING progression or persistence failed")
+		push_error("QA_ENGINEERING progression, hotbar, or persistence failed")
 		get_tree().quit(1)
 		return
 	print(
@@ -95,11 +109,16 @@ func qa_save_edits_now() -> void:
 		" persisted=", inventory_persisted and progression_persisted
 	)
 	print(
+		"QA_HOTBAR_PASS selected=", _selected_item,
+		" placeables=", ItemRegistry.placeable_items().size(),
+		" persisted=", hotbar_persisted
+	)
+	print(
 		"QA_SURVIVAL_PASS collected=", _qa_collected_items,
 		" consumed=", _qa_consumed_items,
 		" qa_granted=", _qa_granted_items,
 		" crafted=", _qa_crafted_items,
-		" persisted=", inventory_persisted,
+		" persisted=", inventory_persisted and hotbar_persisted,
 		" inventory=", JSON.stringify(_inventory.encode())
 	)
 
@@ -110,4 +129,5 @@ func qa_playability_snapshot() -> Dictionary:
 	snapshot["qa_consumed_items"] = _qa_consumed_items
 	snapshot["qa_granted_items"] = _qa_granted_items
 	snapshot["qa_crafted_items"] = _qa_crafted_items
+	snapshot["qa_hotbar_selected"] = str(_selected_item)
 	return snapshot
