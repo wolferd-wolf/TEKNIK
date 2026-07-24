@@ -3,6 +3,7 @@ extends "res://src/main/interactive_kinetic_main.gd"
 const VoxelRaycast = preload("res://src/world/voxel_raycast.gd")
 const EditRebuildScheduler = preload("res://src/world/edit_rebuild_scheduler.gd")
 const CrosshairOverlay = preload("res://src/player/block_target_crosshair.gd")
+const MiningHoldState = preload("res://src/player/mining_hold_state.gd")
 
 const BLOCK_TARGET_REFRESH_SECONDS: float = 0.04
 const OUTLINE_EXPANSION: float = 0.018
@@ -11,11 +12,14 @@ var _block_target_refresh_remaining: float = 0.0
 var _block_target: Dictionary = {}
 var _block_target_root: Node3D
 var _block_crosshair: TeknikBlockTargetCrosshair
+var _mining_hold: TeknikMiningHoldState = MiningHoldState.new()
 
 
 func _ready() -> void:
 	super._ready()
 	_build_block_target_feedback()
+	if _player != null:
+		_player.break_hold_changed.connect(_on_break_hold_changed)
 	_refresh_block_target()
 
 
@@ -25,6 +29,7 @@ func _process(delta: float) -> void:
 	if _block_target_refresh_remaining <= 0.0:
 		_block_target_refresh_remaining = BLOCK_TARGET_REFRESH_SECONDS
 		_refresh_block_target()
+	_process_hold_mining(delta)
 
 
 func _on_break_requested(origin: Vector3, direction: Vector3) -> void:
@@ -39,11 +44,33 @@ func _on_break_requested(origin: Vector3, direction: Vector3) -> void:
 		"voxel": str(voxel),
 		"distance": float(target.get("distance", 0.0)),
 		"dda_targeting": true,
+		"hold_to_mine": _mining_hold.is_held(),
 	})
 	# World edits are authoritative immediately, even while the chunk mesh rebuild
-	# is in flight. Recast now so rapid taps continue into the next block instead
-	# of hitting stale collision geometry.
+	# is in flight. Recast now so rapid taps or a held button continue into the
+	# next block instead of hitting stale collision geometry.
 	_refresh_block_target()
+
+
+func _on_break_hold_changed(held: bool) -> void:
+	_mining_hold.set_held(held)
+	if not held and _block_crosshair != null:
+		_block_crosshair.set_mining_progress(0.0)
+
+
+func _process_hold_mining(delta: float) -> void:
+	var target_key: Variant = null
+	if not _block_target.is_empty():
+		target_key = _block_target.get("voxel", null)
+	var repeat_ready: bool = _mining_hold.update(delta, target_key)
+	if _block_crosshair != null:
+		_block_crosshair.set_mining_progress(_mining_hold.progress())
+	if not repeat_ready or _player == null:
+		return
+	var camera := _player.get_node_or_null("CameraPivot/PlayerCamera") as Camera3D
+	if camera == null:
+		return
+	_on_break_requested(camera.global_position, -camera.global_transform.basis.z.normalized())
 
 
 func _next_build_coordinate() -> Vector3i:
@@ -202,5 +229,6 @@ func qa_save_edits_now() -> void:
 		" voxel=", sample.get("voxel", Vector3i.ZERO),
 		" distance=", float(sample.get("distance", 0.0)),
 		" dda=", true,
-		" rapid_edit_coalescing=", true
+		" rapid_edit_coalescing=", true,
+		" hold_to_mine=", true
 	)
