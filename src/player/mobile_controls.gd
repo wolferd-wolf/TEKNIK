@@ -5,6 +5,7 @@ signal movement_changed(value: Vector2)
 signal look_dragged(delta: Vector2)
 signal jump_pressed
 signal break_pressed
+signal break_hold_changed(held: bool)
 signal place_pressed
 signal log_pressed
 
@@ -51,6 +52,7 @@ func _handle_touch(event: InputEventScreenTouch) -> void:
 			return
 		if ControlMath.is_break_zone(event.position, viewport_size):
 			_break_active = true
+			break_hold_changed.emit(true)
 			break_pressed.emit()
 			queue_redraw()
 			return
@@ -78,8 +80,9 @@ func _handle_touch(event: InputEventScreenTouch) -> void:
 			_look_touch_id = -1
 		if ControlMath.is_jump_zone(event.position, viewport_size):
 			_jump_active = false
-		if ControlMath.is_break_zone(event.position, viewport_size):
+		if _break_active and ControlMath.is_break_zone(event.position, viewport_size):
 			_break_active = false
+			break_hold_changed.emit(false)
 		if ControlMath.is_place_zone(event.position, viewport_size):
 			_place_active = false
 		if ControlMath.is_log_zone(event.position, viewport_size):
