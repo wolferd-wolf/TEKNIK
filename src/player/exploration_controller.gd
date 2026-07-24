@@ -15,6 +15,8 @@ const AIR_CONTROL: float = 5.0
 const JUMP_VELOCITY: float = 7.0
 const MOUSE_SENSITIVITY: float = 0.0024
 const TOUCH_LOOK_SENSITIVITY: float = 0.0042
+const LOOK_DOWN_LIMIT_DEGREES: float = -89.5
+const LOOK_UP_LIMIT_DEGREES: float = 70.0
 const FALL_RECOVERY_DEPTH: float = 18.0
 const ABSOLUTE_RECOVERY_Y: float = -12.0
 
@@ -134,6 +136,14 @@ func is_waiting_for_terrain() -> bool:
 	return _waiting_for_terrain
 
 
+static func clamp_look_pitch(pitch: float) -> float:
+	return clampf(
+		pitch,
+		deg_to_rad(LOOK_DOWN_LIMIT_DEGREES),
+		deg_to_rad(LOOK_UP_LIMIT_DEGREES)
+	)
+
+
 func look_at_world(target: Vector3) -> void:
 	var eye: Vector3 = global_position + Vector3(0.0, 1.55, 0.0)
 	var delta: Vector3 = target - eye
@@ -141,7 +151,7 @@ func look_at_world(target: Vector3) -> void:
 	if horizontal.length_squared() > 0.0001:
 		rotation.y = atan2(-delta.x, -delta.z)
 	if _camera_pivot != null:
-		_camera_pivot.rotation.x = clampf(atan2(delta.y, horizontal.length()), deg_to_rad(-75.0), deg_to_rad(70.0))
+		_camera_pivot.rotation.x = clamp_look_pitch(atan2(delta.y, horizontal.length()))
 
 
 func _recover_if_needed() -> void:
@@ -179,7 +189,7 @@ func _emit_place_request() -> void:
 func _apply_look(relative: Vector2, sensitivity: float) -> void:
 	rotate_y(-relative.x * sensitivity)
 	_camera_pivot.rotate_x(-relative.y * sensitivity)
-	_camera_pivot.rotation.x = clampf(_camera_pivot.rotation.x, deg_to_rad(-75.0), deg_to_rad(70.0))
+	_camera_pivot.rotation.x = clamp_look_pitch(_camera_pivot.rotation.x)
 
 
 func _build_body() -> void:
