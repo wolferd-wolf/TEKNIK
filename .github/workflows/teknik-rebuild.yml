@@ -35,7 +35,7 @@ jobs:
 
       - name: Download Godot and export templates
         run: |
-          mkdir -p "$GODOT_DIR" "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$GODOT_DIR" "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable" build
           curl --retry 3 --retry-all-errors -fL "https://downloads.godotengine.org/?flavor=stable&platform=linux.64&slug=linux.x86_64.zip&version=${GODOT_VERSION}" -o /tmp/godot.zip
           unzip -q /tmp/godot.zip -d "$GODOT_DIR"
           mv "$GODOT_DIR"/Godot_v*-stable_linux.x86_64 "$GODOT_DIR/godot"
@@ -46,10 +46,16 @@ jobs:
           "$GODOT_DIR/godot" --version
 
       - name: Import and parse project
-        run: "$GODOT_DIR/godot --headless --path . --editor --quit"
+        shell: bash
+        run: |
+          set -o pipefail
+          "$GODOT_DIR/godot" --headless --path . --editor --quit 2>&1 | tee build/project-parse.log
 
       - name: Run procedural world smoke test
-        run: "$GODOT_DIR/godot --headless --path . --script res://tests/world_smoke.gd"
+        shell: bash
+        run: |
+          set -o pipefail
+          "$GODOT_DIR/godot" --headless --path . --script res://tests/world_smoke.gd 2>&1 | tee build/world-smoke.log
 
       - name: Prepare Android SDK paths
         run: |
@@ -63,14 +69,17 @@ jobs:
           SETTINGS
 
       - name: Export ARM64 debug APK
-        run: "$GODOT_DIR/godot --headless --path . --export-debug 'Android ARM64' build/TEKNIK-debug.apk"
+        shell: bash
+        run: |
+          set -o pipefail
+          "$GODOT_DIR/godot" --headless --path . --export-debug 'Android ARM64' build/TEKNIK-debug.apk 2>&1 | tee build/android-export.log
 
-      - name: Upload APK and logs
+      - name: Upload APK and validation logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: TEKNIK-playable-world-arm64
+          name: TEKNIK-playable-world-validation
           path: |
             build/TEKNIK-debug.apk
-            .godot/editor/*.log
-          if-no-files-found: warn
+            build/*.log
+          if-no-files-found: error
