@@ -4,15 +4,19 @@ const VoxelRaycast = preload("res://src/world/voxel_raycast.gd")
 const EditRebuildScheduler = preload("res://src/world/edit_rebuild_scheduler.gd")
 const CrosshairOverlay = preload("res://src/player/block_target_crosshair.gd")
 const MiningHoldState = preload("res://src/player/mining_hold_state.gd")
+const VisibleMiningLock = preload("res://src/player/visible_mining_lock.gd")
 
 const BLOCK_TARGET_REFRESH_SECONDS: float = 0.04
-const OUTLINE_EXPANSION: float = 0.018
+const OUTLINE_RADIUS: float = 0.522
+const OUTLINE_THICKNESS: float = 0.044
+const OUTLINE_LENGTH: float = 1.044
 
 var _block_target_refresh_remaining: float = 0.0
 var _block_target: Dictionary = {}
 var _block_target_root: Node3D
 var _block_crosshair: TeknikBlockTargetCrosshair
 var _mining_hold: TeknikMiningHoldState = MiningHoldState.new()
+var _visible_mining_lock: TeknikVisibleMiningLock = VisibleMiningLock.new()
 
 
 func _ready() -> void:
@@ -33,23 +37,40 @@ func _process(delta: float) -> void:
 
 
 func _on_break_requested(origin: Vector3, direction: Vector3) -> void:
+	# Never mine through a block that is still visible. The previous implementation
+	# immediately advanced through authoritative voxel data while the old chunk mesh
+	# remained on-screen, so rapid taps could silently remove several deeper blocks.
+	if _visible_mining_lock.is_active():
+		_runtime_log.event("info", "interaction", "break_waiting_for_visible_commit", {
+			"voxel": str(_visible_mining_lock.voxel()),
+			"chunk": str(_visible_mining_lock.chunk()),
+		})
+		return
+
 	var target: Dictionary = _find_break_target(origin, direction)
 	_set_block_target(target)
 	if target.is_empty():
 		return
 	var voxel: Vector3i = target.get("voxel", Vector3i.ZERO)
-	if not _survival_break_voxel(voxel, "removed"):
+	var owner_chunk: Vector3i = _voxel_chunk_coordinate(voxel)
+	if not _visible_mining_lock.begin(voxel, owner_chunk):
 		return
-	_runtime_log.event("info", "interaction", "targeted_block_broken", {
+	if not _survival_break_voxel(voxel, "removed"):
+		_visible_mining_lock.cancel()
+		return
+
+	if _block_crosshair != null:
+		_block_crosshair.set_pending(true)
+	# Keep the outline on the visible block until its rebuilt mesh is committed.
+	_set_block_target(target)
+	_runtime_log.event("info", "interaction", "targeted_block_break_queued", {
 		"voxel": str(voxel),
+		"chunk": str(owner_chunk),
 		"distance": float(target.get("distance", 0.0)),
 		"dda_targeting": true,
+		"visible_commit_lock": true,
 		"hold_to_mine": _mining_hold.is_held(),
 	})
-	# World edits are authoritative immediately, even while the chunk mesh rebuild
-	# is in flight. Recast now so rapid taps or a held button continue into the
-	# next block instead of hitting stale collision geometry.
-	_refresh_block_target()
 
 
 func _on_break_hold_changed(held: bool) -> void:
@@ -59,6 +80,10 @@ func _on_break_hold_changed(held: bool) -> void:
 
 
 func _process_hold_mining(delta: float) -> void:
+	if _visible_mining_lock.is_active():
+		if _block_crosshair != null:
+			_block_crosshair.set_mining_progress(0.0)
+		return
 	var target_key: Variant = null
 	if not _block_target.is_empty():
 		target_key = _block_target.get("voxel", null)
@@ -71,6 +96,22 @@ func _process_hold_mining(delta: float) -> void:
 	if camera == null:
 		return
 	_on_break_requested(camera.global_position, -camera.global_transform.basis.z.normalized())
+
+
+func _commit_terrain_chunk(report: Dictionary) -> void:
+	var coordinate: Vector3i = report.get("coordinate", Vector3i.ZERO)
+	var pending_voxel: Vector3i = _visible_mining_lock.voxel()
+	super._commit_terrain_chunk(report)
+	var still_dirty: bool = _edit_rebuild_queue.has(coordinate)
+	if _visible_mining_lock.complete_if_visible_commit(coordinate, still_dirty):
+		if _block_crosshair != null:
+			_block_crosshair.set_pending(false)
+		_runtime_log.event("info", "interaction", "targeted_block_visible_commit", {
+			"voxel": str(pending_voxel),
+			"chunk": str(coordinate),
+			"mesh_commit_usec": _last_mesh_commit_usec,
+		})
+		_refresh_block_target()
 
 
 func _next_build_coordinate() -> Vector3i:
@@ -111,54 +152,53 @@ func _build_block_target_feedback() -> void:
 	_block_target_root.visible = false
 	add_child(_block_target_root)
 
-	var fill := MeshInstance3D.new()
-	fill.name = "SelectedBlockFill"
-	var fill_mesh := BoxMesh.new()
-	fill_mesh.size = Vector3.ONE * (1.0 + OUTLINE_EXPANSION)
-	var fill_material := StandardMaterial3D.new()
-	fill_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	fill_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	fill_material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	fill_material.albedo_color = Color(1.0, 0.66, 0.12, 0.13)
-	fill_mesh.material = fill_material
-	fill.mesh = fill_mesh
-	fill.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	_block_target_root.add_child(fill)
+	var outline_material := StandardMaterial3D.new()
+	outline_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	outline_material.albedo_color = Color(1.0, 0.68, 0.12, 1.0)
+	outline_material.metallic = 0.0
+	outline_material.roughness = 1.0
 
-	var outline := MeshInstance3D.new()
-	outline.name = "SelectedBlockEdges"
-	outline.mesh = _block_outline_mesh()
-	outline.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	_block_target_root.add_child(outline)
+	# Twelve real box edges stay readable on mobile GPUs. Do not add a translucent
+	# cube fill: when the camera is close to a floor block it covers most of the
+	# screen and makes aiming worse.
+	for y: float in [-OUTLINE_RADIUS, OUTLINE_RADIUS]:
+		for z: float in [-OUTLINE_RADIUS, OUTLINE_RADIUS]:
+			_add_outline_edge(
+				Vector3(0.0, y, z),
+				Vector3(OUTLINE_LENGTH, OUTLINE_THICKNESS, OUTLINE_THICKNESS),
+				outline_material
+			)
+	for x: float in [-OUTLINE_RADIUS, OUTLINE_RADIUS]:
+		for z: float in [-OUTLINE_RADIUS, OUTLINE_RADIUS]:
+			_add_outline_edge(
+				Vector3(x, 0.0, z),
+				Vector3(OUTLINE_THICKNESS, OUTLINE_LENGTH, OUTLINE_THICKNESS),
+				outline_material
+			)
+	for x: float in [-OUTLINE_RADIUS, OUTLINE_RADIUS]:
+		for y: float in [-OUTLINE_RADIUS, OUTLINE_RADIUS]:
+			_add_outline_edge(
+				Vector3(x, y, 0.0),
+				Vector3(OUTLINE_THICKNESS, OUTLINE_THICKNESS, OUTLINE_LENGTH),
+				outline_material
+			)
 
 
-func _block_outline_mesh() -> ImmediateMesh:
-	var mesh := ImmediateMesh.new()
-	var material := StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.albedo_color = Color(1.0, 0.76, 0.20, 0.98)
-	var radius: float = 0.5 + OUTLINE_EXPANSION
-	var corners: Array[Vector3] = [
-		Vector3(-radius, -radius, -radius), Vector3(radius, -radius, -radius),
-		Vector3(radius, radius, -radius), Vector3(-radius, radius, -radius),
-		Vector3(-radius, -radius, radius), Vector3(radius, -radius, radius),
-		Vector3(radius, radius, radius), Vector3(-radius, radius, radius),
-	]
-	var edges: Array[Vector2i] = [
-		Vector2i(0, 1), Vector2i(1, 2), Vector2i(2, 3), Vector2i(3, 0),
-		Vector2i(4, 5), Vector2i(5, 6), Vector2i(6, 7), Vector2i(7, 4),
-		Vector2i(0, 4), Vector2i(1, 5), Vector2i(2, 6), Vector2i(3, 7),
-	]
-	mesh.surface_begin(Mesh.PRIMITIVE_LINES, material)
-	for edge: Vector2i in edges:
-		mesh.surface_add_vertex(corners[edge.x])
-		mesh.surface_add_vertex(corners[edge.y])
-	mesh.surface_end()
-	return mesh
+func _add_outline_edge(position_value: Vector3, size_value: Vector3, material: Material) -> void:
+	var edge := MeshInstance3D.new()
+	edge.name = "BlockTargetEdge"
+	var mesh := BoxMesh.new()
+	mesh.size = size_value
+	mesh.material = material
+	edge.mesh = mesh
+	edge.position = position_value
+	edge.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_block_target_root.add_child(edge)
 
 
 func _refresh_block_target() -> void:
+	if _visible_mining_lock.is_active():
+		return
 	if _player == null:
 		_set_block_target({})
 		return
@@ -203,10 +243,22 @@ func _set_block_target(target: Dictionary) -> void:
 		_block_target_root.global_position = VoxelRaycast.outline_center(voxel)
 
 
+func _voxel_chunk_coordinate(voxel: Vector3i) -> Vector3i:
+	return Vector3i(
+		floori(float(voxel.x) / float(VoxelChunk.SIZE)),
+		0,
+		floori(float(voxel.z) / float(VoxelChunk.SIZE))
+	)
+
+
 func qa_save_edits_now() -> void:
 	super.qa_save_edits_now()
 	if _block_crosshair == null or _block_target_root == null:
 		push_error("QA_BLOCK_TARGETING feedback nodes were not created")
+		get_tree().quit(1)
+		return
+	if _block_target_root.get_child_count() != 12:
+		push_error("QA_BLOCK_TARGETING expected 12 visible outline edges without a fill")
 		get_tree().quit(1)
 		return
 	var sample_x: int = floori(_player.global_position.x) + 6 if _player != null else 6
@@ -225,10 +277,11 @@ func qa_save_edits_now() -> void:
 		return
 	print(
 		"QA_BLOCK_TARGETING_PASS crosshair=", true,
-		" outline=", true,
+		" outline_edges=", _block_target_root.get_child_count(),
+		" translucent_fill=", false,
 		" voxel=", sample.get("voxel", Vector3i.ZERO),
 		" distance=", float(sample.get("distance", 0.0)),
 		" dda=", true,
-		" rapid_edit_coalescing=", true,
+		" visible_commit_lock=", true,
 		" hold_to_mine=", true
 	)
