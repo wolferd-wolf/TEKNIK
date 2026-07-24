@@ -8,6 +8,7 @@ const JUMP_VELOCITY := 6.8
 const LOOK_SENSITIVITY := 0.0022
 const TOUCH_LOOK_SENSITIVITY := 0.0032
 const INTERACTION_DISTANCE := 6.0
+const STREAM_LOOKAHEAD_SECONDS := 0.22
 
 var world: Node
 var mobile_move := Vector2.ZERO
@@ -17,6 +18,8 @@ var jump_requested := false
 var mine_requested := false
 var place_requested := false
 var camera: Camera3D
+var stream_hold_count := 0
+var stream_hold_active := false
 
 func _ready() -> void:
 	collision_layer = 2
@@ -81,6 +84,15 @@ func _physics_process(delta: float) -> void:
 	velocity.x = move_toward(velocity.x, desired_velocity.x, acceleration * delta)
 	velocity.z = move_toward(velocity.z, desired_velocity.z, acceleration * delta)
 
+	stream_hold_active = false
+	if desired_direction.length_squared() > 0.0 and is_instance_valid(world):
+		var predicted_position := global_position + Vector3(velocity.x, 0.0, velocity.z) * STREAM_LOOKAHEAD_SECONDS
+		if not _is_collision_ready_for_position(predicted_position):
+			velocity.x = 0.0
+			velocity.z = 0.0
+			stream_hold_active = true
+			stream_hold_count += 1
+
 	if (jump_requested or Input.is_key_pressed(KEY_SPACE)) and is_on_floor():
 		velocity.y = JUMP_VELOCITY
 	jump_requested = false
@@ -97,6 +109,18 @@ func _physics_process(delta: float) -> void:
 	if place_requested:
 		_interact(true)
 		place_requested = false
+
+func _is_collision_ready_for_position(position: Vector3) -> bool:
+	if not is_instance_valid(world):
+		return false
+	var coord: Vector2i = world.world_to_chunk(position)
+	if not world.loaded_chunks.has(coord):
+		return false
+	var entry: Dictionary = world.loaded_chunks[coord]
+	return is_instance_valid(entry["collision"])
+
+func get_stream_status_text() -> String:
+	return "stream-hold %s  total %d" % ["ON" if stream_hold_active else "off", stream_hold_count]
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
