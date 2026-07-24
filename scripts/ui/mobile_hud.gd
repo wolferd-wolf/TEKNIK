@@ -93,7 +93,7 @@ func _make_button(text: String, offset: Vector2, button_size: Vector2) -> Button
 func _input(event: InputEvent) -> void:
 	if not is_instance_valid(player):
 		return
-	var viewport_size := get_viewport().get_visible_rect().size
+	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
 	if event is InputEventScreenTouch:
 		if event.pressed and event.position.x > viewport_size.x * 0.46 and event.position.y < viewport_size.y * 0.80 and look_touch < 0:
 			look_touch = event.index
@@ -101,7 +101,7 @@ func _input(event: InputEvent) -> void:
 		elif not event.pressed and event.index == look_touch:
 			look_touch = -1
 	elif event is InputEventScreenDrag and event.index == look_touch:
-		var delta_value := event.position - last_look_position
+		var delta_value: Vector2 = event.position - last_look_position
 		last_look_position = event.position
 		player.apply_touch_look(delta_value)
 
