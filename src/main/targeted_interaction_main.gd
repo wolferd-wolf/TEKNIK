@@ -17,7 +17,7 @@ var _pending_mining_chunk: Vector3i = Vector3i.ZERO
 var _pending_mining_voxel: Vector3i = Vector3i.ZERO
 var _has_pending_mining_commit: bool = false
 var _qa_forced_mining_target: Variant = null
-var _qa_forced_mining_progress: float = -1.0
+var _qa_mining_sample_voxel: Vector3i = Vector3i.ZERO
 
 
 func _ready() -> void:
@@ -47,19 +47,14 @@ func _on_break_hold_changed(held: bool) -> void:
 	_mining.set_pressed(held)
 	if held:
 		_refresh_block_target()
-	elif _mining_visual != null and _qa_forced_mining_target == null:
+	elif _mining_visual != null:
 		_mining_visual.set_progress(0.0)
 
 
 func _process_mining(delta: float) -> void:
 	var completed: Dictionary = _mining.update(delta)
 	if _mining_visual != null:
-		var displayed_progress: float = (
-			_qa_forced_mining_progress
-			if _qa_forced_mining_target != null and _qa_forced_mining_progress >= 0.0
-			else _mining.progress()
-		)
-		_mining_visual.set_progress(displayed_progress)
+		_mining_visual.set_progress(_mining.progress())
 	if completed.is_empty():
 		return
 	var voxel: Vector3i = completed.get("voxel", Vector3i.ZERO)
@@ -93,6 +88,8 @@ func _commit_terrain_chunk(report: Dictionary) -> void:
 	_has_pending_mining_commit = false
 	_pending_mining_chunk = Vector3i.ZERO
 	_pending_mining_voxel = Vector3i.ZERO
+	if _qa_forced_mining_target != null and Vector3i(_qa_forced_mining_target) == completed_voxel:
+		_qa_forced_mining_target = null
 	_mining.notify_visible_commit()
 	if _mining_visual != null:
 		_mining_visual.clear_target()
@@ -148,7 +145,11 @@ func _refresh_block_target() -> void:
 	if _mining.is_waiting_for_commit():
 		return
 	if _qa_forced_mining_target != null:
-		var forced_voxel: Vector3i = _qa_forced_mining_target
+		var forced_voxel: Vector3i = Vector3i(_qa_forced_mining_target)
+		if not _is_breakable_voxel(forced_voxel):
+			_qa_forced_mining_target = null
+			_set_block_target({})
+			return
 		_set_block_target({
 			"voxel": forced_voxel,
 			"material": _current_material(forced_voxel),
@@ -207,7 +208,7 @@ func _set_block_target(target: Dictionary) -> void:
 		_block_crosshair.set_targeted(true)
 	if _mining_visual != null:
 		_mining_visual.show_target(voxel)
-		if changed and _qa_forced_mining_target == null:
+		if changed:
 			_mining_visual.set_progress(0.0)
 
 
@@ -219,21 +220,45 @@ func _voxel_chunk_coordinate(voxel: Vector3i) -> Vector3i:
 	)
 
 
-func qa_force_mining_target(voxel: Vector3i, progress: float = 0.55) -> void:
+func qa_mining_sample_voxel() -> Vector3i:
+	return _qa_mining_sample_voxel
+
+
+func qa_begin_mining_target(voxel: Vector3i) -> bool:
+	if not _is_breakable_voxel(voxel):
+		return false
 	_qa_forced_mining_target = voxel
-	_qa_forced_mining_progress = clampf(progress, 0.0, 1.0)
 	_set_block_target({
 		"voxel": voxel,
 		"material": _current_material(voxel),
 		"distance": 2.5,
 	})
-	if _mining_visual != null:
-		_mining_visual.set_progress(_qa_forced_mining_progress)
+	_mining.set_pressed(true)
+	return _mining.is_mining()
+
+
+func qa_end_mining_input() -> void:
+	_mining.set_pressed(false)
+
+
+func qa_mining_progress() -> float:
+	return _mining.progress()
+
+
+func qa_mining_waiting_for_commit() -> bool:
+	return _mining.is_waiting_for_commit() or _has_pending_mining_commit
+
+
+func qa_mining_target_voxel() -> Vector3i:
+	return _mining.target_voxel()
+
+
+func qa_mining_material(voxel: Vector3i) -> int:
+	return _current_material(voxel)
 
 
 func qa_clear_forced_mining_target() -> void:
 	_qa_forced_mining_target = null
-	_qa_forced_mining_progress = -1.0
 	_mining.set_pressed(false)
 	_refresh_block_target()
 
@@ -247,7 +272,7 @@ func qa_save_edits_now() -> void:
 	var sample_x: int = floori(_player.global_position.x) + 6 if _player != null else 6
 	var sample_z: int = floori(_player.global_position.z) + 6 if _player != null else 6
 	var sample_height: int = TerrainGenerator.surface_height(WORLD_SEED, sample_x, sample_z)
-	var sample_voxel := Vector3i(sample_x, sample_height, sample_z)
+	_qa_mining_sample_voxel = Vector3i(sample_x, sample_height, sample_z)
 	var sample_origin := Vector3(float(sample_x) + 0.5, float(sample_height) + 4.5, float(sample_z) + 0.5)
 	var sample: Dictionary = VoxelRaycast.cast(
 		sample_origin,
@@ -255,18 +280,17 @@ func qa_save_edits_now() -> void:
 		INTERACTION_DISTANCE,
 		Callable(self, "_is_breakable_voxel")
 	)
-	if sample.is_empty():
+	if sample.is_empty() or sample.get("voxel", Vector3i.ZERO) != _qa_mining_sample_voxel:
 		push_error("QA_MINING deterministic downward ray found no block")
 		get_tree().quit(1)
 		return
-	qa_force_mining_target(sample_voxel, 0.58)
 	print(
 		"QA_MINING_SYSTEM_PASS state_machine=", true,
 		" instant_break=", false,
-		" locked_voxel=", sample_voxel,
+		" sample_voxel=", _qa_mining_sample_voxel,
 		" outline=thin_lines",
-		" cracks=procedural",
-		" material_seconds=", MiningController.duration_for_material(_current_material(sample_voxel)),
+		" cracks=staged_geometry",
+		" material_seconds=", MiningController.duration_for_material(_current_material(_qa_mining_sample_voxel)),
 		" waits_for_visible_commit=", true,
-		" visual_progress=", _qa_forced_mining_progress
+		" real_hold_recording=", true
 	)
