@@ -50,9 +50,22 @@ func _test_adaptive_budget() -> void:
 
 
 func _test_shipping_scene() -> void:
-	var scene_text: String = FileAccess.get_file_as_string("res://src/main/main.tscn")
+	var scene: String = FileAccess.get_file_as_string("res://src/main/main.tscn")
+	var kinetic: String = FileAccess.get_file_as_string("res://src/main/kinetic_machine_main.gd")
+	var survival_shipping: String = FileAccess.get_file_as_string("res://src/main/survival_shipping_main.gd")
+	var engineering: String = FileAccess.get_file_as_string("res://src/main/engineering_progression_main.gd")
+	var survival: String = FileAccess.get_file_as_string("res://src/main/survival_main.gd")
+	var multi_lod: String = FileAccess.get_file_as_string("res://src/main/multi_lod_main.gd")
 	var source: String = FileAccess.get_file_as_string("res://src/main/incremental_collision_main.gd")
-	_expect(scene_text.contains("incremental_collision_main.gd"), "shipping scene enables incremental collision streaming")
+	_expect(
+		scene.contains("kinetic_machine_main.gd")
+		and kinetic.contains("survival_shipping_main.gd")
+		and survival_shipping.contains("engineering_progression_main.gd")
+		and engineering.contains("survival_main.gd")
+		and survival.contains("multi_lod_main.gd")
+		and multi_lod.contains("incremental_collision_main.gd"),
+		"shipping scene enables incremental collision streaming through the kinetic survival stack"
+	)
 	_expect(source.contains("_collision_frame_budget_usec") and source.contains("incremental_frame"), "shipping collision work is measured and frame-budgeted")
 	_expect(source.contains("extends \"res://src/main/movement_streaming_main.gd\""), "incremental collision keeps directional streaming and chunk-local vegetation")
 
