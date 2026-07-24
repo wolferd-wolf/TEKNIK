@@ -21,17 +21,17 @@ const BLOCK_DIRT := 2
 const BLOCK_STONE := 3
 const BLOCK_SAND := 4
 
-const FACE_DIRECTIONS := [
+const FACE_DIRECTIONS: Array[Vector3i] = [
 	Vector3i(0, 1, 0), Vector3i(0, -1, 0),
 	Vector3i(1, 0, 0), Vector3i(-1, 0, 0),
 	Vector3i(0, 0, 1), Vector3i(0, 0, -1)
 ]
 
-const FACE_NORMALS := [
+const FACE_NORMALS: Array[Vector3] = [
 	Vector3.UP, Vector3.DOWN, Vector3.RIGHT, Vector3.LEFT, Vector3.BACK, Vector3.FORWARD
 ]
 
-const FACE_VERTICES := [
+const FACE_VERTICES: Array = [
 	[Vector3(0, 1, 0), Vector3(0, 1, 1), Vector3(1, 1, 1), Vector3(1, 1, 0)],
 	[Vector3(0, 0, 0), Vector3(1, 0, 0), Vector3(1, 0, 1), Vector3(0, 0, 1)],
 	[Vector3(1, 0, 0), Vector3(1, 1, 0), Vector3(1, 1, 1), Vector3(1, 0, 1)],
@@ -84,7 +84,7 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	if is_instance_valid(player):
-		var player_chunk := world_to_chunk(player.global_position)
+		var player_chunk: Vector2i = world_to_chunk(player.global_position)
 		if player_chunk != current_center:
 			_set_center(player_chunk)
 		if is_instance_valid(water):
@@ -140,8 +140,8 @@ func _prune_build_queue() -> void:
 
 func _sort_build_queue() -> void:
 	build_queue.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
-		var a_collision := _needs_collision(a)
-		var b_collision := _needs_collision(b)
+		var a_collision: bool = _needs_collision(a)
+		var b_collision: bool = _needs_collision(b)
 		if a_collision != b_collision:
 			return a_collision
 		return _chunk_distance_squared(a, current_center) < _chunk_distance_squared(b, current_center)
@@ -151,9 +151,9 @@ func _pump_build_queue() -> void:
 	if build_queue.is_empty():
 		return
 
-	var frame_start := Time.get_ticks_usec()
+	var frame_start: int = Time.get_ticks_usec()
 	while not build_queue.is_empty():
-		var coord := build_queue.pop_front()
+		var coord: Vector2i = build_queue.pop_front()
 		queued_chunks.erase(coord)
 
 		if loaded_chunks.has(coord):
@@ -161,8 +161,8 @@ func _pump_build_queue() -> void:
 		if max(abs(coord.x - current_center.x), abs(coord.y - current_center.y)) > RENDER_RADIUS:
 			continue
 
-		var build_start := Time.get_ticks_usec()
-		var data := _build_chunk_mesh(coord)
+		var build_start: int = Time.get_ticks_usec()
+		var data: Dictionary = _build_chunk_mesh(coord)
 		_commit_chunk(coord, data)
 		last_build_usec = Time.get_ticks_usec() - build_start
 		last_face_count = int(data["face_count"])
@@ -177,7 +177,7 @@ func _build_chunk_mesh(coord: Vector2i) -> Dictionary:
 	var indices := PackedInt32Array()
 	var face_count := 0
 	var origin := Vector3i(coord.x * CHUNK_SIZE, 0, coord.y * CHUNK_SIZE)
-	var height_cache := _build_height_cache(origin)
+	var height_cache: PackedInt32Array = _build_height_cache(origin)
 
 	for local_z in range(CHUNK_SIZE):
 		for local_x in range(CHUNK_SIZE):
@@ -185,21 +185,23 @@ func _build_chunk_mesh(coord: Vector2i) -> Dictionary:
 			var global_z := origin.z + local_z
 			for y in range(WORLD_HEIGHT):
 				var cell := Vector3i(global_x, y, global_z)
-				var block := _get_block_cached(cell, origin, height_cache)
+				var block: int = _get_block_cached(cell, origin, height_cache)
 				if block == BLOCK_AIR:
 					continue
 
 				for face_index in range(6):
-					var neighbor := cell + FACE_DIRECTIONS[face_index]
+					var neighbor: Vector3i = cell + FACE_DIRECTIONS[face_index]
 					if _get_block_cached(neighbor, origin, height_cache) != BLOCK_AIR:
 						continue
 
-					var base_index := vertices.size()
-					var shade := _face_shade(face_index)
-					var color := _block_color(block, cell, shade)
+					var base_index: int = vertices.size()
+					var shade: float = _face_shade(face_index)
+					var color: Color = _block_color(block, cell, shade)
 					var local_cell := Vector3(local_x, y, local_z)
+					var face_vertices: Array = FACE_VERTICES[face_index]
 
-					for vertex in FACE_VERTICES[face_index]:
+					for vertex_value in face_vertices:
+						var vertex := Vector3(vertex_value)
 						vertices.append(local_cell + vertex)
 						normals.append(FACE_NORMALS[face_index])
 						colors.append(color)
@@ -223,7 +225,7 @@ func _build_height_cache(origin: Vector3i) -> PackedInt32Array:
 	heights.resize(HEIGHT_CACHE_WIDTH * HEIGHT_CACHE_WIDTH)
 	for local_z in range(-1, CHUNK_SIZE + 1):
 		for local_x in range(-1, CHUNK_SIZE + 1):
-			var index := (local_z + 1) * HEIGHT_CACHE_WIDTH + local_x + 1
+			var index: int = (local_z + 1) * HEIGHT_CACHE_WIDTH + local_x + 1
 			heights[index] = _terrain_height(origin.x + local_x, origin.z + local_z)
 	return heights
 
@@ -237,8 +239,8 @@ func _get_block_cached(cell: Vector3i, origin: Vector3i, heights: PackedInt32Arr
 	if block_overrides.has(key):
 		return int(block_overrides[key])
 
-	var cache_x := cell.x - origin.x + 1
-	var cache_z := cell.z - origin.z + 1
+	var cache_x: int = cell.x - origin.x + 1
+	var cache_z: int = cell.z - origin.z + 1
 	var height: int
 	if cache_x >= 0 and cache_x < HEIGHT_CACHE_WIDTH and cache_z >= 0 and cache_z < HEIGHT_CACHE_WIDTH:
 		height = heights[cache_z * HEIGHT_CACHE_WIDTH + cache_x]
@@ -280,7 +282,7 @@ func _commit_chunk(coord: Vector2i, data: Dictionary) -> void:
 func _refresh_collision_queues() -> void:
 	for coord in loaded_chunks.keys():
 		var entry: Dictionary = loaded_chunks[coord]
-		var has_collision := is_instance_valid(entry["collision"])
+		var has_collision: bool = is_instance_valid(entry["collision"])
 		if _needs_collision(coord):
 			if not has_collision and not collision_add_queued.has(coord):
 				collision_add_queue.append(coord)
@@ -297,17 +299,17 @@ func _pump_collision_queues() -> void:
 	for _index in range(COLLISION_ADDS_PER_FRAME):
 		if collision_add_queue.is_empty():
 			break
-		var coord := collision_add_queue.pop_front()
+		var coord: Vector2i = collision_add_queue.pop_front()
 		collision_add_queued.erase(coord)
 		if loaded_chunks.has(coord) and _needs_collision(coord):
-			var collision_start := Time.get_ticks_usec()
+			var collision_start: int = Time.get_ticks_usec()
 			_ensure_collision(coord)
 			last_collision_usec = Time.get_ticks_usec() - collision_start
 
 	for _index in range(COLLISION_REMOVES_PER_FRAME):
 		if collision_remove_queue.is_empty():
 			break
-		var coord := collision_remove_queue.pop_front()
+		var coord: Vector2i = collision_remove_queue.pop_front()
 		collision_remove_queued.erase(coord)
 		if not loaded_chunks.has(coord) or _needs_collision(coord):
 			continue
@@ -335,7 +337,7 @@ func _ensure_collision(coord: Vector2i) -> void:
 	static_body.collision_mask = 2
 
 	var shape_node := CollisionShape3D.new()
-	var collision_shape := mesh.create_trimesh_shape()
+	var collision_shape: Shape3D = mesh.create_trimesh_shape()
 	if collision_shape is ConcavePolygonShape3D:
 		collision_shape.backface_collision = true
 	shape_node.shape = collision_shape
@@ -409,13 +411,13 @@ func edit_from_ray(origin: Vector3, direction: Vector3, distance: float, place_b
 	var query := PhysicsRayQueryParameters3D.create(origin, origin + direction.normalized() * distance)
 	query.collision_mask = 1
 	query.hit_from_inside = false
-	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	var hit: Dictionary = get_world_3d().direct_space_state.intersect_ray(query)
 	if hit.is_empty():
 		return
 
 	var hit_position: Vector3 = hit["position"]
 	var normal: Vector3 = hit["normal"]
-	var target_position := hit_position + normal * (0.02 if place_block else -0.02)
+	var target_position: Vector3 = hit_position + normal * (0.02 if place_block else -0.02)
 	var cell := Vector3i(floori(target_position.x), floori(target_position.y), floori(target_position.z))
 
 	if place_block:
@@ -436,8 +438,8 @@ func _set_block(cell: Vector3i, block: int) -> void:
 	save_delay = 1.5
 
 	var affected: Array[Vector2i] = [cell_to_chunk(cell)]
-	var local_x := posmod(cell.x, CHUNK_SIZE)
-	var local_z := posmod(cell.z, CHUNK_SIZE)
+	var local_x: int = posmod(cell.x, CHUNK_SIZE)
+	var local_z: int = posmod(cell.z, CHUNK_SIZE)
 	if local_x == 0:
 		affected.append(cell_to_chunk(cell + Vector3i(-1, 0, 0)))
 	elif local_x == CHUNK_SIZE - 1:
@@ -462,7 +464,7 @@ func _rebuild_chunk(coord: Vector2i) -> void:
 		queued_chunks[coord] = true
 
 func get_recovery_position(position: Vector3) -> Vector3:
-	var height := _terrain_height(floori(position.x), floori(position.z))
+	var height: int = _terrain_height(floori(position.x), floori(position.z))
 	return Vector3(position.x, height + 3.0, position.z)
 
 func get_status_text() -> String:
@@ -490,9 +492,9 @@ func _block_color(block: int, cell: Vector3i, shade: float) -> Color:
 		_:
 			base_color = Color.WHITE
 
-	var hash_value := abs((cell.x * 73856093) ^ (cell.y * 83492791) ^ (cell.z * 19349663))
-	var variation := 0.90 + float(hash_value % 17) * 0.01
-	var factor := shade * variation
+	var hash_value: int = absi((cell.x * 73856093) ^ (cell.y * 83492791) ^ (cell.z * 19349663))
+	var variation: float = 0.90 + float(hash_value % 17) * 0.01
+	var factor: float = shade * variation
 	return Color(base_color.r * factor, base_color.g * factor, base_color.b * factor, 1.0)
 
 func _face_shade(face_index: int) -> float:
@@ -527,7 +529,7 @@ func _create_water() -> void:
 	add_child(water)
 
 func _save_world() -> void:
-	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	var file: FileAccess = FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file == null:
 		push_warning("Unable to save world edits")
 		return
@@ -541,7 +543,7 @@ func _save_world() -> void:
 func _load_world() -> void:
 	if not FileAccess.file_exists(SAVE_PATH):
 		return
-	var file := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	var file: FileAccess = FileAccess.open(SAVE_PATH, FileAccess.READ)
 	if file == null:
 		return
 	var parsed: Variant = JSON.parse_string(file.get_as_text())
