@@ -17,6 +17,7 @@ var _pending_mining_chunk: Vector3i = Vector3i.ZERO
 var _pending_mining_voxel: Vector3i = Vector3i.ZERO
 var _has_pending_mining_commit: bool = false
 var _qa_forced_mining_target: Variant = null
+var _qa_forced_mining_progress: float = -1.0
 var _qa_mining_sample_voxel: Vector3i = Vector3i.ZERO
 
 
@@ -47,14 +48,19 @@ func _on_break_hold_changed(held: bool) -> void:
 	_mining.set_pressed(held)
 	if held:
 		_refresh_block_target()
-	elif _mining_visual != null:
+	elif _mining_visual != null and _qa_forced_mining_progress < 0.0:
 		_mining_visual.set_progress(0.0)
 
 
 func _process_mining(delta: float) -> void:
 	var completed: Dictionary = _mining.update(delta)
 	if _mining_visual != null:
-		_mining_visual.set_progress(_mining.progress())
+		var displayed_progress: float = (
+			_qa_forced_mining_progress
+			if _qa_forced_mining_target != null and _qa_forced_mining_progress >= 0.0
+			else _mining.progress()
+		)
+		_mining_visual.set_progress(displayed_progress)
 	if completed.is_empty():
 		return
 	var voxel: Vector3i = completed.get("voxel", Vector3i.ZERO)
@@ -90,6 +96,7 @@ func _commit_terrain_chunk(report: Dictionary) -> void:
 	_pending_mining_voxel = Vector3i.ZERO
 	if _qa_forced_mining_target != null and Vector3i(_qa_forced_mining_target) == completed_voxel:
 		_qa_forced_mining_target = null
+		_qa_forced_mining_progress = -1.0
 	_mining.notify_visible_commit()
 	if _mining_visual != null:
 		_mining_visual.clear_target()
@@ -148,6 +155,7 @@ func _refresh_block_target() -> void:
 		var forced_voxel: Vector3i = Vector3i(_qa_forced_mining_target)
 		if not _is_breakable_voxel(forced_voxel):
 			_qa_forced_mining_target = null
+			_qa_forced_mining_progress = -1.0
 			_set_block_target({})
 			return
 		_set_block_target({
@@ -208,7 +216,7 @@ func _set_block_target(target: Dictionary) -> void:
 		_block_crosshair.set_targeted(true)
 	if _mining_visual != null:
 		_mining_visual.show_target(voxel)
-		if changed:
+		if changed and _qa_forced_mining_progress < 0.0:
 			_mining_visual.set_progress(0.0)
 
 
@@ -228,6 +236,7 @@ func qa_begin_mining_target(voxel: Vector3i) -> bool:
 	if not _is_breakable_voxel(voxel):
 		return false
 	_qa_forced_mining_target = voxel
+	_qa_forced_mining_progress = -1.0
 	_set_block_target({
 		"voxel": voxel,
 		"material": _current_material(voxel),
@@ -235,6 +244,18 @@ func qa_begin_mining_target(voxel: Vector3i) -> bool:
 	})
 	_mining.set_pressed(true)
 	return _mining.is_mining()
+
+
+func qa_force_mining_target(voxel: Vector3i, progress: float = 0.58) -> void:
+	_qa_forced_mining_target = voxel
+	_qa_forced_mining_progress = clampf(progress, 0.0, 1.0)
+	_set_block_target({
+		"voxel": voxel,
+		"material": _current_material(voxel),
+		"distance": 2.5,
+	})
+	if _mining_visual != null:
+		_mining_visual.set_progress(_qa_forced_mining_progress)
 
 
 func qa_end_mining_input() -> void:
@@ -259,6 +280,7 @@ func qa_mining_material(voxel: Vector3i) -> int:
 
 func qa_clear_forced_mining_target() -> void:
 	_qa_forced_mining_target = null
+	_qa_forced_mining_progress = -1.0
 	_mining.set_pressed(false)
 	_refresh_block_target()
 
@@ -284,6 +306,9 @@ func qa_save_edits_now() -> void:
 		push_error("QA_MINING deterministic downward ray found no block")
 		get_tree().quit(1)
 		return
+	# The general gameplay poster keeps one deterministic mid-crack fixture. The
+	# separate mining-demo recording below is the real input/cancel/completion proof.
+	qa_force_mining_target(_qa_mining_sample_voxel, 0.58)
 	print(
 		"QA_MINING_SYSTEM_PASS state_machine=", true,
 		" instant_break=", false,
@@ -292,5 +317,6 @@ func qa_save_edits_now() -> void:
 		" cracks=staged_geometry",
 		" material_seconds=", MiningController.duration_for_material(_current_material(_qa_mining_sample_voxel)),
 		" waits_for_visible_commit=", true,
-		" real_hold_recording=", true
+		" real_hold_recording=", true,
+		" poster_fixture_progress=", _qa_forced_mining_progress
 	)
