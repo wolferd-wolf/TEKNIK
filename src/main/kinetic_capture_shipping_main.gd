@@ -1,4 +1,4 @@
-extends "res://src/main/interactive_kinetic_main.gd"
+extends "res://src/main/targeted_interaction_main.gd"
 
 
 func qa_save_edits_now() -> void:
