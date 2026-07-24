@@ -27,6 +27,11 @@ func _run() -> void:
 		_fail("Player was released before a complete safe spawn ring was available")
 	else:
 		_assert_collision_ring(world, Vector2i.ZERO, "initial spawn")
+		if not bool(player.call("_is_collision_ready_for_position", player.global_position)):
+			_fail("Movement safety gate rejected the loaded spawn chunk")
+		var unloaded_probe := Vector3(1200.0, player.global_position.y, 1200.0)
+		if bool(player.call("_is_collision_ready_for_position", unloaded_probe)):
+			_fail("Movement safety gate accepted an unloaded target chunk")
 
 	if world.loaded_chunks.size() < 9:
 		_fail("Fewer than nine collision-priority chunks were loaded")
@@ -34,16 +39,27 @@ func _run() -> void:
 		_fail("Base terrain is unexpectedly empty")
 
 	if player != null:
-		var travel_position := Vector3(13.5, 0.0, 6.5)
-		travel_position = world.get_recovery_position(travel_position)
-		player.global_position = travel_position
-		var streamed := await _wait_for_center(world, Vector2i(1, 0), 600)
-		if not streamed:
-			_fail("World center did not follow the player across a chunk boundary")
-		else:
-			var collision_ready := await _wait_for_collision_ring(world, Vector2i(1, 0), 600)
+		var centers: Array[Vector2i] = [Vector2i(1, 0), Vector2i(3, 0), Vector2i(5, 0)]
+		for expected_center in centers:
+			var travel_position := Vector3(expected_center.x * 12 + 1.5, 0.0, 6.5)
+			travel_position = world.get_recovery_position(travel_position)
+			player.global_position = travel_position
+			var streamed := await _wait_for_center(world, expected_center, 600)
+			if not streamed:
+				_fail("World center did not follow the player to chunk %s" % expected_center)
+				break
+			var collision_ready := await _wait_for_collision_ring(world, expected_center, 600)
 			if not collision_ready:
-				_fail("Collision safety ring did not complete after a streamed chunk transition")
+				_fail("Collision safety ring did not complete at chunk %s" % expected_center)
+				break
+			if not bool(player.call("_is_collision_ready_for_position", player.global_position)):
+				_fail("Movement safety gate rejected streamed chunk %s" % expected_center)
+				break
+
+		if world.loaded_chunks.has(Vector2i.ZERO):
+			_fail("Origin chunk remained loaded beyond the configured unload radius")
+		if world.loaded_chunks.size() > 81:
+			_fail("Loaded chunk count exceeded the bounded streaming envelope")
 
 	var persistence_cell := _find_air_cell_above_surface(world, 6, 6)
 	world.call("_set_block", persistence_cell, 2)
