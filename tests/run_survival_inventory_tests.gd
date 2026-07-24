@@ -82,6 +82,7 @@ func _test_hotbar_selection() -> void:
 func _test_shipping_scene() -> void:
 	var scene_text: String = FileAccess.get_file_as_string("res://src/main/main.tscn")
 	var capture_source: String = FileAccess.get_file_as_string("res://src/main/kinetic_capture_shipping_main.gd")
+	var placement_source: String = FileAccess.get_file_as_string("res://src/main/placement_preview_main.gd")
 	var targeting_source: String = FileAccess.get_file_as_string("res://src/main/targeted_interaction_main.gd")
 	var interactive_source: String = FileAccess.get_file_as_string("res://src/main/interactive_kinetic_main.gd")
 	var kinetic_source: String = FileAccess.get_file_as_string("res://src/main/kinetic_machine_main.gd")
@@ -89,11 +90,12 @@ func _test_shipping_scene() -> void:
 	var qa_source: String = FileAccess.get_file_as_string("res://src/main/survival_shipping_main.gd")
 	_expect(
 		scene_text.contains("kinetic_capture_shipping_main.gd")
-		and capture_source.contains("targeted_interaction_main.gd")
+		and capture_source.contains("placement_preview_main.gd")
+		and placement_source.contains("targeted_interaction_main.gd")
 		and targeting_source.contains("interactive_kinetic_main.gd")
 		and interactive_source.contains("kinetic_machine_main.gd")
 		and kinetic_source.contains("survival_shipping_main.gd"),
-		"shipping inheritance chain retains survival gameplay"
+		"shipping inheritance chain retains placement preview and survival gameplay"
 	)
 	_expect(survival_source.contains("_survival_break_voxel"), "breaking blocks creates inventory drops")
 	_expect(survival_source.contains("_survival_place_voxel"), "placing blocks consumes inventory")
