@@ -11,6 +11,7 @@ const ITEM_STONE: StringName = &"stone"
 const ITEM_SOIL: StringName = &"soil"
 const ITEM_GRASS: StringName = &"grass"
 const ITEM_SAND: StringName = &"sand"
+const ITEM_STONE_GEAR: StringName = &"stone_gear"
 
 const MAX_STACK: int = 64
 
@@ -43,6 +44,22 @@ static func material_for_item(item_id: StringName) -> int:
 			return AIR
 
 
+static func is_registered(item_id: StringName) -> bool:
+	return item_id in registered_items()
+
+
+static func is_placeable(item_id: StringName) -> bool:
+	return material_for_item(item_id) != AIR
+
+
+static func max_stack(item_id: StringName) -> int:
+	if not is_registered(item_id):
+		return 0
+	if item_id == ITEM_STONE_GEAR:
+		return 32
+	return MAX_STACK
+
+
 static func display_name(item_id: StringName) -> String:
 	match item_id:
 		ITEM_STONE:
@@ -53,9 +70,11 @@ static func display_name(item_id: StringName) -> String:
 			return "Grass"
 		ITEM_SAND:
 			return "Sand"
+		ITEM_STONE_GEAR:
+			return "Stone Gear"
 		_:
 			return "Empty"
 
 
 static func registered_items() -> Array[StringName]:
-	return [ITEM_STONE, ITEM_SOIL, ITEM_GRASS, ITEM_SAND]
+	return [ITEM_STONE, ITEM_SOIL, ITEM_GRASS, ITEM_SAND, ITEM_STONE_GEAR]
