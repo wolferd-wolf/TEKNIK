@@ -1,0 +1,72 @@
+name: TEKNIK Clean Rebuild
+
+on:
+  push:
+    branches: ["rebuild/playable-world"]
+  workflow_dispatch:
+
+concurrency:
+  group: teknik-clean-rebuild-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate-and-export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GODOT_VERSION: "4.7.1"
+      GODOT_DIR: ${{ github.workspace }}/.godot-ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip libgl1 libx11-6 libxcursor1 libxinerama1 libxrandr2 libxi6 libasound2t64
+
+      - name: Download Godot and export templates
+        run: |
+          mkdir -p "$GODOT_DIR" "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          curl -fL "https://downloads.godotengine.org/?flavor=stable&platform=linux.64&slug=linux.x86_64.zip&version=${GODOT_VERSION}" -o /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d "$GODOT_DIR"
+          mv "$GODOT_DIR"/Godot_v*-stable_linux.x86_64 "$GODOT_DIR/godot"
+          chmod +x "$GODOT_DIR/godot"
+          curl -fL "https://downloads.godotengine.org/?flavor=stable&platform=templates&slug=export_templates.tpz&version=${GODOT_VERSION}" -o /tmp/templates.tpz
+          unzip -q /tmp/templates.tpz -d /tmp/templates
+          cp -R /tmp/templates/templates/* "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
+          "$GODOT_DIR/godot" --version
+
+      - name: Import and parse project
+        run: "$GODOT_DIR/godot --headless --path . --editor --quit"
+
+      - name: Run procedural world smoke test
+        run: "$GODOT_DIR/godot --headless --path . --script res://tests/world_smoke.gd"
+
+      - name: Prepare Android SDK paths
+        run: |
+          mkdir -p "$HOME/.config/godot" build
+          cat > "$HOME/.config/godot/editor_settings-4.7.tres" <<SETTINGS
+          [gd_resource format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          SETTINGS
+
+      - name: Export ARM64 debug APK
+        run: "$GODOT_DIR/godot --headless --path . --export-debug 'Android ARM64' build/TEKNIK-debug.apk"
+
+      - name: Upload APK and logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: TEKNIK-playable-world-arm64
+          path: |
+            build/TEKNIK-debug.apk
+            .godot/editor/*.log
+          if-no-files-found: error
