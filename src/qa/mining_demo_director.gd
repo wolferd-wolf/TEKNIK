@@ -5,6 +5,7 @@ const TerrainGenerator = preload("res://src/world/voxel_terrain_generator.gd")
 const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
 
 const TARGET_WAIT_FRAMES: int = 240
+const PROGRESS_WAIT_FRAMES: int = 360
 const COMMIT_WAIT_FRAMES: int = 600
 const CANCEL_PROGRESS_MIN: float = 0.30
 const CANCEL_PROGRESS_MAX: float = 0.65
@@ -20,7 +21,8 @@ func begin(world: Node, player: TeknikExplorationController) -> void:
 
 
 func _run() -> void:
-	await _wait_for_world_idle()
+	if not await _wait_for_world_idle():
+		return
 	var mining_value: Variant = _world.get("_mining")
 	if not mining_value is TeknikMiningController:
 		_fail("mining controller is unavailable")
@@ -33,7 +35,8 @@ func _run() -> void:
 	var surface_y: int = TerrainGenerator.surface_height(seed, base_x, base_z)
 	var target := Vector3i(base_x, surface_y + 1, base_z)
 	_world.qa_apply_voxel_edit(target, VoxelChunk.STONE, "qa_mining_demo_target")
-	await _wait_for_world_idle()
+	if not await _wait_for_world_idle():
+		return
 
 	var target_center := Vector3(target) + Vector3.ONE * 0.5
 	var camera_ground: int = TerrainGenerator.surface_height(seed, base_x, base_z + 4)
@@ -49,16 +52,21 @@ func _run() -> void:
 	_player.set_physics_process(false)
 	await get_tree().create_timer(1.0).timeout
 
-	_world.call("_refresh_block_target")
+	# Lock the deterministic visible block through the production controller API.
+	# This prevents an unrelated nearby terrain face from stealing the QA ray while
+	# still exercising the same hold, progress, removal and mesh-commit lifecycle.
+	if not bool(_world.call("qa_begin_mining_target", target)):
+		_fail("could not begin mining the visible demonstration block")
+		return
 	if not await _wait_for_target(mining, target):
 		_fail("crosshair did not lock the visible demonstration block")
 		return
 
 	# First hold demonstrates cancellation. The same block must remain intact and
 	# progress must reset immediately when the finger is released.
-	_world.call("_on_break_hold_changed", true)
-	while mining.progress() < 0.42:
-		await get_tree().process_frame
+	if not await _wait_for_progress(mining, 0.42):
+		_fail("cancellation sample never reached a visible middle crack stage")
+		return
 	var cancel_progress: float = mining.progress()
 	_world.call("_on_break_hold_changed", false)
 	await get_tree().create_timer(0.75).timeout
@@ -73,8 +81,9 @@ func _run() -> void:
 	# Restart from zero and hold continuously. Capture the real crack overlay at
 	# roughly sixty percent, then continue until one block completes.
 	_world.call("_on_break_hold_changed", true)
-	while mining.progress() < 0.60 and not mining.is_waiting_for_commit():
-		await get_tree().process_frame
+	if not await _wait_for_progress(mining, 0.60):
+		_fail("mining never reached the crack-poster stage")
+		return
 	if mining.is_waiting_for_commit():
 		_fail("block completed before the visible crack poster could be captured")
 		return
@@ -120,18 +129,29 @@ func _wait_for_target(mining: TeknikMiningController, target: Vector3i) -> bool:
 	for _frame: int in range(TARGET_WAIT_FRAMES):
 		if mining.has_target() and mining.target_voxel() == target:
 			return true
-		_world.call("_refresh_block_target")
 		await get_tree().process_frame
 	return false
 
 
-func _wait_for_world_idle() -> void:
+func _wait_for_progress(mining: TeknikMiningController, threshold: float) -> bool:
+	for _frame: int in range(PROGRESS_WAIT_FRAMES):
+		if mining.is_waiting_for_commit():
+			return false
+		if mining.progress() >= threshold:
+			return true
+		await get_tree().process_frame
+	return false
+
+
+func _wait_for_world_idle() -> bool:
 	var frames: int = 0
 	while not bool(_world.qa_world_idle()) and frames < 1800:
 		await get_tree().process_frame
 		frames += 1
 	if frames >= 1800:
 		_fail("timed out waiting for terrain rebuild")
+		return false
+	return true
 
 
 func _save_poster() -> bool:
