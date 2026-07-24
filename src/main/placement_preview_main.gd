@@ -1,35 +1,39 @@
 extends "res://src/main/targeted_interaction_main.gd"
 
-const PREVIEW_REFRESH_SECONDS: float = 0.05
-const PREVIEW_RADIUS: float = 0.508
-const PREVIEW_THICKNESS: float = 0.025
-const PREVIEW_LENGTH: float = 1.016
-const PREVIEW_VALID_COLOR := Color(0.28, 1.0, 0.52, 0.95)
-const PREVIEW_INVALID_COLOR := Color(1.0, 0.28, 0.22, 0.95)
+# Placement feedback must never compete with the mining target. It appears only
+# for a short confirmation after PLACE is pressed, instead of drawing a second
+# red or green cube permanently beside the selected mining block.
+const PREVIEW_VISIBLE_SECONDS: float = 0.28
+const PREVIEW_RADIUS: float = 0.506
+const PREVIEW_THICKNESS: float = 0.014
+const PREVIEW_LENGTH: float = 1.012
+const PREVIEW_VALID_COLOR := Color(0.28, 1.0, 0.52, 0.92)
+const PREVIEW_INVALID_COLOR := Color(1.0, 0.28, 0.22, 0.92)
 
-var _placement_preview_refresh_remaining: float = 0.0
 var _placement_preview: Dictionary = {}
 var _placement_preview_root: Node3D
 var _placement_preview_material: StandardMaterial3D
+var _placement_preview_remaining: float = 0.0
 
 
 func _ready() -> void:
 	super._ready()
 	_build_placement_preview()
-	_refresh_placement_preview()
 
 
 func _process(delta: float) -> void:
 	super._process(delta)
-	_placement_preview_refresh_remaining -= delta
-	if _placement_preview_refresh_remaining <= 0.0:
-		_placement_preview_refresh_remaining = PREVIEW_REFRESH_SECONDS
-		_refresh_placement_preview()
+	if _placement_preview_remaining <= 0.0:
+		return
+	_placement_preview_remaining = maxf(0.0, _placement_preview_remaining - delta)
+	if _placement_preview_remaining <= 0.0 and _placement_preview_root != null:
+		_placement_preview_root.visible = false
 
 
 func _on_place_requested(origin: Vector3, direction: Vector3) -> void:
 	var preview: Dictionary = _find_placement_preview(origin, direction)
 	_set_placement_preview(preview)
+	_placement_preview_remaining = PREVIEW_VISIBLE_SECONDS
 	if preview.is_empty() or not bool(preview.get("valid", false)):
 		_runtime_log.event("info", "interaction", "placement_preview_rejected", {
 			"voxel": str(preview.get("voxel", Vector3i.ZERO)),
@@ -40,19 +44,18 @@ func _on_place_requested(origin: Vector3, direction: Vector3) -> void:
 	var voxel: Vector3i = preview.get("voxel", Vector3i.ZERO)
 	var material: int = ItemRegistry.material_for_item(_selected_item)
 	if not _survival_place_voxel(voxel, material, "placed", true):
-		_refresh_placement_preview()
 		return
 	_runtime_log.event("info", "interaction", "previewed_block_placed", {
 		"voxel": str(voxel),
 		"item": str(_selected_item),
 		"exact_preview": true,
 	})
-	_refresh_placement_preview()
 
 
 func _build_placement_preview() -> void:
 	_placement_preview_root = Node3D.new()
 	_placement_preview_root.name = "BlockPlacementPreview"
+	_placement_preview_root.top_level = true
 	_placement_preview_root.visible = false
 	add_child(_placement_preview_root)
 
@@ -83,20 +86,6 @@ func _add_preview_edge(position_value: Vector3, size_value: Vector3) -> void:
 	edge.position = position_value
 	edge.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_placement_preview_root.add_child(edge)
-
-
-func _refresh_placement_preview() -> void:
-	if _player == null:
-		_set_placement_preview({})
-		return
-	var camera := _player.get_node_or_null("CameraPivot/PlayerCamera") as Camera3D
-	if camera == null:
-		_set_placement_preview({})
-		return
-	_set_placement_preview(_find_placement_preview(
-		camera.global_position,
-		-camera.global_transform.basis.z.normalized()
-	))
 
 
 func _find_placement_preview(origin: Vector3, direction: Vector3) -> Dictionary:
@@ -149,19 +138,13 @@ func qa_save_edits_now() -> void:
 		push_error("QA_PLACEMENT_PREVIEW expected 12 wireframe edges")
 		get_tree().quit(1)
 		return
-	var hit := {
-		"voxel": Vector3i(4, 3, -2),
-		"normal": Vector3.UP,
-	}
-	var preview_voxel: Vector3i = hit.voxel + Vector3i(0, 1, 0)
-	if preview_voxel != Vector3i(4, 4, -2):
-		push_error("QA_PLACEMENT_PREVIEW face-adjacent voxel mismatch")
+	if _placement_preview_root.visible:
+		push_error("QA_PLACEMENT_PREVIEW must stay hidden until PLACE input")
 		get_tree().quit(1)
 		return
 	print(
 		"QA_PLACEMENT_PREVIEW_PASS edges=", _placement_preview_root.get_child_count(),
-		" exact_face_target=", true,
-		" valid_color=", PREVIEW_VALID_COLOR,
-		" invalid_color=", PREVIEW_INVALID_COLOR,
+		" idle_hidden=", true,
+		" confirmation_seconds=", PREVIEW_VISIBLE_SECONDS,
 		" selected_item=", _selected_item
 	)
