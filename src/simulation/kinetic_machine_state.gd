@@ -19,15 +19,19 @@ func place(machine_id: StringName, machine_type: StringName, position: Vector3i)
 		return false
 	if machine_type not in [TYPE_WORKBENCH, TYPE_SHAFT, TYPE_CRANK, TYPE_CRUSHER]:
 		return false
-	for row: Dictionary in machines.values():
-		if Vector3i(row.position) == position:
+	for row_variant: Variant in machines.values():
+		var row: Dictionary = row_variant
+		if row.get("position", Vector3i.ZERO) == position:
 			return false
 	machines[machine_id] = {"type": machine_type, "position": position}
 	return true
 
 
 func remove(machine_id: StringName) -> bool:
-	return machines.erase(machine_id)
+	if not machines.has(machine_id):
+		return false
+	machines.erase(machine_id)
+	return true
 
 
 func insert_stone(amount: int) -> int:
@@ -43,7 +47,7 @@ func crank(turns: int) -> Dictionary:
 
 func process() -> bool:
 	var report: Dictionary = network_report()
-	if bool(report.overstressed) or float(report.source_rpm) <= 0.0:
+	if bool(report.get("overstressed", true)) or float(report.get("source_rpm", 0.0)) <= 0.0:
 		return false
 	if crusher_input < 2 or stored_turns < 4:
 		return false
@@ -82,15 +86,18 @@ func _has_connected_chain() -> bool:
 		var current: StringName = frontier.pop_front()
 		if current == crusher_id:
 			return true
-		var current_position: Vector3i = machines[current].position
+		var current_row: Dictionary = machines[current]
+		var current_position: Vector3i = current_row.get("position", Vector3i.ZERO)
 		for candidate_variant: Variant in machines.keys():
 			var candidate := StringName(candidate_variant)
 			if visited.has(candidate):
 				continue
-			var candidate_type := StringName(machines[candidate].type)
+			var candidate_row: Dictionary = machines[candidate]
+			var candidate_type := StringName(str(candidate_row.get("type", "")))
 			if candidate_type not in [TYPE_SHAFT, TYPE_CRANK, TYPE_CRUSHER]:
 				continue
-			var delta: Vector3i = Vector3i(machines[candidate].position) - current_position
+			var candidate_position: Vector3i = candidate_row.get("position", Vector3i.ZERO)
+			var delta: Vector3i = candidate_position - current_position
 			if absi(delta.x) + absi(delta.y) + absi(delta.z) != 1:
 				continue
 			visited[candidate] = true
@@ -103,7 +110,8 @@ func _first_id_of_type(machine_type: StringName) -> StringName:
 	ids.sort()
 	for id_variant: Variant in ids:
 		var id := StringName(id_variant)
-		if StringName(machines[id].type) == machine_type:
+		var row: Dictionary = machines[id]
+		if StringName(str(row.get("type", ""))) == machine_type:
 			return id
 	return &""
 
@@ -115,8 +123,8 @@ func encode() -> Dictionary:
 	for id_variant: Variant in ids:
 		var id := StringName(id_variant)
 		var row: Dictionary = machines[id]
-		var position: Vector3i = row.position
-		rows.append({"id": str(id), "type": str(row.type), "position": [position.x, position.y, position.z]})
+		var position: Vector3i = row.get("position", Vector3i.ZERO)
+		rows.append({"id": str(id), "type": str(row.get("type", "")), "position": [position.x, position.y, position.z]})
 	return {"schema": SCHEMA, "machines": rows, "crusher_input": crusher_input, "crusher_output": crusher_output, "stored_turns": stored_turns}
 
 
