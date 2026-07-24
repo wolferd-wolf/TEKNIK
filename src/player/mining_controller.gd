@@ -18,7 +18,7 @@ const GRASS_SECONDS: float = 0.62
 const SAND_SECONDS: float = 0.48
 const MIN_DURATION_SECONDS: float = 0.05
 
-var _phase: Phase = Phase.IDLE
+var _phase: int = Phase.IDLE
 var _pressed: bool = false
 var _has_target: bool = false
 var _target_voxel: Vector3i = Vector3i.ZERO
@@ -107,7 +107,12 @@ func cancel_failed_completion() -> void:
 	if _phase != Phase.WAITING_FOR_COMMIT:
 		return
 	_elapsed_seconds = 0.0
-	_phase = Phase.MINING if _pressed and _has_target else Phase.TARGETED if _has_target else Phase.IDLE
+	if _pressed and _has_target:
+		_phase = Phase.MINING
+	elif _has_target:
+		_phase = Phase.TARGETED
+	else:
+		_phase = Phase.IDLE
 
 
 func notify_visible_commit() -> void:
@@ -121,7 +126,7 @@ func notify_visible_commit() -> void:
 	_phase = Phase.IDLE
 
 
-func phase() -> Phase:
+func phase() -> int:
 	return _phase
 
 
