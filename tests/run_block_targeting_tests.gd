@@ -46,7 +46,7 @@ func _test_downward_voxel_targeting() -> void:
 
 
 func _test_press_does_not_instantly_break() -> void:
-	var controller: TeknikMiningController = MiningController.new()
+	var controller = MiningController.new()
 	var voxel := Vector3i(4, 6, -2)
 	controller.set_target(voxel, 1, 1.0)
 	controller.set_pressed(true)
@@ -59,7 +59,7 @@ func _test_press_does_not_instantly_break() -> void:
 
 
 func _test_release_and_target_change_cancel_progress() -> void:
-	var controller: TeknikMiningController = MiningController.new()
+	var controller = MiningController.new()
 	controller.set_target(Vector3i(1, 2, 3), 2, 1.0)
 	controller.set_pressed(true)
 	controller.update(0.6)
@@ -73,7 +73,7 @@ func _test_release_and_target_change_cancel_progress() -> void:
 
 
 func _test_one_completion_waits_for_visible_commit() -> void:
-	var controller: TeknikMiningController = MiningController.new()
+	var controller = MiningController.new()
 	controller.set_target(Vector3i(0, 2, 0), 3, 0.5)
 	controller.set_pressed(true)
 	var first: Dictionary = controller.update(0.5)
