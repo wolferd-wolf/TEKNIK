@@ -1,51 +1,43 @@
-# TEKNIK
+# TEKNIK — Clean Rebuild
 
-TEKNIK is an original, paid, single-player Android engineering sandbox built with Godot. It is inspired by the pleasure of visible mechanical automation, player-built vehicles, and large procedural worlds, while using original code, terminology, visuals, recipes, and assets.
+This branch is a fresh implementation of TEKNIK's playable-world foundation. It does not import or copy the previous prototype's gameplay code.
 
-## Product constraints
+## Current target
 
-- Survival sandbox only. There is no player-facing creative mode.
-- Procedural voxel world and procedural NPC settlements.
-- Distinct kinetic, electrical, thermal, steam, liquid-fuel, nuclear, hydraulic, and pneumatic systems.
-- Editable physics contraptions, aircraft, land vehicles, trains, factories, artillery, telemetry, and sandboxed computers.
-- Offline single-player premium release.
-- Minimum target: sustained 50 FPS on a Vivo T3x with 6 GB RAM. Performance is not considered verified until measured on physical target hardware.
+Deliver a stable Android survival sandbox foundation before any engineering physics is introduced:
 
-## Current milestone
+- deterministic procedural block terrain;
+- bounded chunk streaming;
+- collision-first loading around the player;
+- walking, jumping and recovery from falls;
+- block mining and placement;
+- persistent block edits;
+- touch controls and desktop controls;
+- frame, queue and chunk telemetry;
+- ARM64-only Android export.
 
-The repository is at the technical-bootstrap stage. The first runnable scene proves:
+## Architecture rule
 
-- a Godot Mobile-renderer project;
-- deterministic seeded data generation;
-- a batched `MultiMesh` terrain preview;
-- a data-oriented kinetic stress calculation;
-- an automated rendered screenshot path; and
-- headless tests plus an Android debug export in GitHub Actions.
+The world is data-oriented. Blocks are not Godot nodes. Each chunk is one generated mesh, with collision limited to the nearby safety band. Scene-tree changes are budgeted and performed incrementally.
 
-The mechanical display in the bootstrap scene is a QA fixture, not final art or final gameplay.
+## Branch policy
 
-## Local validation
+Physics contraptions, machines, settlements, vegetation and decorative systems are blocked until the playable-world quality gates in `docs/QUALITY_GATES.md` pass on the target Vivo T3x.
 
-With Godot 4.7.1 available as `godot`:
+## Planning documents
 
-```bash
-godot --headless --path . --editor --quit
-godot --headless --path . --script res://tests/run_tests.gd
-```
+- `docs/ARCHITECTURE.md` — how the current world pipeline works;
+- `docs/DECISIONS.md` — binding architecture decisions and exit conditions;
+- `docs/QUALITY_GATES.md` — the evidence required before the milestone is accepted;
+- `docs/ROADMAP.md` — ordered future development phases;
+- `docs/REFERENCE_MOD_MAP.md` — which reference informs each future subsystem.
 
-Rendered QA capture on Linux:
+## Controls
 
-```bash
-xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy -- --qa-screenshot=artifacts/bootstrap.png
-```
+Desktop: WASD, Shift, Space, mouse look, left-click mine, right-click place.
 
-## CI outputs
+Android: left joystick, drag the right side to look, and use JUMP, MINE and PLACE.
 
-The `TEKNIK CI` workflow uploads:
+## Truth policy
 
-- the Android debug APK;
-- the deterministic bootstrap screenshot; and
-- test/build logs exposed by GitHub Actions.
-
-Debug-only QA hooks are excluded from the product design and do not constitute a creative mode.
-
+A successful CI build proves only that the project parses, runs its smoke test and exports. The milestone is accepted only after gameplay and performance are verified on the physical target phone.
