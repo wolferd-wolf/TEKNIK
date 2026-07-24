@@ -9,14 +9,25 @@ const TELEMETRY_PREVIOUS_PATH := "user://teknik_telemetry.previous.jsonl"
 const TELEMETRY_INTERVAL_SECONDS := 1.0
 const TELEMETRY_MAX_SAMPLES := 600
 const TELEMETRY_MAX_BYTES := 2 * 1024 * 1024
+const HITCH_THRESHOLD_33_MS := 33.333
+const HITCH_THRESHOLD_50_MS := 50.0
+const HITCH_THRESHOLD_100_MS := 100.0
 
 var world: Node3D
 var player: CharacterBody3D
 var hud: CanvasLayer
 var telemetry_elapsed := 0.0
+var session_elapsed := 0.0
 var frame_samples_ms: Array[float] = []
 var telemetry_write_failures := 0
 var last_telemetry_snapshot: Dictionary = {}
+var interval_peak_frame_ms := 0.0
+var interval_hitches_33_ms := 0
+var interval_hitches_50_ms := 0
+var interval_hitches_100_ms := 0
+var total_hitches_33_ms := 0
+var total_hitches_50_ms := 0
+var total_hitches_100_ms := 0
 
 func _ready() -> void:
 	_prepare_telemetry_file()
@@ -33,11 +44,13 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_record_frame_sample(delta)
+	session_elapsed += delta
 	telemetry_elapsed += delta
 	if telemetry_elapsed >= TELEMETRY_INTERVAL_SECONDS:
 		telemetry_elapsed = fmod(telemetry_elapsed, TELEMETRY_INTERVAL_SECONDS)
 		last_telemetry_snapshot = _capture_telemetry_snapshot()
 		_append_telemetry_snapshot(last_telemetry_snapshot)
+		_reset_interval_hitch_counters()
 
 func _setup_environment() -> void:
 	var world_environment := WorldEnvironment.new()
@@ -87,19 +100,38 @@ func _on_spawn_ready(spawn_position: Vector3) -> void:
 	hud.attach_player(player)
 
 func _record_frame_sample(delta: float) -> void:
-	frame_samples_ms.append(delta * 1000.0)
+	var frame_ms := delta * 1000.0
+	frame_samples_ms.append(frame_ms)
 	if frame_samples_ms.size() > TELEMETRY_MAX_SAMPLES:
 		frame_samples_ms.pop_front()
+	interval_peak_frame_ms = maxf(interval_peak_frame_ms, frame_ms)
+	if frame_ms >= HITCH_THRESHOLD_33_MS:
+		interval_hitches_33_ms += 1
+		total_hitches_33_ms += 1
+	if frame_ms >= HITCH_THRESHOLD_50_MS:
+		interval_hitches_50_ms += 1
+		total_hitches_50_ms += 1
+	if frame_ms >= HITCH_THRESHOLD_100_MS:
+		interval_hitches_100_ms += 1
+		total_hitches_100_ms += 1
 
 func _capture_telemetry_snapshot() -> Dictionary:
 	var snapshot := {
-		"schema": 1,
+		"schema": 2,
 		"timestamp_unix_ms": int(Time.get_unix_time_from_system() * 1000.0),
+		"session_elapsed_seconds": session_elapsed,
 		"fps": Engine.get_frames_per_second(),
 		"frame_sample_count": frame_samples_ms.size(),
 		"frame_p50_ms": _percentile(frame_samples_ms, 0.50),
 		"frame_p90_ms": _percentile(frame_samples_ms, 0.90),
 		"frame_p99_ms": _percentile(frame_samples_ms, 0.99),
+		"interval_peak_frame_ms": interval_peak_frame_ms,
+		"interval_hitches_33_ms": interval_hitches_33_ms,
+		"interval_hitches_50_ms": interval_hitches_50_ms,
+		"interval_hitches_100_ms": interval_hitches_100_ms,
+		"total_hitches_33_ms": total_hitches_33_ms,
+		"total_hitches_50_ms": total_hitches_50_ms,
+		"total_hitches_100_ms": total_hitches_100_ms,
 		"telemetry_write_failures": telemetry_write_failures
 	}
 
@@ -121,6 +153,12 @@ func _capture_telemetry_snapshot() -> Dictionary:
 		snapshot["stream_hold_count"] = player.stream_hold_count
 
 	return snapshot
+
+func _reset_interval_hitch_counters() -> void:
+	interval_peak_frame_ms = 0.0
+	interval_hitches_33_ms = 0
+	interval_hitches_50_ms = 0
+	interval_hitches_100_ms = 0
 
 func _percentile(values: Array[float], fraction: float) -> float:
 	if values.is_empty():
