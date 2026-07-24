@@ -72,6 +72,12 @@ func qa_save_edits_now() -> void:
 		get_tree().quit(1)
 		return
 	print(
+		"QA_CRAFTING_PASS crafted=", _qa_crafted_items,
+		" workbenches=", _inventory.count(ItemRegistry.ITEM_WORKBENCH),
+		" hand_cranks=", _inventory.count(ItemRegistry.ITEM_HAND_CRANK),
+		" persisted=", inventory_persisted and progression_persisted
+	)
+	print(
 		"QA_ENGINEERING_PASS crafted=", _qa_crafted_items,
 		" workbenches=", _inventory.count(ItemRegistry.ITEM_WORKBENCH),
 		" hand_cranks=", _inventory.count(ItemRegistry.ITEM_HAND_CRANK),
