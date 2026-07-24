@@ -25,11 +25,12 @@ func update(delta: float, target: Variant) -> bool:
 	if not _held or target == null:
 		reset_progress()
 		return false
+	var safe_delta: float = maxf(delta, 0.0)
 	if _target == null or _target != target:
 		_target = target
-		_elapsed = 0.0
-		return false
-	_elapsed += maxf(delta, 0.0)
+		_elapsed = safe_delta
+	else:
+		_elapsed += safe_delta
 	if _elapsed < repeat_seconds:
 		return false
 	_elapsed = fmod(_elapsed, repeat_seconds)
