@@ -2,7 +2,7 @@ extends SceneTree
 
 const ControlMath = preload("res://src/player/mobile_control_math.gd")
 const ExplorationController = preload("res://src/player/exploration_controller.gd")
-const MiningHoldState = preload("res://src/player/mining_hold_state.gd")
+const MiningController = preload("res://src/player/mining_controller.gd")
 const InteractionMath = preload("res://src/world/world_interaction_math.gd")
 const VoxelRaycast = preload("res://src/world/voxel_raycast.gd")
 const EditRebuildScheduler = preload("res://src/world/edit_rebuild_scheduler.gd")
@@ -80,25 +80,32 @@ func _test_rapid_sequential_mining() -> void:
 	}
 	var lookup: Callable = func(voxel: Vector3i) -> bool: return solids.has(voxel)
 	var first: Dictionary = VoxelRaycast.cast(Vector3(0.5, 4.5, 0.5), Vector3.DOWN, 7.0, lookup)
-	_expect(first.get("voxel", Vector3i.ZERO) == Vector3i(0, 2, 0), "first tap selects the top block")
+	_expect(first.get("voxel", Vector3i.ZERO) == Vector3i(0, 2, 0), "authoritative ray selects the top block")
 	solids.erase(Vector3i(0, 2, 0))
 	var second: Dictionary = VoxelRaycast.cast(Vector3(0.5, 4.5, 0.5), Vector3.DOWN, 7.0, lookup)
-	_expect(second.get("voxel", Vector3i.ZERO) == Vector3i(0, 1, 0), "next tap immediately selects the deeper authoritative block")
+	_expect(second.get("voxel", Vector3i.ZERO) == Vector3i(0, 1, 0), "authoritative ray finds the next block after a visible edit")
 
 
 func _test_hold_to_mine_timing() -> void:
-	var hold: TeknikMiningHoldState = MiningHoldState.new()
-	hold.repeat_seconds = 0.25
-	hold.set_held(true)
+	var mining: TeknikMiningController = MiningController.new()
 	var first_target := Vector3i(0, 2, 0)
-	_expect(not hold.update(0.20, first_target), "held mining waits for its deterministic repeat interval")
-	_expect(hold.progress() > 0.7, "crosshair progress reports held mining advancement")
-	_expect(hold.update(0.05, first_target), "held mining repeats exactly when the interval completes")
+	mining.set_target(first_target, ItemRegistry.STONE, 1.0)
+	mining.set_pressed(true)
+	_expect(mining.update(0.0).is_empty(), "pressing BREAK does not instantly remove a block")
+	_expect(mining.update(0.72).is_empty(), "held mining remains incomplete before its duration")
+	_expect(mining.progress() > 0.7 and mining.progress() < 0.74, "block crack progress follows the held duration")
+	var completed: Dictionary = mining.update(0.28)
+	_expect(completed.get("voxel", Vector3i.ZERO) == first_target, "one locked block completes at full progress")
+	_expect(mining.is_waiting_for_commit(), "completed mining waits for the block to disappear visibly")
+	_expect(mining.update(2.0).is_empty(), "continued holding cannot remove hidden deeper blocks")
+	_expect(not mining.set_target(Vector3i(0, 1, 0), ItemRegistry.STONE, 1.0), "the target stays locked until the visible mesh commit")
+	mining.notify_visible_commit()
 	var next_target := Vector3i(0, 1, 0)
-	_expect(not hold.update(0.24, next_target), "moving to the next voxel resets repeat timing")
-	_expect(hold.update(0.25, next_target), "held mining continues through the newly highlighted voxel")
-	hold.set_held(false)
-	_expect(hold.progress() == 0.0, "releasing break clears mining progress")
+	_expect(mining.set_target(next_target, ItemRegistry.STONE, 1.0), "next exposed block can be acquired after visible commit")
+	_expect(is_zero_approx(mining.progress()), "the next block starts from zero progress")
+	mining.update(0.4)
+	mining.set_pressed(false)
+	_expect(mining.progress() == 0.0, "releasing BREAK cancels unfinished progress")
 
 
 func _test_busy_rebuild_retention() -> void:
@@ -178,6 +185,8 @@ func _test_survival_shipping_stack() -> void:
 	var survival_source: String = FileAccess.get_file_as_string("res://src/main/survival_main.gd")
 	var crosshair: String = FileAccess.get_file_as_string("res://src/player/block_target_crosshair.gd")
 	var controller: String = FileAccess.get_file_as_string("res://src/player/exploration_controller.gd")
+	var mining_controller: String = FileAccess.get_file_as_string("res://src/player/mining_controller.gd")
+	var mining_visual: String = FileAccess.get_file_as_string("res://src/player/mining_block_visual.gd")
 	_expect(
 		scene.contains("kinetic_capture_shipping_main.gd")
 		and capture.contains("placement_preview_main.gd")
@@ -193,11 +202,13 @@ func _test_survival_shipping_stack() -> void:
 	_expect(survival_source.contains("_survival_place_voxel"), "block placement consumes items")
 	_expect(survival_source.contains("RecipeBook.craft"), "shipping runtime uses atomic recipe transactions")
 	_expect(targeting.contains("VoxelRaycast.cast"), "shipping break targeting uses authoritative voxel traversal")
-	_expect(targeting.contains("_survival_break_voxel(voxel"), "break action removes the same voxel shown by the target feedback")
-	_expect(targeting.contains("MiningHoldState") and targeting.contains("_process_hold_mining"), "shipping mining repeats through deterministic target-locked hold state")
-	_expect(targeting.contains("BlockTargetOutline"), "selected block receives a world-space outline")
-	_expect(targeting.contains("QA_BLOCK_TARGETING_PASS"), "recorded gameplay verifies block-target feedback")
-	_expect(crosshair.contains("PRESET_FULL_RECT") and crosshair.contains("set_mining_progress"), "center crosshair displays target and mining progress")
+	_expect(targeting.contains("_survival_break_voxel(voxel"), "break completion removes the same locked voxel shown by feedback")
+	_expect(targeting.contains("MiningController") and targeting.contains("_process_mining"), "shipping mining uses one deterministic hold-to-break state machine")
+	_expect(mining_controller.contains("WAITING_FOR_COMMIT") and mining_controller.contains("set_pressed"), "mining lifecycle includes hold, cancel and visible-commit phases")
+	_expect(targeting.contains("MiningBlockVisual") and mining_visual.contains("Mesh.PRIMITIVE_LINES"), "selected block receives one thin world-space outline")
+	_expect(mining_visual.contains("MiningCrackOverlay") and mining_visual.contains("progress"), "selected block shows progressive procedural cracks")
+	_expect(targeting.contains("QA_MINING_SYSTEM_PASS"), "recorded gameplay verifies replacement mining feedback")
+	_expect(crosshair.contains("PRESET_FULL_RECT") and crosshair.contains("RETICLE_COLOR"), "center crosshair remains small and stable")
 	_expect(controller.contains("break_hold_changed") and controller.contains("break_hold_changed.connect"), "mouse and mobile break holds reach the shipping interaction layer")
 
 
