@@ -83,11 +83,20 @@ func _test_atomic_crafting_rules() -> void:
 
 
 func _test_survival_shipping_stack() -> void:
-	var scene_text: String = FileAccess.get_file_as_string("res://src/main/main.tscn")
+	var scene: String = FileAccess.get_file_as_string("res://src/main/main.tscn")
+	var kinetic: String = FileAccess.get_file_as_string("res://src/main/kinetic_machine_main.gd")
+	var survival_shipping: String = FileAccess.get_file_as_string("res://src/main/survival_shipping_main.gd")
+	var engineering: String = FileAccess.get_file_as_string("res://src/main/engineering_progression_main.gd")
 	var survival_source: String = FileAccess.get_file_as_string("res://src/main/survival_main.gd")
 	var qa_source: String = FileAccess.get_file_as_string("res://src/main/survival_shipping_main.gd")
-	_expect(scene_text.contains("survival_shipping_main.gd"), "shipping scene enables survival gameplay")
-	_expect(scene_text.contains("procedural_gameplay_main.gd_stream.gd"), "survival retains chunk-local vegetation")
+	_expect(
+		scene.contains("kinetic_machine_main.gd")
+		and kinetic.contains("survival_shipping_main.gd")
+		and survival_shipping.contains("engineering_progression_main.gd")
+		and engineering.contains("survival_main.gd"),
+		"shipping scene enables survival gameplay through the kinetic progression stack"
+	)
+	_expect(survival_source.contains("multi_lod_main.gd"), "survival retains the world and chunk-local vegetation stack")
 	_expect(survival_source.contains("_survival_break_voxel"), "block breaking creates item drops")
 	_expect(survival_source.contains("_survival_place_voxel"), "block placement consumes items")
 	_expect(survival_source.contains("CraftStoneGear"), "mobile crafting control is present")
