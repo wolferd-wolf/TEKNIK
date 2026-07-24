@@ -9,6 +9,9 @@ config/features=PackedStringArray("4.7", "Mobile")
 config/icon="res://assets/branding/teknik_icon.svg"
 boot_splash/bg_color=Color(0.035, 0.047, 0.06, 1)
 
+[autoload]
+SaveGuardian="*res://scripts/persistence/save_guardian.gd"
+
 [display]
 window/size/viewport_width=1280
 window/size/viewport_height=720
