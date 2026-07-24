@@ -180,6 +180,30 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
           path: artifacts/gameplay/
+      - name: Record real mining interaction
+        run: |
+          mkdir -p artifacts/mining
+          xvfb-run -a -s "-screen 0 1280x720x24" bash -c '
+            set -euo pipefail
+            ffmpeg -y -loglevel warning -f x11grab -draw_mouse 0 -framerate 30 -video_size 1280x720 -i "${DISPLAY}.0" -c:v libx264 -preset veryfast -pix_fmt yuv420p artifacts/mining/TEKNIK-mining.mp4 &
+            recorder_pid=$!
+            cleanup() { kill -INT "$recorder_pid" 2>/dev/null || true; wait "$recorder_pid" 2>/dev/null || true; }
+            trap cleanup EXIT
+            godot --path . --rendering-method gl_compatibility --resolution 1280x720 -- --qa-mining-demo --qa-mining-poster=res://artifacts/mining/TEKNIK-mining-cracks.png 2>&1 | tee artifacts/mining/mining.log
+            test -s artifacts/mining/TEKNIK-mining-cracks.png
+          '
+          test -s artifacts/mining/TEKNIK-mining.mp4
+          grep -q "QA_MINING_CANCEL_PASS" artifacts/mining/mining.log
+          grep -q "QA_MINING_CRACK_PASS" artifacts/mining/mining.log
+          grep -q "QA_MINING_DEMO_PASS" artifacts/mining/mining.log
+      - name: Publish mining recording
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TEKNIK-Mining-${{ github.sha }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: artifacts/mining/
       - name: Set up Android command-line tools
         uses: android-actions/setup-android@v3
       - name: Install Android ARM64 dependencies
