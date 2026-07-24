@@ -1,14 +1,16 @@
 class_name TeknikBlockTargetCrosshair
 extends Control
 
-const IDLE_COLOR := Color(0.96, 0.98, 1.0, 0.92)
+const IDLE_COLOR := Color(0.96, 0.98, 1.0, 0.98)
 const TARGET_COLOR := Color(1.0, 0.72, 0.18, 1.0)
-const SHADOW_COLOR := Color(0.0, 0.0, 0.0, 0.78)
-const ARM_LENGTH: float = 10.0
-const CENTER_GAP: float = 4.0
-const PROGRESS_RADIUS: float = 16.0
+const PENDING_COLOR := Color(1.0, 0.32, 0.16, 1.0)
+const SHADOW_COLOR := Color(0.0, 0.0, 0.0, 0.86)
+const ARM_LENGTH: float = 15.0
+const CENTER_GAP: float = 5.0
+const PROGRESS_RADIUS: float = 21.0
 
 var _targeted: bool = false
+var _pending: bool = false
 var _mining_progress: float = 0.0
 
 
@@ -25,6 +27,13 @@ func set_targeted(targeted: bool) -> void:
 	queue_redraw()
 
 
+func set_pending(pending: bool) -> void:
+	if pending == _pending:
+		return
+	_pending = pending
+	queue_redraw()
+
+
 func set_mining_progress(progress: float) -> void:
 	var next_progress: float = clampf(progress, 0.0, 1.0)
 	if is_equal_approx(next_progress, _mining_progress):
@@ -35,6 +44,10 @@ func set_mining_progress(progress: float) -> void:
 
 func is_targeted() -> bool:
 	return _targeted
+
+
+func is_pending() -> bool:
+	return _pending
 
 
 func mining_progress() -> float:
@@ -50,12 +63,12 @@ func _draw() -> void:
 		PackedVector2Array([center + Vector2(0.0, CENTER_GAP), center + Vector2(0.0, ARM_LENGTH)]),
 	]
 	for segment: PackedVector2Array in segments:
-		draw_line(segment[0], segment[1], SHADOW_COLOR, 5.0, true)
-	var color: Color = TARGET_COLOR if _targeted else IDLE_COLOR
+		draw_line(segment[0], segment[1], SHADOW_COLOR, 6.0, true)
+	var color: Color = PENDING_COLOR if _pending else TARGET_COLOR if _targeted else IDLE_COLOR
 	for segment: PackedVector2Array in segments:
-		draw_line(segment[0], segment[1], color, 2.2, true)
-	draw_circle(center, 2.1, SHADOW_COLOR)
-	draw_circle(center, 1.15, color)
-	if _targeted and _mining_progress > 0.0:
-		draw_arc(center, PROGRESS_RADIUS, -PI * 0.5, -PI * 0.5 + TAU * _mining_progress, 32, SHADOW_COLOR, 5.0, true)
-		draw_arc(center, PROGRESS_RADIUS, -PI * 0.5, -PI * 0.5 + TAU * _mining_progress, 32, TARGET_COLOR, 2.4, true)
+		draw_line(segment[0], segment[1], color, 3.0, true)
+	draw_circle(center, 3.0, SHADOW_COLOR)
+	draw_circle(center, 1.6, color)
+	if _targeted and not _pending and _mining_progress > 0.0:
+		draw_arc(center, PROGRESS_RADIUS, -PI * 0.5, -PI * 0.5 + TAU * _mining_progress, 40, SHADOW_COLOR, 6.0, true)
+		draw_arc(center, PROGRESS_RADIUS, -PI * 0.5, -PI * 0.5 + TAU * _mining_progress, 40, TARGET_COLOR, 3.0, true)
