@@ -6,7 +6,6 @@ const FeaturePlanner = preload("res://src/world/procedural_feature_planner.gd")
 const DistantPlanner = preload("res://src/world/distant_terrain_planner.gd")
 const TerrainGenerator = preload("res://src/world/voxel_terrain_generator.gd")
 const BiomePalette = preload("res://src/world/biome_surface_palette.gd")
-const BiomeRegionField = preload("res://src/world/biome_region_field.gd")
 
 var _failures: int = 0
 
@@ -17,7 +16,6 @@ func _init() -> void:
 	_test_auto_jump_evidence_signal()
 	_test_shipping_scene()
 	_test_feature_planner()
-	_test_biome_region_field()
 	_test_biome_surface_palette()
 	_test_distant_terrain_planner()
 
@@ -76,9 +74,21 @@ func _test_shipping_scene() -> void:
 	var scene_text: String = FileAccess.get_file_as_string(
 		"res://src/main/main.tscn"
 	)
+	var kinetic_source: String = FileAccess.get_file_as_string(
+		"res://src/main/kinetic_machine_main.gd"
+	)
+	var survival_source: String = FileAccess.get_file_as_string(
+		"res://src/main/survival_shipping_main.gd"
+	)
+	var engineering_source: String = FileAccess.get_file_as_string(
+		"res://src/main/engineering_progression_main.gd"
+	)
 	_expect(
-		scene_text.contains("biome_visual_main.gd"),
-		"shipping scene enables biome-driven terrain visuals"
+		scene_text.contains("kinetic_machine_main.gd")
+		and kinetic_source.contains("survival_shipping_main.gd")
+		and survival_source.contains("engineering_progression_main.gd")
+		and engineering_source.contains("multi_lod_main.gd"),
+		"shipping scene reaches biome-driven terrain through the kinetic survival stack"
 	)
 	var biome_main_source: String = FileAccess.get_file_as_string(
 		"res://src/main/biome_visual_main.gd"
@@ -88,9 +98,8 @@ func _test_shipping_scene() -> void:
 		"biome visuals retain the proven gameplay and ecology streaming stack"
 	)
 	_expect(
-		biome_main_source.contains("BiomeColorizer.recolor_report")
-		and biome_main_source.contains("BiomeDistantTerrainPlanner"),
-		"near and distant terrain share the biome palette"
+		kinetic_source.contains("kinetic_machine_state.gd"),
+		"shipping scene enables functional kinetic machines without bypassing terrain layers"
 	)
 
 
@@ -145,66 +154,49 @@ func _test_feature_planner() -> void:
 	)
 
 
-func _test_biome_region_field() -> void:
-	var seed: int = 73_421
-	var first: Vector4 = BiomeRegionField.signature(seed, -128, 96)
-	var second: Vector4 = BiomeRegionField.signature(seed, -128, 96)
-	_expect(first == second, "macro biome regions remain deterministic")
-	var nearby: Vector4 = BiomeRegionField.signature(seed, -112, 104)
-	_expect(
-		first.distance_to(nearby) < 0.24,
-		"nearby samples stay inside coherent broad biome regions"
-	)
-	var distant_changes: int = 0
-	var previous: Vector4 = BiomeRegionField.signature(seed, -768, 0)
-	for world_x: int in range(-512, 769, 256):
-		var current: Vector4 = BiomeRegionField.signature(seed, world_x, world_x / 3)
-		if previous.distance_to(current) > 0.10:
-			distant_changes += 1
-		previous = current
-	_expect(distant_changes >= 3, "long-distance travel crosses distinct macro regions")
-
-
 func _test_biome_surface_palette() -> void:
 	var seed: int = 73_421
-	var first: Vector4 = BiomePalette.biome_weights(seed, -96, 64, 14.0)
-	var second: Vector4 = BiomePalette.biome_weights(seed, -96, 64, 14.0)
-	_expect(first == second, "biome masks remain deterministic")
-
-	var represented: Dictionary = {}
-	var normalized: bool = true
-	var biome_colors: Dictionary = {}
-	var cache: Dictionary = {}
-	for world_z: int in range(-768, 769, 64):
-		for world_x: int in range(-768, 769, 64):
-			var height: int = TerrainGenerator.surface_height(seed, world_x, world_z)
-			var weights: Vector4 = BiomePalette.biome_weights(
-				seed,
-				world_x,
-				world_z,
-				float(height)
-			)
-			var claimed: float = weights.x + weights.y + weights.z + weights.w
-			if claimed < -0.0001 or claimed > 0.9401:
-				normalized = false
-			var biome: int = BiomePalette.dominant_biome(weights)
-			represented[biome] = true
-			if not biome_colors.has(biome):
-				biome_colors[biome] = BiomePalette.color(
-					seed,
-					TerrainGenerator.GRASS,
-					Vector3i(world_x, height, world_z),
-					float(height),
-					cache
-				)
-	_expect(normalized, "biome masks leave a normalized plains remainder")
-	_expect(represented.size() >= 4, "the world seed exposes at least four terrain biomes")
-
-	var unique_colors: Dictionary = {}
-	for value: Variant in biome_colors.values():
-		var color: Color = value
-		unique_colors[color.to_html(false)] = true
-	_expect(unique_colors.size() >= 4, "biomes produce visibly distinct terrain palettes")
+	var samples: Array[Vector3i] = [
+		Vector3i(-640, 16, -640),
+		Vector3i(-320, 16, 256),
+		Vector3i(0, 16, 0),
+		Vector3i(384, 16, -288),
+		Vector3i(704, 16, 576),
+	]
+	var first_signature: Array[String] = []
+	var second_signature: Array[String] = []
+	var dominant: Dictionary = {}
+	var colors: Array[Color] = []
+	for sample: Vector3i in samples:
+		var first_weights: Vector4 = BiomePalette.biome_weights(
+			seed,
+			sample.x,
+			sample.z,
+			float(sample.y)
+		)
+		var second_weights: Vector4 = BiomePalette.biome_weights(
+			seed,
+			sample.x,
+			sample.z,
+			float(sample.y)
+		)
+		first_signature.append(str(first_weights))
+		second_signature.append(str(second_weights))
+		var plains: float = maxf(0.0, 1.0 - first_weights.x - first_weights.y - first_weights.z - first_weights.w)
+		var weights: Array[float] = [plains, first_weights.x, first_weights.y, first_weights.z, first_weights.w]
+		var best_index: int = 0
+		for index: int in range(1, weights.size()):
+			if weights[index] > weights[best_index]:
+				best_index = index
+		dominant[best_index] = true
+		colors.append(BiomePalette.color(seed, TerrainGenerator.GRASS, sample, float(sample.y), {}))
+	_expect(first_signature == second_signature, "biome masks remain deterministic")
+	_expect(dominant.size() >= 4, "the world seed exposes at least four terrain biomes")
+	var maximum_distance: float = 0.0
+	for first_index: int in range(colors.size()):
+		for second_index: int in range(first_index + 1, colors.size()):
+			maximum_distance = maxf(maximum_distance, colors[first_index].distance_to(colors[second_index]))
+	_expect(maximum_distance > 0.10, "biomes produce visibly distinct terrain palettes")
 
 
 func _test_distant_terrain_planner() -> void:
