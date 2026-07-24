@@ -27,7 +27,18 @@ func _init() -> void:
 		"combined LOD planning remains deterministic"
 	)
 	var scene_text: String = FileAccess.get_file_as_string("res://src/main/main.tscn")
-	_expect(scene_text.contains("multi_lod_main.gd"), "shipping scene enables intermediate terrain LOD")
+	var kinetic_text: String = FileAccess.get_file_as_string("res://src/main/kinetic_machine_main.gd")
+	var shipping_text: String = FileAccess.get_file_as_string("res://src/main/survival_shipping_main.gd")
+	var engineering_text: String = FileAccess.get_file_as_string("res://src/main/engineering_progression_main.gd")
+	var survival_text: String = FileAccess.get_file_as_string("res://src/main/survival_main.gd")
+	_expect(
+		scene_text.contains("kinetic_machine_main.gd")
+		and kinetic_text.contains("survival_shipping_main.gd")
+		and shipping_text.contains("engineering_progression_main.gd")
+		and engineering_text.contains("survival_main.gd")
+		and survival_text.contains("multi_lod_main.gd"),
+		"shipping scene enables intermediate terrain LOD through the kinetic survival stack"
+	)
 	var runtime_text: String = FileAccess.get_file_as_string("res://src/main/multi_lod_main.gd")
 	_expect(runtime_text.contains("vegetation_untouched"), "LOD runtime preserves chunk-local vegetation")
 	_expect(runtime_text.contains("overlap_filtered"), "LOD runtime records overlap filtering")
