@@ -12,6 +12,10 @@ const ITEM_SOIL: StringName = &"soil"
 const ITEM_GRASS: StringName = &"grass"
 const ITEM_SAND: StringName = &"sand"
 const ITEM_STONE_GEAR: StringName = &"stone_gear"
+const ITEM_WORKBENCH: StringName = &"workbench"
+const ITEM_CRUSHED_STONE: StringName = &"crushed_stone"
+const ITEM_STONE_SHAFT: StringName = &"stone_shaft"
+const ITEM_HAND_CRANK: StringName = &"hand_crank"
 
 const MAX_STACK: int = 64
 
@@ -55,7 +59,7 @@ static func is_placeable(item_id: StringName) -> bool:
 static func max_stack(item_id: StringName) -> int:
 	if not is_registered(item_id):
 		return 0
-	if item_id == ITEM_STONE_GEAR:
+	if item_id in [ITEM_STONE_GEAR, ITEM_WORKBENCH, ITEM_STONE_SHAFT, ITEM_HAND_CRANK]:
 		return 32
 	return MAX_STACK
 
@@ -72,9 +76,27 @@ static func display_name(item_id: StringName) -> String:
 			return "Sand"
 		ITEM_STONE_GEAR:
 			return "Stone Gear"
+		ITEM_WORKBENCH:
+			return "Stone Workbench"
+		ITEM_CRUSHED_STONE:
+			return "Crushed Stone"
+		ITEM_STONE_SHAFT:
+			return "Stone Shaft"
+		ITEM_HAND_CRANK:
+			return "Hand Crank"
 		_:
 			return "Empty"
 
 
 static func registered_items() -> Array[StringName]:
-	return [ITEM_STONE, ITEM_SOIL, ITEM_GRASS, ITEM_SAND, ITEM_STONE_GEAR]
+	return [
+		ITEM_STONE,
+		ITEM_SOIL,
+		ITEM_GRASS,
+		ITEM_SAND,
+		ITEM_STONE_GEAR,
+		ITEM_WORKBENCH,
+		ITEM_CRUSHED_STONE,
+		ITEM_STONE_SHAFT,
+		ITEM_HAND_CRANK,
+	]
