@@ -1,4 +1,4 @@
-extends "res://src/main/kinetic_machine_main.gd"
+extends "res://src/main/interactive_kinetic_main.gd"
 
 
 func qa_save_edits_now() -> void:
@@ -12,4 +12,6 @@ func qa_save_edits_now() -> void:
 	_runtime_log.event("info", "qa", "kinetic_evidence_player_frozen", {
 		"position": str(_player.global_position),
 		"machine_instances": _machine_root.get_child_count() if _machine_root != null else 0,
+		"interaction_enabled": true,
+		"animated_visuals": _rotating_visuals.size(),
 	})
