@@ -1,4 +1,4 @@
-extends "res://src/main/placement_preview_main.gd"
+extends "res://src/main/survival_vitals_main.gd"
 
 
 func qa_save_edits_now() -> void:
