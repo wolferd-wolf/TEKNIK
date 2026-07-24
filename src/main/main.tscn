@@ -1,7 +1,8 @@
 [gd_scene load_steps=2 format=3]
 
-; survival_shipping_main.gd extends the verified multi-LOD, collision, directional
-; streaming, safe cache, biome palette, and chunk-local vegetation stack.
+; survival_shipping_main.gd extends multi_lod_main.gd and therefore preserves
+; incremental_collision_main.gd -> movement_streaming_main.gd ->
+; biome_visual_main.gd -> procedural_gameplay_main.gd_stream.gd.
 ; It adds survival-only inventory, drops, placement costs, persistence, and HUD.
 [ext_resource type="Script" path="res://src/main/survival_shipping_main.gd" id="1_main"]
 
