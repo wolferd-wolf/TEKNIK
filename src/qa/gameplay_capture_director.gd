@@ -114,12 +114,24 @@ func _focus_runtime_evidence() -> void:
 	if counted <= 0:
 		return
 	center /= float(counted)
-	_player.global_position = center + Vector3(5.5, 3.4, 7.0)
+	var camera_x: float = center.x + 5.5
+	var camera_z: float = center.z + 7.0
+	var camera_ground: int = TerrainGenerator.surface_height(
+		int(_world.qa_world_seed()),
+		floori(camera_x),
+		floori(camera_z)
+	)
+	var camera_y: float = maxf(center.y + 7.0, float(camera_ground) + 4.0)
+	_player.global_position = Vector3(camera_x, camera_y, camera_z)
 	_player.velocity = Vector3.ZERO
 	_player.look_at_world(center)
 	await get_tree().process_frame
 	await get_tree().create_timer(1.5).timeout
-	print("QA_KINETIC_VISUAL_PASS instances=", counted, " target=", center)
+	print(
+		"QA_KINETIC_VISUAL_PASS instances=", counted,
+		" target=", center,
+		" camera=", _player.global_position
+	)
 
 
 func _verify_runtime_lod() -> bool:
