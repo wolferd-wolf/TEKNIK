@@ -5,6 +5,7 @@ const InteractionMath = preload("res://src/world/world_interaction_math.gd")
 const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
 const ItemRegistry = preload("res://src/survival/item_registry.gd")
 const StackInventory = preload("res://src/survival/stack_inventory.gd")
+const RecipeBook = preload("res://src/survival/recipe_book.gd")
 
 var _failures: int = 0
 
@@ -14,6 +15,7 @@ func _init() -> void:
 	_test_boundary_rebuilds()
 	_test_mobile_action_zones()
 	_test_survival_inventory_rules()
+	_test_atomic_crafting_rules()
 	_test_survival_shipping_stack()
 	if _failures == 0:
 		print("BLOCK_PLACEMENT_TEST_RESULT PASS")
@@ -64,6 +66,22 @@ func _test_survival_inventory_rules() -> void:
 	_expect(restored.encode() == encoded, "inventory save and reload is lossless")
 
 
+func _test_atomic_crafting_rules() -> void:
+	var inventory: TeknikStackInventory = StackInventory.new()
+	_expect(inventory.add(ItemRegistry.ITEM_STONE, 4) == 0, "recipe ingredients enter inventory")
+	_expect(RecipeBook.can_craft(inventory, RecipeBook.RECIPE_STONE_GEAR), "stone gear recipe becomes available")
+	_expect(RecipeBook.craft(inventory, RecipeBook.RECIPE_STONE_GEAR), "stone gear crafting succeeds")
+	_expect(inventory.count(ItemRegistry.ITEM_STONE) == 0, "crafting consumes exact ingredient count")
+	_expect(inventory.count(ItemRegistry.ITEM_STONE_GEAR) == 1, "crafting creates deterministic output")
+	var before_failed_craft: Dictionary = inventory.encode()
+	_expect(not RecipeBook.craft(inventory, RecipeBook.RECIPE_STONE_GEAR), "crafting is denied without ingredients")
+	_expect(inventory.encode() == before_failed_craft, "failed crafting transaction changes nothing")
+	var restored: TeknikStackInventory = StackInventory.new()
+	_expect(restored.decode(inventory.encode()), "crafted items decode from save payload")
+	_expect(restored.count(ItemRegistry.ITEM_STONE_GEAR) == 1, "crafted output survives reload")
+	_expect(ItemRegistry.material_for_item(ItemRegistry.ITEM_STONE_GEAR) == ItemRegistry.AIR, "engineering component is not placeable terrain")
+
+
 func _test_survival_shipping_stack() -> void:
 	var scene_text: String = FileAccess.get_file_as_string("res://src/main/main.tscn")
 	var survival_source: String = FileAccess.get_file_as_string("res://src/main/survival_main.gd")
@@ -72,7 +90,9 @@ func _test_survival_shipping_stack() -> void:
 	_expect(scene_text.contains("procedural_gameplay_main.gd_stream.gd"), "survival retains chunk-local vegetation")
 	_expect(survival_source.contains("_survival_break_voxel"), "block breaking creates item drops")
 	_expect(survival_source.contains("_survival_place_voxel"), "block placement consumes items")
-	_expect(survival_source.contains("SurvivalInventoryHUD"), "mobile inventory HUD is present")
+	_expect(survival_source.contains("CraftStoneGear"), "mobile crafting control is present")
+	_expect(survival_source.contains("RecipeBook.craft"), "shipping runtime uses atomic recipe transactions")
+	_expect(qa_source.contains("QA_CRAFTING_PASS"), "recorded gameplay verifies crafting persistence")
 	_expect(qa_source.contains("QA_SURVIVAL_PASS"), "recorded gameplay verifies inventory persistence")
 
 
