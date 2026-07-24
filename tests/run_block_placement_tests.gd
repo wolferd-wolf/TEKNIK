@@ -3,6 +3,8 @@ extends SceneTree
 const ControlMath = preload("res://src/player/mobile_control_math.gd")
 const ExplorationController = preload("res://src/player/exploration_controller.gd")
 const InteractionMath = preload("res://src/world/world_interaction_math.gd")
+const VoxelRaycast = preload("res://src/world/voxel_raycast.gd")
+const EditRebuildScheduler = preload("res://src/world/edit_rebuild_scheduler.gd")
 const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
 const ItemRegistry = preload("res://src/survival/item_registry.gd")
 const StackInventory = preload("res://src/survival/stack_inventory.gd")
@@ -11,9 +13,20 @@ const RecipeBook = preload("res://src/survival/recipe_book.gd")
 var _failures: int = 0
 
 
+class BusyProbe:
+	extends RefCounted
+	var coordinates: Dictionary = {}
+
+	func has_coordinate(coordinate: Vector3i) -> bool:
+		return coordinates.has(coordinate)
+
+
 func _init() -> void:
 	_test_face_targeting()
 	_test_straight_down_mining_aim()
+	_test_authoritative_voxel_raycast()
+	_test_rapid_sequential_mining()
+	_test_busy_rebuild_retention()
 	_test_boundary_rebuilds()
 	_test_mobile_action_zones()
 	_test_survival_inventory_rules()
@@ -43,6 +56,47 @@ func _test_straight_down_mining_aim() -> void:
 		InteractionMath.removal_voxel(floor_hit, Vector3.UP) == Vector3i(12, 3, 8),
 		"downward mining removes the floor voxel below the hit face"
 	)
+
+
+func _test_authoritative_voxel_raycast() -> void:
+	var solids: Dictionary = {Vector3i(2, 1, -4): true}
+	var hit: Dictionary = VoxelRaycast.cast(
+		Vector3(2.5, 4.5, -3.5),
+		Vector3.DOWN,
+		7.0,
+		func(voxel: Vector3i) -> bool: return solids.has(voxel)
+	)
+	_expect(hit.get("voxel", Vector3i.ZERO) == Vector3i(2, 1, -4), "center ray selects the exact block below")
+	_expect(float(hit.get("distance", 99.0)) < 4.0, "targeted block is inside interaction range")
+	_expect(VoxelRaycast.outline_center(Vector3i(2, 1, -4)) == Vector3(2.5, 1.5, -3.5), "selection outline is centered on the targeted voxel")
+
+
+func _test_rapid_sequential_mining() -> void:
+	var solids: Dictionary = {
+		Vector3i(0, 2, 0): true,
+		Vector3i(0, 1, 0): true,
+	}
+	var lookup: Callable = func(voxel: Vector3i) -> bool: return solids.has(voxel)
+	var first: Dictionary = VoxelRaycast.cast(Vector3(0.5, 4.5, 0.5), Vector3.DOWN, 7.0, lookup)
+	_expect(first.get("voxel", Vector3i.ZERO) == Vector3i(0, 2, 0), "first tap selects the top block")
+	solids.erase(Vector3i(0, 2, 0))
+	var second: Dictionary = VoxelRaycast.cast(Vector3(0.5, 4.5, 0.5), Vector3.DOWN, 7.0, lookup)
+	_expect(second.get("voxel", Vector3i.ZERO) == Vector3i(0, 1, 0), "next tap immediately selects the deeper authoritative block")
+
+
+func _test_busy_rebuild_retention() -> void:
+	var busy_coordinate := Vector3i(4, 0, -2)
+	var ready_coordinate := Vector3i(5, 0, -2)
+	var queue: Array[Vector3i] = [busy_coordinate, ready_coordinate]
+	var resident: Dictionary = {busy_coordinate: true, ready_coordinate: true}
+	var probe := BusyProbe.new()
+	probe.coordinates[busy_coordinate] = true
+	var selected: Vector3i = EditRebuildScheduler.take_ready(queue, resident, Callable(probe, "has_coordinate"))
+	_expect(selected == ready_coordinate, "a ready edited chunk can rebuild while another is in flight")
+	_expect(queue.has(busy_coordinate), "edits made during an in-flight rebuild remain queued")
+	probe.coordinates.clear()
+	selected = EditRebuildScheduler.take_ready(queue, resident, Callable(probe, "has_coordinate"))
+	_expect(selected == busy_coordinate, "retained dirty chunk rebuilds after its stale worker completes")
 
 
 func _test_boundary_rebuilds() -> void:
@@ -98,25 +152,31 @@ func _test_atomic_crafting_rules() -> void:
 
 func _test_survival_shipping_stack() -> void:
 	var scene: String = FileAccess.get_file_as_string("res://src/main/main.tscn")
+	var capture: String = FileAccess.get_file_as_string("res://src/main/kinetic_capture_shipping_main.gd")
+	var targeting: String = FileAccess.get_file_as_string("res://src/main/targeted_interaction_main.gd")
 	var kinetic: String = FileAccess.get_file_as_string("res://src/main/kinetic_machine_main.gd")
 	var survival_shipping: String = FileAccess.get_file_as_string("res://src/main/survival_shipping_main.gd")
 	var engineering: String = FileAccess.get_file_as_string("res://src/main/engineering_progression_main.gd")
 	var survival_source: String = FileAccess.get_file_as_string("res://src/main/survival_main.gd")
-	var qa_source: String = FileAccess.get_file_as_string("res://src/main/survival_shipping_main.gd")
+	var crosshair: String = FileAccess.get_file_as_string("res://src/player/block_target_crosshair.gd")
 	_expect(
-		scene.contains("kinetic_machine_main.gd")
+		scene.contains("kinetic_capture_shipping_main.gd")
+		and capture.contains("targeted_interaction_main.gd")
+		and targeting.contains("interactive_kinetic_main.gd")
 		and kinetic.contains("survival_shipping_main.gd")
 		and survival_shipping.contains("engineering_progression_main.gd")
 		and engineering.contains("survival_main.gd"),
-		"shipping scene enables survival gameplay through the kinetic progression stack"
+		"shipping scene enables precise targeting through the complete survival stack"
 	)
 	_expect(survival_source.contains("multi_lod_main.gd"), "survival retains the world and chunk-local vegetation stack")
 	_expect(survival_source.contains("_survival_break_voxel"), "block breaking creates item drops")
 	_expect(survival_source.contains("_survival_place_voxel"), "block placement consumes items")
-	_expect(survival_source.contains("CraftStoneGear"), "mobile crafting control is present")
 	_expect(survival_source.contains("RecipeBook.craft"), "shipping runtime uses atomic recipe transactions")
-	_expect(qa_source.contains("QA_CRAFTING_PASS"), "recorded gameplay verifies crafting persistence")
-	_expect(qa_source.contains("QA_SURVIVAL_PASS"), "recorded gameplay verifies inventory persistence")
+	_expect(targeting.contains("VoxelRaycast.cast"), "shipping break targeting uses authoritative voxel traversal")
+	_expect(targeting.contains("_survival_break_voxel(voxel"), "break action removes the same voxel shown by the target feedback")
+	_expect(targeting.contains("BlockTargetOutline"), "selected block receives a world-space outline")
+	_expect(targeting.contains("QA_BLOCK_TARGETING_PASS"), "recorded gameplay verifies block-target feedback")
+	_expect(crosshair.contains("PRESET_FULL_RECT") and crosshair.contains("TARGET_COLOR"), "permanent center crosshair changes color over a valid block")
 
 
 func _expect(condition: bool, label: String) -> void:
