@@ -145,6 +145,7 @@ jobs:
         run: |
           godot --headless --path . --editor --quit
           godot --headless --path . --script res://tests/run_mobile_regression_tests.gd
+          godot --headless --path . --script res://tests/run_multi_lod_tests.gd
           godot --headless --path . --script res://tests/run_native_chunk_parity_tests.gd
           godot --headless --path . --script res://tests/run_native_worker_integration_tests.gd
           godot --headless --path . --script res://tests/run_tests.gd
