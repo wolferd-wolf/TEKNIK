@@ -132,6 +132,7 @@ jobs:
             godot --headless --path . --script res://tests/run_block_targeting_tests.gd
             godot --headless --path . --script res://tests/run_placement_preview_tests.gd
             godot --headless --path . --script res://tests/run_survival_inventory_tests.gd
+            godot --headless --path . --script res://tests/run_survival_vitals_tests.gd
             godot --headless --path . --script res://tests/run_engineering_progression_tests.gd
             godot --headless --path . --script res://tests/run_kinetic_machine_tests.gd
           } 2>&1 | tee artifacts/test-logs/essential-tests.log
@@ -160,6 +161,7 @@ jobs:
           grep -q "QA_BLOCK_TARGETING_PASS" artifacts/gameplay/gameplay.log
           grep -q "QA_PLACEMENT_PREVIEW_PASS" artifacts/gameplay/gameplay.log
           grep -q "QA_HOTBAR_PASS" artifacts/gameplay/gameplay.log
+          grep -q "QA_SURVIVAL_VITALS_PASS" artifacts/gameplay/gameplay.log
       - name: Publish gameplay recording
         if: always()
         uses: actions/upload-artifact@v4
