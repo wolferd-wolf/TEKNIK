@@ -1,9 +1,10 @@
 extends "res://src/main/survival_shipping_main.gd"
 
 const KineticMachineState = preload("res://src/simulation/kinetic_machine_state.gd")
+const TerrainGeneratorLocal = preload("res://src/world/voxel_terrain_generator.gd")
 const MACHINE_SAVE_PATH: String = "user://teknik-machines.json"
 
-var _machines: TeknikKineticMachineState = KineticMachineState.new()
+var _machines = KineticMachineState.new()
 var _machine_root: Node3D
 var _machine_status: Label
 
@@ -56,7 +57,10 @@ func _assemble_starter_machine() -> bool:
 		return false
 	_inventory.remove(ItemRegistry.ITEM_WORKBENCH, 1)
 	_inventory.remove(ItemRegistry.ITEM_HAND_CRANK, 1)
-	var origin := Vector3i(roundi(_planned_spawn.x) + 3, TerrainGenerator.surface_height(WORLD_SEED, roundi(_planned_spawn.x) + 3, roundi(_planned_spawn.z)) + 1, roundi(_planned_spawn.z))
+	var world_x: int = roundi(_planned_spawn.x) + 3
+	var world_z: int = roundi(_planned_spawn.z)
+	var world_y: int = TerrainGeneratorLocal.surface_height(WORLD_SEED, world_x, world_z) + 1
+	var origin := Vector3i(world_x, world_y, world_z)
 	var placed: bool = (
 		_machines.place(&"crank", KineticMachineState.TYPE_CRANK, origin)
 		and _machines.place(&"shaft_a", KineticMachineState.TYPE_SHAFT, origin + Vector3i.RIGHT)
@@ -82,7 +86,8 @@ func _rebuild_machine_visuals() -> void:
 		var mesh := BoxMesh.new()
 		mesh.size = Vector3(0.9, 0.9, 0.9)
 		var material := StandardMaterial3D.new()
-		match StringName(row.type):
+		var machine_type := StringName(str(row.get("type", "")))
+		match machine_type:
 			KineticMachineState.TYPE_CRANK:
 				material.albedo_color = Color("b87942")
 			KineticMachineState.TYPE_SHAFT:
@@ -93,7 +98,8 @@ func _rebuild_machine_visuals() -> void:
 				material.albedo_color = Color("816e55")
 		mesh.material = material
 		mesh_instance.mesh = mesh
-		mesh_instance.position = Vector3(row.position) + Vector3(0.5, 0.5, 0.5)
+		var grid_position: Vector3i = row.get("position", Vector3i.ZERO)
+		mesh_instance.position = Vector3(float(grid_position.x) + 0.5, float(grid_position.y) + 0.5, float(grid_position.z) + 0.5)
 		_machine_root.add_child(mesh_instance)
 
 
@@ -102,8 +108,8 @@ func _refresh_machine_status() -> void:
 		return
 	var report: Dictionary = _machines.network_report()
 	_machine_status.text = "KINETICS\nConnected: %s  RPM: %.0f\nInput: %d  Output: %d  Turns: %d" % [
-		str(bool(report.connected)), float(report.source_rpm), _machines.crusher_input,
-		_machines.crusher_output, _machines.stored_turns,
+		str(bool(report.get("connected", false))), float(report.get("source_rpm", 0.0)),
+		_machines.crusher_input, _machines.crusher_output, _machines.stored_turns,
 	]
 
 
@@ -144,13 +150,13 @@ func qa_save_edits_now() -> void:
 	_inventory.add(ItemRegistry.ITEM_CRUSHED_STONE, output)
 	_save_machines_now()
 	var encoded: Dictionary = _machines.encode()
-	var restored := KineticMachineState.new()
+	var restored = KineticMachineState.new()
 	var persisted: bool = restored.decode(encoded) and restored.encode() == encoded
-	if not (inserted == 2 and bool(report.connected) and processed and output == 3 and persisted):
+	if not (inserted == 2 and bool(report.get("connected", false)) and processed and output == 3 and persisted):
 		push_error("QA_KINETIC functional loop failed")
 		get_tree().quit(1)
 		return
-	print("QA_KINETIC_MACHINE_PASS connected=", report.connected, " rpm=", report.source_rpm, " output=", output, " persisted=", persisted)
+	print("QA_KINETIC_MACHINE_PASS connected=", report.get("connected", false), " rpm=", report.get("source_rpm", 0.0), " output=", output, " persisted=", persisted)
 
 
 func qa_playability_snapshot() -> Dictionary:
