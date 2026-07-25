@@ -51,20 +51,34 @@ func _run() -> void:
 			_fail("Explicit PLACE button request was rejected")
 		player.place_requested = false
 
+		var player_camera := player.get_node_or_null("Head/Camera") as Camera3D
+		if player_camera == null or player_camera.near < 0.09:
+			_fail("First-person near plane was not raised above the clipping-artifact threshold")
+
 		var outline := player.get_node_or_null("TargetOutline") as MeshInstance3D
 		if outline == null:
 			_fail("Block target outline was not created")
 		else:
+			player.call("_rebuild_face_outline_mesh", Vector3i.UP)
+			if int(player.call("get_target_outline_edge_count")) != 4:
+				_fail("Block selector is not limited to four edges on one targeted face")
 			if outline.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
 				_fail("Block target outline unexpectedly casts a shadow")
 			var outline_mesh := outline.mesh as ImmediateMesh
-			if outline_mesh == null or outline_mesh.get_surface_count() == 0:
-				_fail("Block target outline has no line geometry")
+			if outline_mesh == null or outline_mesh.get_surface_count() != 1:
+				_fail("Face-only target outline has invalid line geometry")
 			var outline_material := outline.material_override as StandardMaterial3D
 			if outline_material == null or outline_material.shading_mode != BaseMaterial3D.SHADING_MODE_UNSHADED:
 				_fail("Block target outline is not using an unshaded material")
+			elif outline_material.no_depth_test:
+				_fail("Block target outline still draws hidden edges through terrain")
 		if not player.has_method("get_target_status_text"):
 			_fail("Block target telemetry method is missing")
+
+		for node: Node in player.find_children("*", "GeometryInstance3D", true, false):
+			var geometry := node as GeometryInstance3D
+			if geometry != null and geometry.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+				_fail("First-person helper geometry still casts a camera-facing shadow")
 
 	if world.shared_material.albedo_texture != null:
 		_fail("Color-only terrain unexpectedly retained a texture atlas")
@@ -86,11 +100,43 @@ func _run() -> void:
 	if not colored_mesh_found:
 		_fail("Loaded terrain mesh does not contain complete color data")
 
+	var water := world.get_node_or_null("Water") as MeshInstance3D
+	if water == null:
+		_fail("Foundation water plane was not created")
+	else:
+		if water.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+			_fail("Water plane still casts the giant near-camera shadow artifact")
+		var plane := water.mesh as PlaneMesh
+		var water_material: StandardMaterial3D = null
+		if plane != null:
+			water_material = plane.material as StandardMaterial3D
+		if plane == null or water_material == null:
+			_fail("Foundation water does not use the expected simple color material")
+		else:
+			if water_material.shading_mode != BaseMaterial3D.SHADING_MODE_UNSHADED:
+				_fail("Water plane remains vulnerable to black back-face lighting")
+			if water_material.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED:
+				_fail("Water plane still uses the problematic transparent mobile path")
+			if water_material.cull_mode != BaseMaterial3D.CULL_BACK:
+				_fail("Water plane still renders its underside toward the player camera")
+
 	var environment_node := main.get_node_or_null("WorldEnvironment") as WorldEnvironment
 	if environment_node == null or environment_node.environment == null:
-		_fail("Bright world environment was not created")
-	elif environment_node.environment.ambient_light_energy <= 1.2:
-		_fail("Ambient lighting remains below the color-pass brightness gate")
+		_fail("Daylight world environment was not created")
+	else:
+		var environment := environment_node.environment
+		if environment.ambient_light_energy < 1.0 or environment.ambient_light_energy > 1.2:
+			_fail("Ambient lighting is outside the readable non-washed-out range")
+		var sky_material: ProceduralSkyMaterial = null
+		if environment.sky != null:
+			sky_material = environment.sky.sky_material as ProceduralSkyMaterial
+		if sky_material == null:
+			_fail("Procedural daylight sky was not created")
+		else:
+			if sky_material.sky_top_color.b - sky_material.sky_top_color.r < 0.45:
+				_fail("Upper sky does not have a strong blue daylight gradient")
+			if sky_material.sky_horizon_color.b <= sky_material.sky_horizon_color.r:
+				_fail("Sky horizon is not cooler than the washed-out previous version")
 
 	var sun := main.get_node_or_null("Sun") as DirectionalLight3D
 	if sun == null:
