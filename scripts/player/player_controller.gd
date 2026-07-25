@@ -35,6 +35,12 @@ func _ready() -> void:
 	floor_max_angle = deg_to_rad(48.0)
 
 	var collision := CollisionShape3D.new()
+	collision.name = "PlayerCollision"
+	# The target phone rendered the debug fill of this capsule as a giant black
+	# dome around the first-person camera. Keep the physics shape, but make every
+	# possible debug representation fully invisible.
+	collision.debug_color = Color(0.0, 0.0, 0.0, 0.0)
+	collision.debug_fill = false
 	var capsule := CapsuleShape3D.new()
 	capsule.radius = 0.38
 	capsule.height = 1.78
