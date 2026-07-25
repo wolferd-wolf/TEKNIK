@@ -59,14 +59,28 @@ func _run() -> void:
 		if outline == null:
 			_fail("Block target outline was not created")
 		else:
-			player.call("_rebuild_face_outline_mesh", Vector3i.UP)
-			if int(player.call("get_target_outline_edge_count")) != 4:
-				_fail("Block selector is not limited to four edges on one targeted face")
+			var face_normals: Array[Vector3i] = [
+				Vector3i.UP,
+				Vector3i.DOWN,
+				Vector3i.LEFT,
+				Vector3i.RIGHT,
+				Vector3i.FORWARD,
+				Vector3i.BACK
+			]
+			for face_normal in face_normals:
+				player.call("_rebuild_face_outline_mesh", face_normal)
+				if int(player.call("get_target_outline_edge_count")) != 4:
+					_fail("Block selector did not produce four edges for face %s" % face_normal)
+				var face_mesh := outline.mesh as ImmediateMesh
+				if face_mesh == null or face_mesh.get_surface_count() != 1:
+					_fail("Face-only selector has invalid geometry for face %s" % face_normal)
+
+			player.call("_rebuild_face_outline_mesh", Vector3i.ZERO)
+			if int(player.call("get_target_outline_edge_count")) != 0:
+				_fail("Block selector accepted an invalid zero face normal")
+
 			if outline.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
 				_fail("Block target outline unexpectedly casts a shadow")
-			var outline_mesh := outline.mesh as ImmediateMesh
-			if outline_mesh == null or outline_mesh.get_surface_count() != 1:
-				_fail("Face-only target outline has invalid line geometry")
 			var outline_material := outline.material_override as StandardMaterial3D
 			if outline_material == null or outline_material.shading_mode != BaseMaterial3D.SHADING_MODE_UNSHADED:
 				_fail("Block target outline is not using an unshaded material")
@@ -113,6 +127,8 @@ func _run() -> void:
 		if plane == null or water_material == null:
 			_fail("Foundation water does not use the expected simple color material")
 		else:
+			if plane.size.x > 512.0 or plane.size.y > 512.0:
+				_fail("Foundation water plane exceeds the bounded mobile-safe size")
 			if water_material.shading_mode != BaseMaterial3D.SHADING_MODE_UNSHADED:
 				_fail("Water plane remains vulnerable to black back-face lighting")
 			if water_material.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED:
