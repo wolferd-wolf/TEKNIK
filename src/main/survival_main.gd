@@ -17,6 +17,8 @@ var _inventory_label: Label
 var _hotbar_buttons: Dictionary = {}
 var _craft_button: Button
 var _craft_status: Label
+var _gameplay_hud_layer: CanvasLayer
+var _left_hud_column: VBoxContainer
 
 
 func _ready() -> void:
@@ -163,15 +165,41 @@ func _mark_inventory_changed(event_name: String, item_id: StringName, delta: int
 	})
 
 
+func _ensure_left_hud_column() -> VBoxContainer:
+	if is_instance_valid(_left_hud_column):
+		return _left_hud_column
+	_gameplay_hud_layer = CanvasLayer.new()
+	_gameplay_hud_layer.name = "GameplayHUD"
+	_gameplay_hud_layer.layer = 6
+	add_child(_gameplay_hud_layer)
+	_left_hud_column = VBoxContainer.new()
+	_left_hud_column.name = "LeftHUDColumn"
+	_left_hud_column.position = Vector2(12.0, 54.0)
+	_left_hud_column.custom_minimum_size = Vector2(330.0, 0.0)
+	_left_hud_column.add_theme_constant_override("separation", 8)
+	_gameplay_hud_layer.add_child(_left_hud_column)
+	return _left_hud_column
+
+
+func _add_left_hud_panel(panel: Control, order: int) -> void:
+	var column: VBoxContainer = _ensure_left_hud_column()
+	panel.set_meta("hud_order", order)
+	column.add_child(panel)
+	var target_index: int = 0
+	for child: Node in column.get_children():
+		if child == panel:
+			continue
+		if int(child.get_meta("hud_order", 0)) < order:
+			target_index += 1
+	column.move_child(panel, target_index)
+
+
 func _build_inventory_hud() -> void:
-	var layer := CanvasLayer.new()
-	layer.name = "SurvivalInventoryHUD"
-	layer.layer = 6
-	add_child(layer)
 	var panel := PanelContainer.new()
-	panel.position = Vector2(12.0, 54.0)
-	panel.custom_minimum_size = Vector2(360.0, 176.0)
-	layer.add_child(panel)
+	panel.name = "SurvivalInventoryPanel"
+	panel.custom_minimum_size = Vector2(330.0, 176.0)
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_add_left_hud_panel(panel, 10)
 	var content := VBoxContainer.new()
 	content.add_theme_constant_override("separation", 4)
 	panel.add_child(content)
