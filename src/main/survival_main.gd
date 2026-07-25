@@ -8,6 +8,7 @@ const HotbarSelectionState = preload("res://src/survival/hotbar_selection_state.
 const INVENTORY_PATH: String = "user://teknik-inventory.json"
 const HOTBAR_STATE_PATH: String = "user://teknik-hotbar-state.json"
 const INVENTORY_SAVE_DELAY_MS: int = 700
+const HUD_COLUMN_WIDTH: float = 330.0
 
 var _inventory: TeknikStackInventory = StackInventory.new()
 var _hotbar_selection: TeknikHotbarSelectionState = HotbarSelectionState.new()
@@ -175,7 +176,7 @@ func _ensure_left_hud_column() -> VBoxContainer:
 	_left_hud_column = VBoxContainer.new()
 	_left_hud_column.name = "LeftHUDColumn"
 	_left_hud_column.position = Vector2(12.0, 54.0)
-	_left_hud_column.custom_minimum_size = Vector2(330.0, 0.0)
+	_left_hud_column.custom_minimum_size = Vector2(HUD_COLUMN_WIDTH, 0.0)
 	_left_hud_column.add_theme_constant_override("separation", 8)
 	_gameplay_hud_layer.add_child(_left_hud_column)
 	return _left_hud_column
@@ -197,7 +198,7 @@ func _add_left_hud_panel(panel: Control, order: int) -> void:
 func _build_inventory_hud() -> void:
 	var panel := PanelContainer.new()
 	panel.name = "SurvivalInventoryPanel"
-	panel.custom_minimum_size = Vector2(330.0, 176.0)
+	panel.custom_minimum_size = Vector2(HUD_COLUMN_WIDTH, 176.0)
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_add_left_hud_panel(panel, 10)
 	var content := VBoxContainer.new()
@@ -207,33 +208,40 @@ func _build_inventory_hud() -> void:
 	_inventory_label.name = "InventorySummary"
 	_inventory_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_inventory_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_inventory_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_inventory_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_inventory_label.add_theme_font_size_override("font_size", 16)
 	content.add_child(_inventory_label)
 
 	var hotbar := HBoxContainer.new()
 	hotbar.name = "PlaceableHotbar"
+	hotbar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hotbar.add_theme_constant_override("separation", 5)
 	content.add_child(hotbar)
 	for item_id: StringName in ItemRegistry.placeable_items():
 		var button := Button.new()
 		button.name = "Hotbar_%s" % str(item_id)
-		button.custom_minimum_size = Vector2(82.0, 42.0)
+		button.custom_minimum_size = Vector2(0.0, 42.0)
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.pressed.connect(func() -> void: _select_hotbar_item(item_id))
 		hotbar.add_child(button)
 		_hotbar_buttons[item_id] = button
 
 	var craft_row := HBoxContainer.new()
+	craft_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	craft_row.add_theme_constant_override("separation", 8)
 	content.add_child(craft_row)
 	_craft_button = Button.new()
 	_craft_button.name = "CraftStoneGear"
 	_craft_button.text = "Craft Gear (4 Stone)"
-	_craft_button.custom_minimum_size = Vector2(180.0, 42.0)
+	_craft_button.custom_minimum_size = Vector2(172.0, 42.0)
 	_craft_button.pressed.connect(func() -> void: _craft_recipe(RecipeBook.RECIPE_STONE_GEAR))
 	craft_row.add_child(_craft_button)
 	_craft_status = Label.new()
 	_craft_status.name = "CraftStatus"
 	_craft_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_craft_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_craft_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	craft_row.add_child(_craft_status)
 
 
