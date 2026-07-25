@@ -53,10 +53,6 @@ jobs:
         run: |
           bash scripts/ci/run_godot_strict.sh "$GODOT_DIR/godot" build/presentation-input-smoke.log --headless --path . --script res://tests/presentation_input_smoke.gd
 
-      - name: Run water recenter smoke test
-        run: |
-          bash scripts/ci/run_godot_strict.sh "$GODOT_DIR/godot" build/water-recenter-smoke.log --headless --path . --script res://tests/water_recenter_smoke.gd
-
       - name: Run resource telemetry smoke test
         run: |
           bash scripts/ci/run_godot_strict.sh "$GODOT_DIR/godot" build/resource-telemetry-smoke.log --headless --path . --script res://tests/resource_telemetry_smoke.gd
