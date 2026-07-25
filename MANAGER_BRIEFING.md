@@ -87,6 +87,61 @@ instead
   reasoning — I'd rather see that than silent compliance that turns into
   another 22-file chain.
 
+## Current assignment — HUD panel overlap (2026-07-25)
+
+Akila sent a screenshot showing the mobile HUD overlapping: the Engineering
+panel's header and recipe categories ("PROCESSING", "COMPONENTS", "STATIONS")
+render on top of the Survival panel's lower content (health/hunger/stamina
+bars, crafting row), making both unreadable.
+
+**Root cause, not a guess:**
+
+- `src/main/survival_main.gd`, `_build_inventory_hud()`: panel at
+  `position = Vector2(12.0, 54.0)`, `custom_minimum_size = Vector2(360.0, 176.0)`
+  → this panel's own declared box ends at **y = 230**.
+- `src/main/engineering_progression_main.gd`, `_build_recipe_panel()`: panel
+  hardcoded to `position = Vector2(12.0, 190.0)`.
+
+190 < 230. The Engineering panel was placed to start 40px before the Survival
+panel's own declared minimum height even ends — before the hotbar row, craft
+row, and vitals bars add any real additional height on top of that. This
+isn't emergent from dynamic content; it's provable from the two constants
+alone.
+
+**Why it happened:** each panel (Survival, Engineering, Kinetics) is built in
+a different file in the inheritance chain, each with its own hardcoded
+absolute-pixel `Vector2` position. None of them know the others' actual
+rendered size. Same disease as the 22-file main chain, in the UI layer.
+
+**Do not fix this by nudging the y-offset numbers.** That reproduces the same
+bug the next time any panel's content grows (a new recipe category, a longer
+inventory list, etc.). The actual fix:
+
+1. Put the left-column panels (Survival, Engineering) inside one shared
+   `VBoxContainer` (one CanvasLayer, one parent container) instead of each
+   building its own `CanvasLayer` + absolute-positioned `PanelContainer`.
+   Godot will then stack them based on real rendered height automatically —
+   no hardcoded y-offsets at all.
+2. Kinetics can stay a separate right-side column (its `x = 360.0` doesn't
+   collide with the left column), but audit whether it has the same
+   assumed-height problem waiting once it grows (e.g. once "Assemble Starter
+   Machine" and future recipe rows are added).
+3. This will require touching `survival_main.gd`, `engineering_progression_main.gd`,
+   and possibly `kinetic_machine_main.gd` — that's in scope here because the
+   whole point is that these three files need to stop laying out
+   independently. Say so explicitly in the commit; don't let it quietly grow
+   into an unrelated HUD redesign.
+4. Verify with the existing screenshot capture tooling —
+   `src/qa/gameplay_capture_director.gd` (or whichever director produces a HUD
+   screenshot with Survival + Engineering + Kinetics all populated with
+   several unlocked recipes, not just the starting state) — and attach the
+   resulting image or describe exactly what it shows. "CI passed" is not
+   evidence for a visual layout bug; a screenshot with real content in every
+   panel is.
+5. If a shared container turns out to need a larger structural change than
+   expected, stop and describe the tradeoff here before doing it — don't
+   silently expand scope.
+
 ## Log
 
 ### 2026-07-25 — Claude
