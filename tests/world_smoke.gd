@@ -108,7 +108,7 @@ func _validate_session_summary() -> void:
 		_fail("Session summary is not valid JSON")
 		return
 	var summary: Dictionary = parsed
-	if int(summary.get("schema", 0)) != 2:
+	if int(summary.get("schema", 0)) != 3:
 		_fail("Session summary schema is incorrect")
 	if not bool(summary.get("clean_shutdown", false)):
 		_fail("Session summary did not record clean shutdown")
@@ -125,12 +125,16 @@ func _validate_session_summary() -> void:
 		"engine_static_memory_peak_bytes",
 		"peak_draw_calls",
 		"peak_rendered_primitives",
-		"peak_node_count"
+		"peak_node_count",
+		"stream_hold_episodes",
+		"stream_hold_total_msec",
+		"stream_hold_last_msec",
+		"stream_hold_max_msec"
 	]:
 		if not summary.has(field_name):
-			_fail("Session summary is missing resource field %s" % field_name)
+			_fail("Session summary is missing telemetry field %s" % field_name)
 		elif int(summary[field_name]) < 0:
-			_fail("Session summary resource field %s is negative" % field_name)
+			_fail("Session summary telemetry field %s is negative" % field_name)
 
 func _instantiate_main() -> Node:
 	var packed: PackedScene = load("res://scenes/main.tscn")
