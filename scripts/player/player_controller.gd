@@ -9,6 +9,7 @@ const LOOK_SENSITIVITY := 0.0022
 const TOUCH_LOOK_SENSITIVITY := 0.0032
 const INTERACTION_DISTANCE := 6.0
 const STREAM_LOOKAHEAD_SECONDS := 0.22
+const COLLISION_FOOTPRINT_RADIUS := 0.42
 
 var world: Node
 var mobile_move := Vector2.ZERO
@@ -113,11 +114,21 @@ func _physics_process(delta: float) -> void:
 func _is_collision_ready_for_position(position: Vector3) -> bool:
 	if not is_instance_valid(world):
 		return false
-	var coord: Vector2i = world.world_to_chunk(position)
-	if not world.loaded_chunks.has(coord):
-		return false
-	var entry: Dictionary = world.loaded_chunks[coord]
-	return is_instance_valid(entry["collision"])
+	var footprint_offsets: Array[Vector3] = [
+		Vector3.ZERO,
+		Vector3(COLLISION_FOOTPRINT_RADIUS, 0.0, 0.0),
+		Vector3(-COLLISION_FOOTPRINT_RADIUS, 0.0, 0.0),
+		Vector3(0.0, 0.0, COLLISION_FOOTPRINT_RADIUS),
+		Vector3(0.0, 0.0, -COLLISION_FOOTPRINT_RADIUS)
+	]
+	for offset in footprint_offsets:
+		var coord: Vector2i = world.world_to_chunk(position + offset)
+		if not world.loaded_chunks.has(coord):
+			return false
+		var entry: Dictionary = world.loaded_chunks[coord]
+		if not is_instance_valid(entry["collision"]):
+			return false
+	return true
 
 func get_stream_status_text() -> String:
 	return "stream-hold %s  total %d" % ["ON" if stream_hold_active else "off", stream_hold_count]
