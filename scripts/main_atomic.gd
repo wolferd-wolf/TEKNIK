@@ -101,23 +101,27 @@ func _setup_environment() -> void:
 	var environment := Environment.new()
 	environment.background_mode = Environment.BG_SKY
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	environment.ambient_light_energy = 1.34
+	environment.ambient_light_energy = 1.10
 	environment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
-	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	environment.tonemap_mode = Environment.TONE_MAPPER_ACES
 	environment.fog_enabled = true
-	environment.fog_light_color = Color(0.82, 0.90, 0.97)
-	environment.fog_light_energy = 0.90
-	environment.fog_density = 0.0012
-	environment.fog_height = 10.0
-	environment.fog_height_density = 0.02
+	environment.fog_light_color = Color(0.55, 0.74, 0.90)
+	environment.fog_light_energy = 0.70
+	environment.fog_density = 0.00065
+	environment.fog_height = 12.0
+	environment.fog_height_density = 0.008
 
 	var sky := Sky.new()
 	var sky_material := ProceduralSkyMaterial.new()
-	sky_material.sky_top_color = Color(0.25, 0.50, 0.78)
-	sky_material.sky_horizon_color = Color(0.82, 0.91, 0.98)
-	sky_material.ground_bottom_color = Color(0.28, 0.34, 0.34)
-	sky_material.ground_horizon_color = Color(0.64, 0.70, 0.63)
-	sky_material.sun_angle_max = 24.0
+	sky_material.sky_top_color = Color(0.07, 0.30, 0.68)
+	sky_material.sky_horizon_color = Color(0.58, 0.80, 0.96)
+	sky_material.sky_curve = 0.18
+	sky_material.ground_bottom_color = Color(0.18, 0.24, 0.28)
+	sky_material.ground_horizon_color = Color(0.43, 0.60, 0.70)
+	sky_material.ground_curve = 0.12
+	sky_material.sun_angle_max = 18.0
+	sky_material.sun_curve = 0.10
+	sky_material.sun_energy_multiplier = 2.2
 	sky.sky_material = sky_material
 	environment.sky = sky
 	world_environment.environment = environment
@@ -125,11 +129,11 @@ func _setup_environment() -> void:
 
 	var sun := DirectionalLight3D.new()
 	sun.name = "Sun"
-	sun.rotation_degrees = Vector3(-55.0, -28.0, 0.0)
-	sun.light_color = Color(1.0, 0.97, 0.90)
-	sun.light_energy = 1.18
-	# Real-time shadows are intentionally disabled during the foundation milestone.
-	# Face shading keeps terrain readable without the oversized near-camera artifact.
+	sun.rotation_degrees = Vector3(-52.0, -32.0, 0.0)
+	sun.light_color = Color(1.0, 0.95, 0.84)
+	sun.light_energy = 1.08
+	# Real-time shadows remain disabled during the foundation milestone.
+	# Directional face shading gives the color-only terrain its depth.
 	sun.shadow_enabled = false
 	add_child(sun)
 
