@@ -22,7 +22,7 @@ func _run() -> void:
 
 	var world: Node = main.get_node_or_null("World")
 	if world == null:
-		_fail("Textured world was not created")
+		_fail("Color-only world was not created")
 		await _finish(main)
 		return
 
@@ -51,10 +51,12 @@ func _run() -> void:
 			_fail("Explicit PLACE button request was rejected")
 		player.place_requested = false
 
-	if world.shared_material.albedo_texture == null:
-		_fail("Terrain material has no texture atlas")
+	if world.shared_material.albedo_texture != null:
+		_fail("Color-only terrain unexpectedly retained a texture atlas")
+	if not world.shared_material.vertex_color_use_as_albedo:
+		_fail("Terrain material is not using vertex colors")
 
-	var textured_mesh_found := false
+	var colored_mesh_found := false
 	for coord_value: Variant in world.loaded_chunks.keys():
 		var entry: Dictionary = world.loaded_chunks[coord_value]
 		var mesh: ArrayMesh = entry["mesh"]
@@ -62,18 +64,24 @@ func _run() -> void:
 			continue
 		var arrays: Array = mesh.surface_get_arrays(0)
 		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
-		var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
-		if not vertices.is_empty() and uvs.size() == vertices.size():
-			textured_mesh_found = true
+		var colors: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+		if not vertices.is_empty() and colors.size() == vertices.size():
+			colored_mesh_found = true
 			break
-	if not textured_mesh_found:
-		_fail("Loaded terrain mesh does not contain complete UV data")
+	if not colored_mesh_found:
+		_fail("Loaded terrain mesh does not contain complete color data")
 
 	var environment_node := main.get_node_or_null("WorldEnvironment") as WorldEnvironment
 	if environment_node == null or environment_node.environment == null:
 		_fail("Bright world environment was not created")
-	elif environment_node.environment.ambient_light_energy <= 1.0:
-		_fail("Ambient lighting remains below the brighter presentation gate")
+	elif environment_node.environment.ambient_light_energy <= 1.2:
+		_fail("Ambient lighting remains below the color-pass brightness gate")
+
+	var sun := main.get_node_or_null("Sun") as DirectionalLight3D
+	if sun == null:
+		_fail("Sun light was not created")
+	elif sun.shadow_enabled:
+		_fail("Real-time directional shadows remain enabled")
 
 	await _finish(main)
 
