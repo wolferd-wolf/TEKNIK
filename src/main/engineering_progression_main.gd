@@ -43,17 +43,20 @@ func _craft_recipe(recipe_id: StringName) -> bool:
 func _build_recipe_panel() -> void:
 	var panel := PanelContainer.new()
 	panel.name = "EngineeringRecipePanel"
-	panel.custom_minimum_size = Vector2(330.0, 260.0)
+	panel.custom_minimum_size = Vector2(HUD_COLUMN_WIDTH, 260.0)
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_add_left_hud_panel(panel, 30)
 	var content := VBoxContainer.new()
 	content.add_theme_constant_override("separation", 4)
 	panel.add_child(content)
 	_progression_label = Label.new()
+	_progression_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_progression_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_progression_label.add_theme_font_size_override("font_size", 15)
 	content.add_child(_progression_label)
 	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(310.0, 205.0)
+	scroll.custom_minimum_size = Vector2(0.0, 205.0)
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.add_child(scroll)
 	_recipe_list = VBoxContainer.new()
 	_recipe_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -74,11 +77,16 @@ func _refresh_recipe_panel() -> void:
 			current_category = category
 			var heading := Label.new()
 			heading.text = category.to_upper()
+			heading.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			heading.add_theme_font_size_override("font_size", 14)
 			_recipe_list.add_child(heading)
 		var button := Button.new()
 		button.name = "Recipe_" + str(recipe_id)
 		button.text = _recipe_button_text(definition)
+		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		button.custom_minimum_size = Vector2(0.0, 38.0)
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.disabled = not RecipeBook.can_craft(_inventory, recipe_id, _progression)
 		button.pressed.connect(func() -> void: _craft_recipe(recipe_id))
 		_recipe_list.add_child(button)
