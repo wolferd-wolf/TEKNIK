@@ -42,12 +42,16 @@ func _flush_world_for_lifecycle(reason: String) -> bool:
 
 func _capture_telemetry_snapshot() -> Dictionary:
 	var snapshot: Dictionary = super._capture_telemetry_snapshot()
-	snapshot["schema"] = 3
+	snapshot["schema"] = 4
 	snapshot["static_memory_bytes"] = int(Performance.get_monitor(Performance.MEMORY_STATIC))
 	snapshot["static_memory_peak_bytes"] = int(Performance.get_monitor(Performance.MEMORY_STATIC_MAX))
 	snapshot["draw_calls"] = int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))
 	snapshot["rendered_primitives"] = int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME))
 	snapshot["node_count"] = int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT))
+	if is_instance_valid(player) and player.has_method("get_stream_hold_metrics"):
+		var hold_metrics: Dictionary = player.call("get_stream_hold_metrics")
+		for key: Variant in hold_metrics.keys():
+			snapshot[key] = hold_metrics[key]
 	return snapshot
 
 func _update_session_peaks(snapshot: Dictionary) -> void:
@@ -72,12 +76,16 @@ func write_session_summary(clean_shutdown: bool) -> bool:
 		telemetry_write_failures += 1
 		return false
 	var summary: Dictionary = parser.data
-	summary["schema"] = 2
+	summary["schema"] = 3
 	summary["peak_static_memory_bytes"] = peak_static_memory_bytes
 	summary["engine_static_memory_peak_bytes"] = int(Performance.get_monitor(Performance.MEMORY_STATIC_MAX))
 	summary["peak_draw_calls"] = peak_draw_calls
 	summary["peak_rendered_primitives"] = peak_primitives
 	summary["peak_node_count"] = peak_node_count
+	if is_instance_valid(player) and player.has_method("get_stream_hold_metrics"):
+		var hold_metrics: Dictionary = player.call("get_stream_hold_metrics")
+		for key: Variant in hold_metrics.keys():
+			summary[key] = hold_metrics[key]
 
 	file = FileAccess.open(TELEMETRY_SUMMARY_PATH, FileAccess.WRITE)
 	if file == null:
