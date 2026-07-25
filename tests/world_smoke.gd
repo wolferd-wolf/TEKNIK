@@ -79,13 +79,9 @@ func _run() -> void:
 		_fail("Placed block did not enter authoritative world data")
 	world.call("_save_world")
 
-	if not bool(main.call("write_session_summary", true)):
-		_fail("Session summary could not be written")
+	main.write_session_summary(true)
 	_validate_session_summary()
-
-	main.queue_free()
-	await process_frame
-	await process_frame
+	await _finish(main)
 
 	var reloaded_main := _instantiate_main()
 	if reloaded_main == null:
@@ -112,7 +108,7 @@ func _validate_session_summary() -> void:
 		_fail("Session summary is not valid JSON")
 		return
 	var summary: Dictionary = parsed
-	if int(summary.get("schema", 0)) != 1:
+	if int(summary.get("schema", 0)) != 2:
 		_fail("Session summary schema is incorrect")
 	if not bool(summary.get("clean_shutdown", false)):
 		_fail("Session summary did not record clean shutdown")
@@ -124,72 +120,94 @@ func _validate_session_summary() -> void:
 		_fail("Session summary is missing peak build queue")
 	if not summary.has("renderer_name"):
 		_fail("Session summary is missing renderer identity")
+	for field_name in [
+		"peak_static_memory_bytes",
+		"engine_static_memory_peak_bytes",
+		"peak_draw_calls",
+		"peak_rendered_primitives",
+		"peak_node_count"
+	]:
+		if not summary.has(field_name):
+			_fail("Session summary is missing resource field %s" % field_name)
+		elif int(summary[field_name]) < 0:
+			_fail("Session summary resource field %s is negative" % field_name)
 
 func _instantiate_main() -> Node:
 	var packed: PackedScene = load("res://scenes/main.tscn")
 	if packed == null:
-		_fail("Main scene failed to load")
+		_fail("Main scene could not be loaded")
 		return null
-	var main := packed.instantiate()
+	var main: Node = packed.instantiate()
 	root.add_child(main)
+	await process_frame
 	return main
 
-func _wait_for_player(main: Node, maximum_frames: int) -> Node3D:
-	for _frame in range(maximum_frames):
-		var player := main.get_node_or_null("Player") as Node3D
-		if player != null:
-			return player
+func _wait_for_player(main: Node, max_frames: int) -> Node3D:
+	for _frame in range(max_frames):
+		var candidate: Node3D = main.get_node_or_null("Player")
+		if candidate != null:
+			return candidate
 		await process_frame
 	return null
 
-func _wait_for_center(world: Node, expected: Vector2i, maximum_frames: int) -> bool:
-	for _frame in range(maximum_frames):
-		if world.current_center == expected:
+func _wait_for_center(world: Node, expected_center: Vector2i, max_frames: int) -> bool:
+	for _frame in range(max_frames):
+		if world.current_center == expected_center:
 			return true
 		await process_frame
 	return false
 
-func _wait_for_collision_ring(world: Node, center: Vector2i, maximum_frames: int) -> bool:
-	for _frame in range(maximum_frames):
-		if _collision_ring_ready(world, center):
+func _wait_for_collision_ring(world: Node, center: Vector2i, max_frames: int) -> bool:
+	for _frame in range(max_frames):
+		var ready := true
+		for z in range(center.y - COLLISION_RADIUS, center.y + COLLISION_RADIUS + 1):
+			for x in range(center.x - COLLISION_RADIUS, center.x + COLLISION_RADIUS + 1):
+				var coord := Vector2i(x, z)
+				if not world.loaded_chunks.has(coord):
+					ready = false
+					break
+				var entry: Dictionary = world.loaded_chunks[coord]
+				if not is_instance_valid(entry["collision"]):
+					ready = false
+					break
+			if not ready:
+				break
+		if ready:
 			return true
 		await process_frame
 	return false
 
-func _assert_collision_ring(world: Node, center: Vector2i, label: String) -> void:
-	if not _collision_ring_ready(world, center):
-		_fail("Incomplete collision ring at %s" % label)
-
-func _collision_ring_ready(world: Node, center: Vector2i) -> bool:
+func _assert_collision_ring(world: Node, center: Vector2i, context: String) -> void:
 	for z in range(center.y - COLLISION_RADIUS, center.y + COLLISION_RADIUS + 1):
 		for x in range(center.x - COLLISION_RADIUS, center.x + COLLISION_RADIUS + 1):
 			var coord := Vector2i(x, z)
 			if not world.loaded_chunks.has(coord):
-				return false
+				_fail("Missing collision-ring chunk %s at %s" % [coord, context])
+				continue
 			var entry: Dictionary = world.loaded_chunks[coord]
 			if not is_instance_valid(entry["collision"]):
-				return false
-	return true
+				_fail("Missing collider for chunk %s at %s" % [coord, context])
 
 func _find_air_cell_above_surface(world: Node, x: int, z: int) -> Vector3i:
-	for y in range(29, 0, -1):
-		var cell := Vector3i(x, y, z)
-		if world.get_block(cell) != 0:
-			return cell + Vector3i.UP
-	return Vector3i(x, 1, z)
-
-func _finish(main: Node) -> void:
-	if is_instance_valid(main):
-		main.queue_free()
-	await process_frame
-	_remove_test_files()
-	quit(1 if failed else 0)
+	var y: int = world._terrain_height(x, z) + 1
+	return Vector3i(x, y, z)
 
 func _remove_test_files() -> void:
-	for path in [SAVE_PATH, SUMMARY_PATH]:
+	for path in [SAVE_PATH, SUMMARY_PATH, "user://teknik_world_v1.backup.json", "user://teknik_world_v1.backup.tmp"]:
 		if FileAccess.file_exists(path):
 			DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 
 func _fail(message: String) -> void:
 	failed = true
 	push_error(message)
+
+func _finish(main: Node) -> void:
+	if is_instance_valid(main):
+		main.queue_free()
+	await process_frame
+	if failed:
+		print("WORLD_SMOKE_FAILED")
+		quit(1)
+	else:
+		print("WORLD_SMOKE_PASSED")
+		quit(0)
