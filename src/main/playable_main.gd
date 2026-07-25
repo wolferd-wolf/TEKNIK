@@ -164,8 +164,15 @@ func _process_chunk_work() -> void:
 		var coordinate_to_build: Vector3i = _next_build_coordinate()
 		if coordinate_to_build == Vector3i(2_147_483_647, 0, 2_147_483_647):
 			break
-		if _terrain_nodes.has(coordinate_to_build) and not _edit_rebuild_queue.has(coordinate_to_build):
-			continue
+		# _next_build_coordinate() already vets every coordinate it returns
+		# (rebuild queue, emergency queue, or fresh load) as resident-safe and
+		# not already in flight. The stale queue-membership check that used to
+		# live here assumed _next_build_coordinate() left rebuild coordinates
+		# sitting in _edit_rebuild_queue as an in-flight marker; the live
+		# override (targeted_interaction_main.gd, via EditRebuildScheduler)
+		# instead pops them immediately, so that check discarded every mining
+		# edit rebuild before it could dispatch, permanently stalling
+		# TeknikMiningController in WAITING_FOR_COMMIT after the first mine.
 		if _dispatch_playable_chunk(coordinate_to_build):
 			dispatched += 1
 
