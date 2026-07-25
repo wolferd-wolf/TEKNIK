@@ -51,6 +51,12 @@ jobs:
           set -o pipefail
           "$GODOT_DIR/godot" --headless --path . --editor --quit 2>&1 | tee build/project-parse.log
 
+      - name: Run presentation and input smoke test
+        shell: bash
+        run: |
+          set -o pipefail
+          "$GODOT_DIR/godot" --headless --path . --script res://tests/presentation_input_smoke.gd 2>&1 | tee build/presentation-input-smoke.log
+
       - name: Run procedural world smoke test
         shell: bash
         run: |
