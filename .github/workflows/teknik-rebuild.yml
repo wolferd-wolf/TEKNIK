@@ -46,34 +46,24 @@ jobs:
           "$GODOT_DIR/godot" --version
 
       - name: Import and parse project
-        shell: bash
         run: |
-          set -o pipefail
-          "$GODOT_DIR/godot" --headless --path . --editor --quit 2>&1 | tee build/project-parse.log
+          bash scripts/ci/run_godot_strict.sh "$GODOT_DIR/godot" build/project-parse.log --headless --path . --editor --quit
 
       - name: Run presentation and input smoke test
-        shell: bash
         run: |
-          set -o pipefail
-          "$GODOT_DIR/godot" --headless --path . --script res://tests/presentation_input_smoke.gd 2>&1 | tee build/presentation-input-smoke.log
+          bash scripts/ci/run_godot_strict.sh "$GODOT_DIR/godot" build/presentation-input-smoke.log --headless --path . --script res://tests/presentation_input_smoke.gd
 
       - name: Run procedural world smoke test
-        shell: bash
         run: |
-          set -o pipefail
-          "$GODOT_DIR/godot" --headless --path . --script res://tests/world_smoke.gd 2>&1 | tee build/world-smoke.log
+          bash scripts/ci/run_godot_strict.sh "$GODOT_DIR/godot" build/world-smoke.log --headless --path . --script res://tests/world_smoke.gd
 
       - name: Run atomic edit smoke test
-        shell: bash
         run: |
-          set -o pipefail
-          "$GODOT_DIR/godot" --headless --path . --script res://tests/atomic_edit_smoke.gd 2>&1 | tee build/atomic-edit-smoke.log
+          bash scripts/ci/run_godot_strict.sh "$GODOT_DIR/godot" build/atomic-edit-smoke.log --headless --path . --script res://tests/atomic_edit_smoke.gd
 
       - name: Run save recovery smoke test
-        shell: bash
         run: |
-          set -o pipefail
-          "$GODOT_DIR/godot" --headless --path . --script res://tests/save_guardian_smoke.gd 2>&1 | tee build/save-guardian-smoke.log
+          bash scripts/ci/run_godot_strict.sh "$GODOT_DIR/godot" build/save-guardian-smoke.log --headless --path . --script res://tests/save_guardian_smoke.gd
 
       - name: Prepare Android SDK paths
         run: |
@@ -87,10 +77,8 @@ jobs:
           SETTINGS
 
       - name: Export ARM64 debug APK
-        shell: bash
         run: |
-          set -o pipefail
-          "$GODOT_DIR/godot" --headless --path . --export-debug 'Android ARM64' build/TEKNIK-debug.apk 2>&1 | tee build/android-export.log
+          bash scripts/ci/run_godot_strict.sh "$GODOT_DIR/godot" build/android-export.log --headless --path . --export-debug 'Android ARM64' build/TEKNIK-debug.apk
 
       - name: Upload APK and validation logs
         if: always()
