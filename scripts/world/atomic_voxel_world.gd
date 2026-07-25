@@ -1,18 +1,50 @@
 extends "res://scripts/world/voxel_world.gd"
 
+const EDIT_REBUILD_DEBOUNCE_MSEC := 75
+
 var pending_rebuilds: Dictionary = {}
+var pending_rebuild_deadlines: Dictionary = {}
 var atomic_swap_count := 0
 var atomic_swap_failures := 0
+var edit_rebuild_requests := 0
+var coalesced_edit_requests := 0
+
+func _process(delta: float) -> void:
+	_promote_due_rebuilds()
+	super._process(delta)
 
 func _rebuild_chunk(coord: Vector2i) -> void:
 	if not loaded_chunks.has(coord):
 		super._rebuild_chunk(coord)
 		return
 
+	edit_rebuild_requests += 1
+	if pending_rebuilds.has(coord):
+		coalesced_edit_requests += 1
 	pending_rebuilds[coord] = true
-	if not queued_chunks.has(coord):
-		build_queue.push_front(coord)
-		queued_chunks[coord] = true
+	pending_rebuild_deadlines[coord] = Time.get_ticks_msec() + EDIT_REBUILD_DEBOUNCE_MSEC
+
+func _promote_due_rebuilds() -> void:
+	if pending_rebuild_deadlines.is_empty():
+		return
+
+	var now_msec: int = Time.get_ticks_msec()
+	for coord_value: Variant in pending_rebuild_deadlines.keys():
+		var coord: Vector2i = coord_value
+		var deadline_msec: int = int(pending_rebuild_deadlines[coord])
+		if deadline_msec > now_msec:
+			continue
+
+		pending_rebuild_deadlines.erase(coord)
+		if not loaded_chunks.has(coord):
+			pending_rebuilds.erase(coord)
+			continue
+		if max(abs(coord.x - current_center.x), abs(coord.y - current_center.y)) > RENDER_RADIUS:
+			pending_rebuilds.erase(coord)
+			continue
+		if not queued_chunks.has(coord):
+			build_queue.push_front(coord)
+			queued_chunks[coord] = true
 
 func _pump_build_queue() -> void:
 	if build_queue.is_empty():
@@ -28,6 +60,7 @@ func _pump_build_queue() -> void:
 			continue
 		if max(abs(coord.x - current_center.x), abs(coord.y - current_center.y)) > RENDER_RADIUS:
 			pending_rebuilds.erase(coord)
+			pending_rebuild_deadlines.erase(coord)
 			continue
 
 		var build_start: int = Time.get_ticks_usec()
@@ -37,9 +70,7 @@ func _pump_build_queue() -> void:
 				pending_rebuilds.erase(coord)
 			else:
 				atomic_swap_failures += 1
-				if not queued_chunks.has(coord):
-					build_queue.push_back(coord)
-					queued_chunks[coord] = true
+				pending_rebuild_deadlines[coord] = Time.get_ticks_msec() + EDIT_REBUILD_DEBOUNCE_MSEC
 		else:
 			_commit_chunk(coord, data)
 
@@ -56,7 +87,7 @@ func _commit_atomic_replacement(coord: Vector2i, data: Dictionary) -> bool:
 
 	var old_entry: Dictionary = loaded_chunks[coord]
 	var old_root: Node3D = old_entry["root"]
-	var replacement := _create_replacement_entry(coord, data)
+	var replacement: Dictionary = _create_replacement_entry(coord, data)
 	if replacement.is_empty():
 		return false
 
@@ -133,8 +164,10 @@ func _create_replacement_collision(mesh: ArrayMesh) -> StaticBody3D:
 	return static_body
 
 func get_status_text() -> String:
-	return "%s\nedit-swaps %d  failures %d" % [
+	return "%s\nedit-swaps %d  failures %d\nedit-requests %d  coalesced %d" % [
 		super.get_status_text(),
 		atomic_swap_count,
-		atomic_swap_failures
+		atomic_swap_failures,
+		edit_rebuild_requests,
+		coalesced_edit_requests
 	]
