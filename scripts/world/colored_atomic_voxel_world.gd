@@ -17,6 +17,28 @@ func _ready() -> void:
 	shared_material.roughness = 0.94
 	shared_material.metallic = 0.0
 
+func _create_water() -> void:
+	# The earlier large transparent, double-sided plane rendered as a moving black
+	# dome on the target phone when viewed near sea level. Keep foundation water
+	# deliberately simple and opaque until a dedicated mobile water pass exists.
+	water = MeshInstance3D.new()
+	water.name = "Water"
+	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+	var plane := PlaneMesh.new()
+	plane.size = Vector2(512.0, 512.0)
+	water.mesh = plane
+	water.position = Vector3(0.0, SEA_LEVEL + 0.54, 0.0)
+
+	var water_material := StandardMaterial3D.new()
+	water_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	water_material.albedo_color = Color(0.18, 0.48, 0.68, 1.0)
+	water_material.roughness = 1.0
+	water_material.metallic = 0.0
+	water_material.cull_mode = BaseMaterial3D.CULL_BACK
+	plane.material = water_material
+	add_child(water)
+
 func _block_color(block: int, cell: Vector3i, shade: float) -> Color:
 	var base_color: Color
 	match block:
