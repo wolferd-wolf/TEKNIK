@@ -1,6 +1,6 @@
 extends "res://scripts/main.gd"
 
-const TexturedAtomicVoxelWorldScript := preload("res://scripts/world/textured_atomic_voxel_world.gd")
+const ColoredAtomicVoxelWorldScript := preload("res://scripts/world/colored_atomic_voxel_world.gd")
 const MobileSafePlayerScript := preload("res://scripts/player/mobile_safe_player_controller.gd")
 const MobileSafeHudScript := preload("res://scripts/ui/mobile_hud_safe.gd")
 
@@ -10,7 +10,7 @@ func _ready() -> void:
 
 	_prepare_telemetry_file()
 	_setup_environment()
-	world = TexturedAtomicVoxelWorldScript.new()
+	world = ColoredAtomicVoxelWorldScript.new()
 	world.name = "World"
 	add_child(world)
 	world.spawn_ready.connect(_on_spawn_ready)
@@ -26,23 +26,23 @@ func _setup_environment() -> void:
 	var environment := Environment.new()
 	environment.background_mode = Environment.BG_SKY
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	environment.ambient_light_energy = 1.22
+	environment.ambient_light_energy = 1.34
 	environment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	environment.fog_enabled = true
-	environment.fog_light_color = Color(0.78, 0.87, 0.94)
-	environment.fog_light_energy = 0.82
-	environment.fog_density = 0.0018
-	environment.fog_height = 9.0
-	environment.fog_height_density = 0.035
+	environment.fog_light_color = Color(0.82, 0.90, 0.97)
+	environment.fog_light_energy = 0.90
+	environment.fog_density = 0.0012
+	environment.fog_height = 10.0
+	environment.fog_height_density = 0.02
 
 	var sky := Sky.new()
 	var sky_material := ProceduralSkyMaterial.new()
-	sky_material.sky_top_color = Color(0.16, 0.38, 0.66)
-	sky_material.sky_horizon_color = Color(0.76, 0.86, 0.95)
-	sky_material.ground_bottom_color = Color(0.17, 0.22, 0.25)
-	sky_material.ground_horizon_color = Color(0.55, 0.61, 0.58)
-	sky_material.sun_angle_max = 28.0
+	sky_material.sky_top_color = Color(0.25, 0.50, 0.78)
+	sky_material.sky_horizon_color = Color(0.82, 0.91, 0.98)
+	sky_material.ground_bottom_color = Color(0.28, 0.34, 0.34)
+	sky_material.ground_horizon_color = Color(0.64, 0.70, 0.63)
+	sky_material.sun_angle_max = 24.0
 	sky.sky_material = sky_material
 	environment.sky = sky
 	world_environment.environment = environment
@@ -50,11 +50,12 @@ func _setup_environment() -> void:
 
 	var sun := DirectionalLight3D.new()
 	sun.name = "Sun"
-	sun.rotation_degrees = Vector3(-48.0, -32.0, 0.0)
-	sun.light_color = Color(1.0, 0.96, 0.88)
-	sun.light_energy = 1.42
-	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 80.0
+	sun.rotation_degrees = Vector3(-55.0, -28.0, 0.0)
+	sun.light_color = Color(1.0, 0.97, 0.90)
+	sun.light_energy = 1.18
+	# Real-time shadows are intentionally disabled during the foundation milestone.
+	# Face shading keeps terrain readable without the oversized near-camera artifact.
+	sun.shadow_enabled = false
 	add_child(sun)
 
 func _on_spawn_ready(spawn_position: Vector3) -> void:
