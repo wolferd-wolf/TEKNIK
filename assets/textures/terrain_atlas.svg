@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="80" height="16" viewBox="0 0 80 16" shape-rendering="crispEdges">
+  <!-- Original TEKNIK mobile terrain atlas: grass top, grass side, dirt, stone, sand. -->
+  <rect width="16" height="16" fill="#6f9f45"/>
+  <rect x="1" y="1" width="3" height="2" fill="#83b956"/><rect x="6" y="0" width="2" height="3" fill="#557f35"/>
+  <rect x="10" y="2" width="4" height="2" fill="#78ad4a"/><rect x="3" y="5" width="2" height="3" fill="#4f7932"/>
+  <rect x="7" y="6" width="3" height="2" fill="#8abb58"/><rect x="12" y="7" width="2" height="3" fill="#527d34"/>
+  <rect x="0" y="10" width="4" height="2" fill="#7faf4d"/><rect x="5" y="11" width="3" height="3" fill="#5a8737"/>
+  <rect x="10" y="12" width="5" height="2" fill="#85b652"/><rect x="14" y="4" width="2" height="2" fill="#496f2f"/>
+
+  <rect x="16" width="16" height="16" fill="#765139"/>
+  <rect x="16" width="16" height="5" fill="#6e9d43"/>
+  <rect x="17" y="1" width="4" height="2" fill="#82b652"/><rect x="23" y="0" width="3" height="3" fill="#557c35"/>
+  <rect x="28" y="2" width="4" height="2" fill="#7aaa4b"/><rect x="18" y="5" width="2" height="4" fill="#5d402d"/>
+  <rect x="22" y="5" width="2" height="6" fill="#8a6041"/><rect x="27" y="5" width="2" height="3" fill="#5d402d"/>
+  <rect x="30" y="5" width="2" height="5" fill="#8d6343"/><rect x="19" y="12" width="4" height="2" fill="#684730"/>
+  <rect x="25" y="10" width="3" height="3" fill="#8b6040"/><rect x="29" y="13" width="3" height="2" fill="#62432f"/>
+
+  <rect x="32" width="16" height="16" fill="#7b5438"/>
+  <rect x="33" y="1" width="4" height="3" fill="#916344"/><rect x="40" y="0" width="3" height="2" fill="#62432f"/>
+  <rect x="44" y="3" width="4" height="3" fill="#8a5e3e"/><rect x="35" y="6" width="3" height="2" fill="#5d3f2c"/>
+  <rect x="40" y="5" width="4" height="4" fill="#8f6242"/><rect x="32" y="10" width="4" height="3" fill="#684730"/>
+  <rect x="37" y="12" width="3" height="3" fill="#946748"/><rect x="43" y="11" width="5" height="2" fill="#65452f"/>
+  <rect x="45" y="14" width="2" height="2" fill="#9b6c49"/>
+
+  <rect x="48" width="16" height="16" fill="#898d8e"/>
+  <rect x="49" y="1" width="4" height="3" fill="#a2a6a5"/><rect x="55" y="0" width="3" height="2" fill="#717677"/>
+  <rect x="60" y="2" width="4" height="4" fill="#9a9e9e"/><rect x="52" y="5" width="3" height="3" fill="#6f7475"/>
+  <rect x="56" y="6" width="4" height="2" fill="#a7aaa9"/><rect x="49" y="10" width="4" height="3" fill="#777c7d"/>
+  <rect x="54" y="11" width="3" height="4" fill="#979b9b"/><rect x="59" y="9" width="5" height="3" fill="#707576"/>
+  <rect x="61" y="13" width="3" height="3" fill="#a4a7a6"/>
+
+  <rect x="64" width="16" height="16" fill="#d5bd78"/>
+  <rect x="65" y="1" width="4" height="2" fill="#e6d08b"/><rect x="71" y="0" width="3" height="3" fill="#bea663"/>
+  <rect x="76" y="2" width="4" height="2" fill="#dec681"/><rect x="67" y="5" width="3" height="3" fill="#bba25f"/>
+  <rect x="72" y="6" width="4" height="2" fill="#ead58f"/><rect x="64" y="10" width="4" height="3" fill="#c7ae69"/>
+  <rect x="69" y="11" width="3" height="4" fill="#e1ca84"/><rect x="74" y="10" width="5" height="3" fill="#bda461"/>
+  <rect x="77" y="14" width="3" height="2" fill="#ecd994"/>
+</svg>
