@@ -2,7 +2,6 @@ extends "res://scripts/world/atomic_voxel_world.gd"
 
 const SAVE_TEMP_PATH := "user://teknik_world_v1.pending.json"
 const SAVE_ROLLBACK_PATH := "user://teknik_world_v1.rollback.json"
-const WATER_RECENTER_GRID := CHUNK_SIZE * 2
 
 var save_commit_count := 0
 var save_commit_failures := 0
@@ -10,8 +9,6 @@ var lifecycle_flush_requests := 0
 var lifecycle_flush_commits := 0
 var lifecycle_flush_failures := 0
 var last_lifecycle_flush_reason := "none"
-var water_center_grid := Vector2i(999999, 999999)
-var water_recenter_count := 0
 
 func _ready() -> void:
 	super._ready()
@@ -20,29 +17,9 @@ func _ready() -> void:
 	shared_material.roughness = 0.94
 	shared_material.metallic = 0.0
 
-func _process(delta: float) -> void:
-	# Keep the foundation water centred without rewriting its transform every frame.
-	# A two-chunk snap grid preserves coverage while avoiding continuous renderer churn.
-	if is_instance_valid(player):
-		var player_chunk: Vector2i = world_to_chunk(player.global_position)
-		if player_chunk != current_center:
-			_set_center(player_chunk)
-		_update_water_center(player.global_position)
-
-	_pump_build_queue()
-	_refresh_collision_queues()
-	_pump_collision_queues()
-	_try_emit_spawn()
-
-	if dirty_save:
-		save_delay -= delta
-		if save_delay <= 0.0:
-			_save_world()
-
 func _create_water() -> void:
-	# The earlier large transparent, double-sided plane rendered as a moving black
-	# dome on the target phone when viewed near sea level. Keep foundation water
-	# deliberately simple and opaque until a dedicated mobile water pass exists.
+	# Keep foundation water deliberately simple and opaque until a dedicated
+	# mobile water pass exists.
 	water = MeshInstance3D.new()
 	water.name = "Water"
 	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -60,30 +37,6 @@ func _create_water() -> void:
 	water_material.cull_mode = BaseMaterial3D.CULL_BACK
 	plane.material = water_material
 	add_child(water)
-	_update_water_center(Vector3.ZERO)
-
-func _update_water_center(position: Vector3) -> void:
-	if not is_instance_valid(water):
-		return
-	var half_grid := float(WATER_RECENTER_GRID) * 0.5
-	var next_grid := Vector2i(
-		floori((position.x + half_grid) / float(WATER_RECENTER_GRID)),
-		floori((position.z + half_grid) / float(WATER_RECENTER_GRID))
-	)
-	if next_grid == water_center_grid:
-		return
-	water_center_grid = next_grid
-	water.position.x = float(next_grid.x * WATER_RECENTER_GRID)
-	water.position.z = float(next_grid.y * WATER_RECENTER_GRID)
-	water_recenter_count += 1
-
-func get_water_stream_metrics() -> Dictionary:
-	return {
-		"water_recenter_grid": WATER_RECENTER_GRID,
-		"water_recenter_count": water_recenter_count,
-		"water_grid_x": water_center_grid.x,
-		"water_grid_z": water_center_grid.y
-	}
 
 func _block_color(block: int, cell: Vector3i, shade: float) -> Color:
 	var base_color: Color
@@ -211,10 +164,8 @@ func _record_save_failure(message: String) -> void:
 	push_warning(message)
 
 func get_status_text() -> String:
-	return "%s\nwater-shifts %d  grid %dm\nsave-commits %d  failures %d\nlifecycle-save %d/%d  failures %d  %s" % [
+	return "%s\nsave-commits %d  failures %d\nlifecycle-save %d/%d  failures %d  %s" % [
 		super.get_status_text(),
-		water_recenter_count,
-		WATER_RECENTER_GRID,
 		save_commit_count,
 		save_commit_failures,
 		lifecycle_flush_commits,
