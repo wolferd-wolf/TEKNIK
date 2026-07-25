@@ -3,6 +3,7 @@ extends SceneTree
 const SAVE_PATH := "user://teknik_world_v1.json"
 const SUMMARY_PATH := "user://teknik_telemetry_summary.json"
 const COLLISION_RADIUS := 1
+const CHUNK_SIZE := 12
 
 var failed := false
 
@@ -29,10 +30,20 @@ func _run() -> void:
 	else:
 		_assert_collision_ring(world, Vector2i.ZERO, "initial spawn")
 		if not bool(player.call("_is_collision_ready_for_position", player.global_position)):
-			_fail("Movement safety gate rejected the loaded spawn chunk")
+			_fail("Movement safety gate rejected the loaded spawn footprint")
 		var unloaded_probe := Vector3(1200.0, player.global_position.y, 1200.0)
 		if bool(player.call("_is_collision_ready_for_position", unloaded_probe)):
-			_fail("Movement safety gate accepted an unloaded target chunk")
+			_fail("Movement safety gate accepted an unloaded target footprint")
+		var boundary_probe := Vector3(float(CHUNK_SIZE * 2) - 0.1, player.global_position.y, 6.5)
+		var boundary_center_coord: Vector2i = world.world_to_chunk(boundary_probe)
+		if not world.loaded_chunks.has(boundary_center_coord):
+			_fail("Boundary regression probe center chunk was not loaded")
+		else:
+			var boundary_center_entry: Dictionary = world.loaded_chunks[boundary_center_coord]
+			if not is_instance_valid(boundary_center_entry["collision"]):
+				_fail("Boundary regression probe center chunk lacked collision")
+			elif bool(player.call("_is_collision_ready_for_position", boundary_probe)):
+				_fail("Movement safety gate ignored an uncollided chunk overlapping the player footprint")
 
 	if world.loaded_chunks.size() < 9:
 		_fail("Fewer than nine collision-priority chunks were loaded")
@@ -42,7 +53,7 @@ func _run() -> void:
 	if player != null:
 		var centers: Array[Vector2i] = [Vector2i(1, 0), Vector2i(3, 0), Vector2i(5, 0)]
 		for expected_center in centers:
-			var travel_position := Vector3(expected_center.x * 12 + 1.5, 0.0, 6.5)
+			var travel_position := Vector3(expected_center.x * CHUNK_SIZE + 1.5, 0.0, 6.5)
 			travel_position = world.get_recovery_position(travel_position)
 			player.global_position = travel_position
 			var streamed := await _wait_for_center(world, expected_center, 600)
@@ -54,7 +65,7 @@ func _run() -> void:
 				_fail("Collision safety ring did not complete at chunk %s" % expected_center)
 				break
 			if not bool(player.call("_is_collision_ready_for_position", player.global_position)):
-				_fail("Movement safety gate rejected streamed chunk %s" % expected_center)
+				_fail("Movement safety gate rejected streamed footprint %s" % expected_center)
 				break
 
 		if world.loaded_chunks.has(Vector2i.ZERO):
