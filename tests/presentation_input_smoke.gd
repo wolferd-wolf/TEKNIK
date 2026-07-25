@@ -55,6 +55,17 @@ func _run() -> void:
 		if player_camera == null or player_camera.near < 0.09:
 			_fail("First-person near plane was not raised above the clipping-artifact threshold")
 
+		var player_collision := player.get_node_or_null("PlayerCollision") as CollisionShape3D
+		if player_collision == null:
+			_fail("Named player collision capsule was not created")
+		else:
+			if player_collision.debug_fill:
+				_fail("Player collision capsule still has solid debug fill enabled")
+			if player_collision.debug_color.a > 0.001:
+				_fail("Player collision capsule debug color is still visible")
+			if not player_collision.shape is CapsuleShape3D:
+				_fail("Player collision physics shape is no longer a capsule")
+
 		var outline := player.get_node_or_null("TargetOutline") as MeshInstance3D
 		if outline == null:
 			_fail("Block target outline was not created")
