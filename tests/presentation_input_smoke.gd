@@ -51,6 +51,21 @@ func _run() -> void:
 			_fail("Explicit PLACE button request was rejected")
 		player.place_requested = false
 
+		var outline := player.get_node_or_null("TargetOutline") as MeshInstance3D
+		if outline == null:
+			_fail("Block target outline was not created")
+		else:
+			if outline.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+				_fail("Block target outline unexpectedly casts a shadow")
+			var outline_mesh := outline.mesh as ImmediateMesh
+			if outline_mesh == null or outline_mesh.get_surface_count() == 0:
+				_fail("Block target outline has no line geometry")
+			var outline_material := outline.material_override as StandardMaterial3D
+			if outline_material == null or outline_material.shading_mode != BaseMaterial3D.SHADING_MODE_UNSHADED:
+				_fail("Block target outline is not using an unshaded material")
+		if not player.has_method("get_target_status_text"):
+			_fail("Block target telemetry method is missing")
+
 	if world.shared_material.albedo_texture != null:
 		_fail("Color-only terrain unexpectedly retained a texture atlas")
 	if not world.shared_material.vertex_color_use_as_albedo:
