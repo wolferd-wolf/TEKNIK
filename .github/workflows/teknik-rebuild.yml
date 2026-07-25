@@ -65,6 +65,10 @@ jobs:
         run: |
           bash scripts/ci/run_godot_strict.sh "$GODOT_DIR/godot" build/transactional-save-smoke.log --headless --path . --script res://tests/transactional_save_smoke.gd
 
+      - name: Run lifecycle save smoke test
+        run: |
+          bash scripts/ci/run_godot_strict.sh "$GODOT_DIR/godot" build/lifecycle-save-smoke.log --headless --path . --script res://tests/lifecycle_save_smoke.gd
+
       - name: Run save recovery smoke test
         run: |
           bash scripts/ci/run_godot_strict.sh "$GODOT_DIR/godot" build/save-guardian-smoke.log --headless --path . --script res://tests/save_guardian_smoke.gd
