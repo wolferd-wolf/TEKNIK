@@ -3,6 +3,11 @@ extends "res://scripts/ui/mobile_hud.gd"
 const LOOK_REGION_LEFT_RATIO := 0.46
 const LOOK_REGION_BOTTOM_RATIO := 0.60
 
+func _process(delta: float) -> void:
+	super._process(delta)
+	if is_instance_valid(player) and player.has_method("get_target_status_text"):
+		stats_label.text += "\n%s" % player.get_target_status_text()
+
 func _input(event: InputEvent) -> void:
 	if not is_instance_valid(player):
 		return
