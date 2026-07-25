@@ -10,7 +10,7 @@ func _run() -> void:
 	if orientation != DisplayServer.SCREEN_SENSOR_LANDSCAPE:
 		_fail("Project orientation is not sensor landscape")
 
-	var packed: PackedScene = load("res://scenes/main.tscn")
+	var packed := load("res://scenes/main.tscn") as PackedScene
 	if packed == null:
 		_fail("Main scene could not be loaded")
 		quit(1)
@@ -69,7 +69,7 @@ func _run() -> void:
 	if not textured_mesh_found:
 		_fail("Loaded terrain mesh does not contain complete UV data")
 
-	var environment_node: WorldEnvironment = main.get_node_or_null("WorldEnvironment")
+	var environment_node := main.get_node_or_null("WorldEnvironment") as WorldEnvironment
 	if environment_node == null or environment_node.environment == null:
 		_fail("Bright world environment was not created")
 	elif environment_node.environment.ambient_light_energy <= 1.0:
