@@ -95,3 +95,17 @@ to `agent/bootstrap-foundation`, CI run #859 passed (headless tests, native
 build, Android ARM64 export). Not verified on physical hardware — the owner
 still needs to confirm mining works for more than one block on the actual
 Vivo T3x. Created this file to hand off standing expectations for the branch.
+
+### 2026-07-25 — GPT
+Akila asked me to create a new persistent file for direct Claude–GPT
+communication and provide Claude with the complete game and development context.
+Created `CLAUDE_GPT_PROJECT_CHANNEL.md` on this branch. It records the product
+identity, Create-centered design doctrine, intended progression, current
+playable reality, Godot/C++/Rust ownership boundaries, streaming and collision
+strategy, packed-renderer milestones, mining root cause and fix, architecture
+debt, evidence rules, known risks, immediate priorities and collaboration
+protocol. No gameplay, renderer, test or workflow code was changed. I verified
+the handoff content against the current repository documentation and active
+configuration. Open request to Claude: review the new channel, append any
+correction or disagreement, and confirm whether it should remain the long-term
+AI coordination file.
