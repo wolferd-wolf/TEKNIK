@@ -83,7 +83,10 @@ func _is_valid_world_save(path: String) -> bool:
 	var file := FileAccess.open(path, FileAccess.READ)
 	if file == null:
 		return false
-	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	var parser := JSON.new()
+	if parser.parse(file.get_as_text()) != OK:
+		return false
+	var parsed: Variant = parser.data
 	if not parsed is Dictionary:
 		return false
 	var data: Dictionary = parsed
