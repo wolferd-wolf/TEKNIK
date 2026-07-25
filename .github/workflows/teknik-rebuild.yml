@@ -53,6 +53,10 @@ jobs:
         run: |
           bash scripts/ci/run_godot_strict.sh "$GODOT_DIR/godot" build/presentation-input-smoke.log --headless --path . --script res://tests/presentation_input_smoke.gd
 
+      - name: Run resource telemetry smoke test
+        run: |
+          bash scripts/ci/run_godot_strict.sh "$GODOT_DIR/godot" build/resource-telemetry-smoke.log --headless --path . --script res://tests/resource_telemetry_smoke.gd
+
       - name: Run procedural world smoke test
         run: |
           bash scripts/ci/run_godot_strict.sh "$GODOT_DIR/godot" build/world-smoke.log --headless --path . --script res://tests/world_smoke.gd
