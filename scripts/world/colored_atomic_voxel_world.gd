@@ -5,6 +5,10 @@ const SAVE_ROLLBACK_PATH := "user://teknik_world_v1.rollback.json"
 
 var save_commit_count := 0
 var save_commit_failures := 0
+var lifecycle_flush_requests := 0
+var lifecycle_flush_commits := 0
+var lifecycle_flush_failures := 0
+var last_lifecycle_flush_reason := "none"
 
 func _ready() -> void:
 	super._ready()
@@ -48,6 +52,24 @@ func _face_shade(face_index: int) -> float:
 			return 0.92
 		_:
 			return 0.86
+
+func flush_pending_save(reason: String) -> bool:
+	lifecycle_flush_requests += 1
+	last_lifecycle_flush_reason = reason
+	if not dirty_save:
+		return true
+
+	var commits_before := save_commit_count
+	var failures_before := save_commit_failures
+	_save_world()
+	var committed := not dirty_save and save_commit_count > commits_before
+	if committed:
+		lifecycle_flush_commits += 1
+		return true
+
+	if save_commit_failures > failures_before or dirty_save:
+		lifecycle_flush_failures += 1
+	return false
 
 func _save_world() -> void:
 	var payload := JSON.stringify({
@@ -121,8 +143,12 @@ func _record_save_failure(message: String) -> void:
 	push_warning(message)
 
 func get_status_text() -> String:
-	return "%s\nsave-commits %d  failures %d" % [
+	return "%s\nsave-commits %d  failures %d\nlifecycle-save %d/%d  failures %d  %s" % [
 		super.get_status_text(),
 		save_commit_count,
-		save_commit_failures
+		save_commit_failures,
+		lifecycle_flush_commits,
+		lifecycle_flush_requests,
+		lifecycle_flush_failures,
+		last_lifecycle_flush_reason
 	]
