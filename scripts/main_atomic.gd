@@ -20,6 +20,20 @@ func _ready() -> void:
 	add_child(hud)
 	hud.attach_world(world)
 
+func _notification(what: int) -> void:
+	match what:
+		NOTIFICATION_APPLICATION_PAUSED:
+			_flush_world_for_lifecycle("application-paused")
+		NOTIFICATION_APPLICATION_FOCUS_OUT:
+			_flush_world_for_lifecycle("focus-out")
+		NOTIFICATION_WM_CLOSE_REQUEST:
+			_flush_world_for_lifecycle("close-request")
+
+func _flush_world_for_lifecycle(reason: String) -> bool:
+	if not is_instance_valid(world) or not world.has_method("flush_pending_save"):
+		return true
+	return bool(world.call("flush_pending_save", reason))
+
 func _setup_environment() -> void:
 	var world_environment := WorldEnvironment.new()
 	world_environment.name = "WorldEnvironment"
