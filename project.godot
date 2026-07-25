@@ -18,15 +18,15 @@ window/size/viewport_height=720
 window/size/window_width_override=1280
 window/size/window_height_override=720
 window/stretch/mode="canvas_items"
-window/handheld/orientation=1
+window/handheld/orientation=4
 
 [rendering]
 renderer/rendering_method="mobile"
 renderer/rendering_method.mobile="mobile"
 renderer/rendering_method.web="gl_compatibility"
-textures/default_filters/use_nearest_mipmap_filter=false
+textures/default_filters/use_nearest_mipmap_filter=true
 textures/vram_compression/import_etc2_astc=true
-environment/defaults/default_clear_color=Color(0.25, 0.39, 0.55, 1)
+environment/defaults/default_clear_color=Color(0.42, 0.62, 0.80, 1)
 
 [physics]
 3d/physics_engine="Jolt Physics"
