@@ -13,7 +13,7 @@ func _init() -> void:
 func _run() -> void:
 	_remove_test_files()
 
-	var main := _instantiate_main()
+	var main := await _instantiate_main()
 	if main == null:
 		quit(1)
 		return
@@ -83,7 +83,7 @@ func _run() -> void:
 	_validate_session_summary()
 	await _finish(main)
 
-	var reloaded_main := _instantiate_main()
+	var reloaded_main := await _instantiate_main()
 	if reloaded_main == null:
 		quit(1)
 		return
