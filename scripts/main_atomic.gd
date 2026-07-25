@@ -121,7 +121,6 @@ func _setup_environment() -> void:
 	sky_material.ground_curve = 0.12
 	sky_material.sun_angle_max = 18.0
 	sky_material.sun_curve = 0.10
-	sky_material.sun_energy_multiplier = 2.2
 	sky.sky_material = sky_material
 	environment.sky = sky
 	world_environment.environment = environment
