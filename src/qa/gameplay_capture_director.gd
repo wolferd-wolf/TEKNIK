@@ -68,6 +68,8 @@ func _run() -> void:
 	# poster is accepted only when the real outline and crack overlay are visible.
 	_world.qa_save_edits_now()
 	await get_tree().process_frame
+	if not _verify_hud_layout():
+		return
 	if not await _focus_mining_evidence():
 		return
 
@@ -96,6 +98,54 @@ func _run() -> void:
 		" intermediate_lod_ring_chunks=", int(snapshot.get("intermediate_lod_ring_chunks", 0))
 	)
 	get_tree().quit(0)
+
+
+func _verify_hud_layout() -> bool:
+	var column := _world.get_node_or_null("GameplayHUD/LeftHUDColumn") as VBoxContainer
+	var kinetics_layer := _world.get_node_or_null("KineticMachineHUD") as CanvasLayer
+	if column == null or kinetics_layer == null or kinetics_layer.get_child_count() == 0:
+		push_error("QA_HUD_LAYOUT required HUD columns are unavailable")
+		get_tree().quit(1)
+		return false
+	var kinetic_panel := kinetics_layer.get_child(0) as Control
+	if kinetic_panel == null:
+		push_error("QA_HUD_LAYOUT kinetic panel is not a Control")
+		get_tree().quit(1)
+		return false
+	var left_panels: Array[Control] = []
+	for child: Node in column.get_children():
+		if child is Control:
+			left_panels.append(child as Control)
+	if left_panels.size() < 3:
+		push_error("QA_HUD_LAYOUT expected populated Survival, Vitals and Engineering panels")
+		get_tree().quit(1)
+		return false
+	for first_index: int in range(left_panels.size()):
+		for second_index: int in range(first_index + 1, left_panels.size()):
+			if left_panels[first_index].get_global_rect().intersects(left_panels[second_index].get_global_rect()):
+				push_error(
+					"QA_HUD_LAYOUT left panels overlap: %s and %s"
+					% [left_panels[first_index].name, left_panels[second_index].name]
+				)
+				get_tree().quit(1)
+				return false
+	var column_rect: Rect2 = column.get_global_rect()
+	var kinetic_rect: Rect2 = kinetic_panel.get_global_rect()
+	if column_rect.intersects(kinetic_rect):
+		push_error("QA_HUD_LAYOUT left column overlaps Kinetics: %s vs %s" % [column_rect, kinetic_rect])
+		get_tree().quit(1)
+		return false
+	var viewport_rect: Rect2 = get_viewport().get_visible_rect()
+	if not viewport_rect.encloses(column_rect) or not viewport_rect.encloses(kinetic_rect):
+		push_error("QA_HUD_LAYOUT panel escaped viewport: left=%s kinetics=%s viewport=%s" % [column_rect, kinetic_rect, viewport_rect])
+		get_tree().quit(1)
+		return false
+	print(
+		"QA_HUD_LAYOUT_PASS left=", column_rect,
+		" kinetics=", kinetic_rect,
+		" panels=", left_panels.size()
+	)
+	return true
 
 
 func _focus_mining_evidence() -> bool:
