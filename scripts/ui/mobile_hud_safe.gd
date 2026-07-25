@@ -10,7 +10,7 @@ func _input(event: InputEvent) -> void:
 	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
 	if event is InputEventScreenTouch:
 		if event.pressed:
-			var inside_look_region := (
+			var inside_look_region: bool = (
 				event.position.x > viewport_size.x * LOOK_REGION_LEFT_RATIO
 				and event.position.y < viewport_size.y * LOOK_REGION_BOTTOM_RATIO
 			)
