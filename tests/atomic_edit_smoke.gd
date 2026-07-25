@@ -47,13 +47,19 @@ func _run() -> void:
 	var y: int = world._terrain_height(x, z)
 	var cell := Vector3i(x, y, z)
 	var original_block: int = world.get_block(cell)
+	var baseline_swaps: int = world.atomic_swap_count
+	var baseline_coalesced: int = world.coalesced_edit_requests
+
+	# Simulate a rapid burst of mine/place requests before the debounce window expires.
+	for index in range(6):
+		world._set_block(cell, world.BLOCK_AIR if index % 2 == 0 else original_block)
 	world._set_block(cell, world.BLOCK_AIR)
 
 	var immediate_entry: Dictionary = world.loaded_chunks[coord]
 	if immediate_entry["root"] != old_root:
 		_fail("Chunk root changed before replacement was built")
 	if not is_instance_valid(immediate_entry["collision"]):
-		_fail("Collision disappeared immediately after edit")
+		_fail("Collision disappeared immediately after edit burst")
 
 	var replacement_ready := false
 	for _frame in range(600):
@@ -66,14 +72,24 @@ func _run() -> void:
 
 	if not replacement_ready:
 		_fail("Replacement chunk and collision did not become ready")
-	if world.atomic_swap_count < 1:
-		_fail("Atomic swap counter did not advance")
+	if world.atomic_swap_count - baseline_swaps != 1:
+		_fail("Rapid edit burst did not collapse to exactly one atomic swap")
+	if world.coalesced_edit_requests - baseline_coalesced < 6:
+		_fail("Rapid edit requests were not recorded as coalesced")
 	if world.atomic_swap_failures != 0:
 		_fail("Atomic swap reported a failure")
+	if world.get_block(cell) != world.BLOCK_AIR:
+		_fail("Final coalesced block state was not applied")
 
 	world._set_block(cell, original_block)
-	for _frame in range(300):
+	var restored := false
+	for _frame in range(600):
 		await process_frame
+		if world.get_block(cell) == original_block and world.atomic_swap_count >= baseline_swaps + 2:
+			restored = true
+			break
+	if not restored:
+		_fail("Edited block was not restored through the atomic pipeline")
 
 	_finish(main)
 
