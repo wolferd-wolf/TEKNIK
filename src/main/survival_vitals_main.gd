@@ -41,14 +41,11 @@ func _notification(what: int) -> void:
 
 
 func _build_vitals_hud() -> void:
-	var layer := CanvasLayer.new()
-	layer.name = "SurvivalVitalsHUD"
-	layer.layer = 7
-	add_child(layer)
 	var panel := PanelContainer.new()
-	panel.position = Vector2(12.0, 238.0)
-	panel.custom_minimum_size = Vector2(250.0, 108.0)
-	layer.add_child(panel)
+	panel.name = "SurvivalVitalsPanel"
+	panel.custom_minimum_size = Vector2(330.0, 108.0)
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_add_left_hud_panel(panel, 20)
 	var rows := VBoxContainer.new()
 	rows.add_theme_constant_override("separation", 5)
 	panel.add_child(rows)

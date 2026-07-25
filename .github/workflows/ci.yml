@@ -3,6 +3,9 @@ name: TEKNIK CI
 
 on:
   push:
+    paths-ignore:
+      - "CLAUDE_GPT_PROJECT_CHANNEL.md"
+      - "MANAGER_BRIEFING.md"
   workflow_dispatch:
 
 permissions:
@@ -66,7 +69,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang lld scons git curl unzip libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
+          sudo apt-get install -y build-essential clang lld scons git curl unzip xvfb libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
       - name: Install Godot and export templates
         run: |
           curl --fail --location --retry 3 "https://github.com/godotengine/godot/releases/download/${GODOT_RELEASE}/Godot_v${GODOT_RELEASE}_linux.x86_64.zip" --output /tmp/godot.zip
@@ -124,6 +127,18 @@ jobs:
           godot --headless --path . --script res://tests/run_survival_inventory_tests.gd
           godot --headless --path . --script res://tests/run_engineering_progression_tests.gd
           godot --headless --path . --script res://tests/run_kinetic_machine_tests.gd
+      - name: Capture populated HUD layout
+        run: |
+          mkdir -p artifacts
+          xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy -- --qa-gameplay --qa-gameplay-poster=artifacts/hud-layout.png
+          test -s artifacts/hud-layout.png
+      - name: Publish populated HUD evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: TEKNIK-HUD-Layout-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: artifacts/hud-layout.png
       - name: Set up Android command-line tools
         uses: android-actions/setup-android@v3
       - name: Install Android ARM64 dependencies
