@@ -21,6 +21,11 @@ var place_requested := false
 var camera: Camera3D
 var stream_hold_count := 0
 var stream_hold_active := false
+var stream_hold_episode_count := 0
+var stream_hold_total_msec := 0
+var stream_hold_max_msec := 0
+var stream_hold_last_msec := 0
+var stream_hold_started_msec := -1
 
 func _ready() -> void:
 	collision_layer = 2
@@ -51,6 +56,10 @@ func _ready() -> void:
 
 	if not OS.has_feature("mobile"):
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+func _exit_tree() -> void:
+	if stream_hold_active:
+		_finish_stream_hold()
 
 func _physics_process(delta: float) -> void:
 	var gravity := float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
@@ -85,6 +94,7 @@ func _physics_process(delta: float) -> void:
 	velocity.x = move_toward(velocity.x, desired_velocity.x, acceleration * delta)
 	velocity.z = move_toward(velocity.z, desired_velocity.z, acceleration * delta)
 
+	var was_stream_hold_active := stream_hold_active
 	stream_hold_active = false
 	if desired_direction.length_squared() > 0.0 and is_instance_valid(world):
 		var predicted_position := global_position + Vector3(velocity.x, 0.0, velocity.z) * STREAM_LOOKAHEAD_SECONDS
@@ -93,6 +103,10 @@ func _physics_process(delta: float) -> void:
 			velocity.z = 0.0
 			stream_hold_active = true
 			stream_hold_count += 1
+			if not was_stream_hold_active:
+				_begin_stream_hold()
+	if was_stream_hold_active and not stream_hold_active:
+		_finish_stream_hold()
 
 	if (jump_requested or Input.is_key_pressed(KEY_SPACE)) and is_on_floor():
 		velocity.y = JUMP_VELOCITY
@@ -110,6 +124,35 @@ func _physics_process(delta: float) -> void:
 	if place_requested:
 		_interact(true)
 		place_requested = false
+
+func _begin_stream_hold() -> void:
+	stream_hold_episode_count += 1
+	stream_hold_started_msec = Time.get_ticks_msec()
+
+func _finish_stream_hold() -> void:
+	if stream_hold_started_msec < 0:
+		stream_hold_active = false
+		return
+	var duration_msec := maxi(Time.get_ticks_msec() - stream_hold_started_msec, 0)
+	stream_hold_last_msec = duration_msec
+	stream_hold_total_msec += duration_msec
+	stream_hold_max_msec = maxi(stream_hold_max_msec, duration_msec)
+	stream_hold_started_msec = -1
+	stream_hold_active = false
+
+func get_stream_hold_metrics() -> Dictionary:
+	var active_duration_msec := 0
+	if stream_hold_active and stream_hold_started_msec >= 0:
+		active_duration_msec = maxi(Time.get_ticks_msec() - stream_hold_started_msec, 0)
+	return {
+		"stream_hold_active": stream_hold_active,
+		"stream_hold_count": stream_hold_count,
+		"stream_hold_episodes": stream_hold_episode_count,
+		"stream_hold_active_msec": active_duration_msec,
+		"stream_hold_total_msec": stream_hold_total_msec + active_duration_msec,
+		"stream_hold_last_msec": stream_hold_last_msec,
+		"stream_hold_max_msec": maxi(stream_hold_max_msec, active_duration_msec)
+	}
 
 func _is_collision_ready_for_position(position: Vector3) -> bool:
 	if not is_instance_valid(world):
@@ -131,7 +174,12 @@ func _is_collision_ready_for_position(position: Vector3) -> bool:
 	return true
 
 func get_stream_status_text() -> String:
-	return "stream-hold %s  total %d" % ["ON" if stream_hold_active else "off", stream_hold_count]
+	var metrics := get_stream_hold_metrics()
+	return "stream-hold %s  episodes %d  max %d ms" % [
+		"ON" if stream_hold_active else "off",
+		int(metrics["stream_hold_episodes"]),
+		int(metrics["stream_hold_max_msec"])
+	]
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
