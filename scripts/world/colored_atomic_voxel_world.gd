@@ -1,5 +1,11 @@
 extends "res://scripts/world/atomic_voxel_world.gd"
 
+const SAVE_TEMP_PATH := "user://teknik_world_v1.pending.json"
+const SAVE_ROLLBACK_PATH := "user://teknik_world_v1.rollback.json"
+
+var save_commit_count := 0
+var save_commit_failures := 0
+
 func _ready() -> void:
 	super._ready()
 	shared_material.albedo_texture = null
@@ -42,3 +48,81 @@ func _face_shade(face_index: int) -> float:
 			return 0.92
 		_:
 			return 0.86
+
+func _save_world() -> void:
+	var payload := JSON.stringify({
+		"version": 1,
+		"seed": WORLD_SEED,
+		"overrides": block_overrides
+	})
+	_cleanup_transaction_file(SAVE_TEMP_PATH)
+
+	var pending := FileAccess.open(SAVE_TEMP_PATH, FileAccess.WRITE)
+	if pending == null:
+		_record_save_failure("Unable to open pending world save")
+		return
+	pending.store_string(payload)
+	pending.flush()
+	pending = null
+
+	if not _validate_pending_save():
+		_cleanup_transaction_file(SAVE_TEMP_PATH)
+		_record_save_failure("Pending world save failed validation")
+		return
+
+	_cleanup_transaction_file(SAVE_ROLLBACK_PATH)
+	var primary_absolute := ProjectSettings.globalize_path(SAVE_PATH)
+	var pending_absolute := ProjectSettings.globalize_path(SAVE_TEMP_PATH)
+	var rollback_absolute := ProjectSettings.globalize_path(SAVE_ROLLBACK_PATH)
+	var had_primary := FileAccess.file_exists(SAVE_PATH)
+
+	if had_primary:
+		var rollback_error := DirAccess.rename_absolute(primary_absolute, rollback_absolute)
+		if rollback_error != OK:
+			_cleanup_transaction_file(SAVE_TEMP_PATH)
+			_record_save_failure("Unable to stage previous world save")
+			return
+
+	var promote_error := DirAccess.rename_absolute(pending_absolute, primary_absolute)
+	if promote_error != OK:
+		if had_primary and FileAccess.file_exists(SAVE_ROLLBACK_PATH):
+			DirAccess.rename_absolute(rollback_absolute, primary_absolute)
+		_cleanup_transaction_file(SAVE_TEMP_PATH)
+		_record_save_failure("Unable to promote pending world save")
+		return
+
+	_cleanup_transaction_file(SAVE_ROLLBACK_PATH)
+	dirty_save = false
+	save_commit_count += 1
+
+func _validate_pending_save() -> bool:
+	var file := FileAccess.open(SAVE_TEMP_PATH, FileAccess.READ)
+	if file == null:
+		return false
+	var parser := JSON.new()
+	if parser.parse(file.get_as_text()) != OK:
+		return false
+	var parsed: Variant = parser.data
+	if not parsed is Dictionary:
+		return false
+	var data: Dictionary = parsed
+	return (
+		int(data.get("version", 0)) == 1
+		and int(data.get("seed", -1)) == WORLD_SEED
+		and data.get("overrides", null) is Dictionary
+	)
+
+func _cleanup_transaction_file(path: String) -> void:
+	if FileAccess.file_exists(path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+func _record_save_failure(message: String) -> void:
+	save_commit_failures += 1
+	push_warning(message)
+
+func get_status_text() -> String:
+	return "%s\nsave-commits %d  failures %d" % [
+		super.get_status_text(),
+		save_commit_count,
+		save_commit_failures
+	]
