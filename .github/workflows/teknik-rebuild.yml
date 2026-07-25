@@ -57,6 +57,12 @@ jobs:
           set -o pipefail
           "$GODOT_DIR/godot" --headless --path . --script res://tests/world_smoke.gd 2>&1 | tee build/world-smoke.log
 
+      - name: Run atomic edit smoke test
+        shell: bash
+        run: |
+          set -o pipefail
+          "$GODOT_DIR/godot" --headless --path . --script res://tests/atomic_edit_smoke.gd 2>&1 | tee build/atomic-edit-smoke.log
+
       - name: Run save recovery smoke test
         shell: bash
         run: |
