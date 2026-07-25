@@ -1,0 +1,11 @@
+PLAYER SHADOW DEVICE ACCEPTANCE
+
+The black capsule/dome shown in the Vivo T3x recording is not accepted.
+
+Required result:
+- no solid or translucent collision capsule may be visible from the first-person camera;
+- turning or looking down must never reveal a black curved dome;
+- the CharacterBody3D capsule must continue to provide collision while remaining visually invisible;
+- block selection, movement, mining, placement, and terrain rendering must remain unchanged.
+
+Automated checks are only safeguards. A Vivo T3x recording is required to close this issue.
