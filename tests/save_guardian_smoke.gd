@@ -24,38 +24,45 @@ func _run() -> void:
 		_fail("Backup save file was not created")
 
 	_write_corrupt_primary()
-	if not bool(guardian.call("recover_primary_if_needed")):
-		_fail("Corrupt primary save was not restored from backup")
-	_validate_restored_primary()
+	_expect_recovery(guardian, "Corrupt primary save was not restored from backup")
 
-	_write_wrong_seed_primary()
-	if not bool(guardian.call("recover_primary_if_needed")):
-		_fail("Wrong-seed primary save was not rejected and restored")
-	_validate_restored_primary()
+	_write_save(1, {})
+	_expect_recovery(guardian, "Wrong-seed primary save was not rejected and restored")
+
+	_write_save(734921, {"malformed": 2})
+	_expect_recovery(guardian, "Malformed override coordinate was not rejected")
+
+	_write_save(734921, {"6,30,6": 2})
+	_expect_recovery(guardian, "Out-of-range override height was not rejected")
+
+	_write_save(734921, {"6,12,6": 99})
+	_expect_recovery(guardian, "Unknown block ID was not rejected")
+
+	_write_save(734921, {"6,12,6": 2.5})
+	_expect_recovery(guardian, "Fractional block ID was not rejected")
 
 	var status: Dictionary = guardian.call("get_status")
 	if not bool(status.get("primary_valid", false)):
 		_fail("Guardian status reports an invalid primary after recovery")
 	if not bool(status.get("backup_valid", false)):
 		_fail("Guardian status reports an invalid backup after recovery")
-	if int(status.get("recovery_count", 0)) < 2:
-		_fail("Guardian did not count both recovery events")
+	if int(status.get("recovery_count", 0)) < 6:
+		_fail("Guardian did not count every recovery event")
+	if int(status.get("semantic_rejections", 0)) < 4:
+		_fail("Guardian did not count semantic save rejections")
 	if int(status.get("backup_write_failures", 0)) != 0:
 		_fail("Guardian reported backup write failures")
 
 	_remove_test_files()
 	quit(1 if failed else 0)
 
+func _expect_recovery(guardian: Node, failure_message: String) -> void:
+	if not bool(guardian.call("recover_primary_if_needed")):
+		_fail(failure_message)
+	_validate_restored_primary()
+
 func _write_valid_primary() -> void:
-	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
-	if file == null:
-		_fail("Could not create valid primary save")
-		return
-	file.store_string(JSON.stringify({
-		"version": 1,
-		"seed": 734921,
-		"overrides": {"6,12,6": 2}
-	}))
+	_write_save(734921, {"6,12,6": 2})
 
 func _write_corrupt_primary() -> void:
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
@@ -64,15 +71,15 @@ func _write_corrupt_primary() -> void:
 		return
 	file.store_string("{broken")
 
-func _write_wrong_seed_primary() -> void:
+func _write_save(seed: int, overrides: Dictionary) -> void:
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file == null:
-		_fail("Could not replace primary save with wrong-seed data")
+		_fail("Could not write primary save fixture")
 		return
 	file.store_string(JSON.stringify({
 		"version": 1,
-		"seed": 1,
-		"overrides": {}
+		"seed": seed,
+		"overrides": overrides
 	}))
 
 func _validate_restored_primary() -> void:
