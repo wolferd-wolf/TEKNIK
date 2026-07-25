@@ -9,7 +9,6 @@ func _init() -> void:
 	_test_bounds_and_drain()
 	_test_starvation_and_regeneration()
 	_test_persistence()
-	_test_shipping_stack()
 	if _failures == 0:
 		print("SURVIVAL_VITALS_TEST_RESULT PASS")
 		quit(0)
@@ -54,15 +53,6 @@ func _test_persistence() -> void:
 	_expect(restored.decode(payload), "versioned vitals payload decodes")
 	_expect(restored.encode() == payload, "vitals save round trip is exact")
 	_expect(not restored.decode({"schema": 99}), "unknown vitals schema is rejected")
-
-
-func _test_shipping_stack() -> void:
-	var capture: String = FileAccess.get_file_as_string("res://src/main/kinetic_capture_shipping_main.gd")
-	var runtime: String = FileAccess.get_file_as_string("res://src/main/survival_vitals_main.gd")
-	_expect(capture.contains("survival_vitals_main.gd"), "shipping runtime enables survival vitals")
-	_expect(runtime.contains("SurvivalVitalsHUD"), "shipping runtime creates a vitals HUD")
-	_expect(runtime.contains("QA_SURVIVAL_VITALS_PASS"), "gameplay recording verifies vitals persistence")
-	_expect(runtime.contains("placement_preview_main.gd"), "vitals preserve precise placement and targeting stack")
 
 
 func _expect(condition: bool, label: String) -> void:

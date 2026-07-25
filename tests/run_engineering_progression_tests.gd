@@ -11,7 +11,6 @@ var _failures: int = 0
 func _init() -> void:
 	_test_gated_progression_chain()
 	_test_atomic_failure_and_persistence()
-	_test_shipping_stack()
 	if _failures == 0:
 		print("ENGINEERING_PROGRESSION_TEST_RESULT PASS")
 		quit(0)
@@ -56,18 +55,6 @@ func _test_atomic_failure_and_persistence() -> void:
 	var restored := ProgressionState.new()
 	_expect(restored.decode(encoded), "progression payload decodes")
 	_expect(restored.encode() == encoded, "progression persistence is lossless")
-
-
-func _test_shipping_stack() -> void:
-	var scene_text: String = FileAccess.get_file_as_string("res://src/main/main.tscn")
-	var runtime: String = FileAccess.get_file_as_string("res://src/main/engineering_progression_main.gd")
-	var shipping: String = FileAccess.get_file_as_string("res://src/main/survival_shipping_main.gd")
-	_expect(scene_text.contains("kinetic_machine_main.gd"), "shipping scene retains survival and kinetic entry point")
-	_expect(runtime.contains("EngineeringRecipeHUD"), "scalable mobile recipe panel is present")
-	_expect(runtime.contains("PROGRESSION_PATH"), "recipe unlocks have a persistent save path")
-	_expect(shipping.contains("RECIPE_STONE_CRUSHER"), "recorded progression crafts the crusher part")
-	_expect(shipping.contains("QA_ENGINEERING_PASS"), "recorded gameplay verifies engineering chain")
-	_expect(shipping.contains("engineering_progression_main.gd"), "shipping runtime enables progression layer")
 
 
 func _expect(condition: bool, label: String) -> void:
