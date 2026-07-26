@@ -283,7 +283,10 @@ func _commit_terrain_chunk(report: Dictionary) -> void:
 	_total_quads += new_quads
 	_chunk_stream.mark_loaded(coordinate)
 	if _coordinate_needs_collision(coordinate) and not _collision_add_queue.has(coordinate):
-		_collision_add_queue.append(coordinate)
+		# An edit-triggered rebuild removed this chunk's collision above and
+		# needs it back before the player's next physics step, not whenever
+		# ordinary movement-streaming adds get to it. Front of queue, not back.
+		_collision_add_queue.push_front(coordinate)
 	_last_mesh_commit_usec = Time.get_ticks_usec() - commit_started_usec
 
 
