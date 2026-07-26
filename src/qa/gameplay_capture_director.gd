@@ -3,6 +3,8 @@ extends Node
 
 const TerrainGenerator = preload("res://src/world/voxel_terrain_generator.gd")
 const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
+const ItemRegistry = preload("res://src/survival/item_registry.gd")
+const KineticMachineState = preload("res://src/simulation/kinetic_machine_state.gd")
 
 const WALK_SECONDS: float = 1.5
 const EDIT_PAUSE_SECONDS: float = 0.10
@@ -64,11 +66,12 @@ func _run() -> void:
 	_player.look_at_world(site_center + Vector3(0.0, 1.0, 0.0))
 	await get_tree().create_timer(2.0).timeout
 
-	# Finalize all inherited QA, then deliberately frame the mining block. The
-	# poster is accepted only when the real outline and crack overlay are visible.
+	# Finalize inherited survival and machine QA, then frame the actual placed
+	# crusher with its engineering hotbar slot selected.
 	_world.qa_save_edits_now()
 	await get_tree().process_frame
-	if not await _focus_mining_evidence():
+	await get_tree().physics_frame
+	if not await _focus_engineering_placement_evidence():
 		return
 
 	var poster_path: String = _argument_value("--qa-gameplay-poster=")
@@ -85,6 +88,8 @@ func _run() -> void:
 		print("QA_GAMEPLAY_POSTER_SAVED ", absolute_path)
 
 	var snapshot: Dictionary = _world.qa_playability_snapshot()
+	var machine_payload: Dictionary = snapshot.get("kinetic_machines", {})
+	var machine_rows: Array = machine_payload.get("machines", [])
 	print(
 		"QA_GAMEPLAY_RESULT PASS blocks=", blocks.size(),
 		" trees=", int(_world.get("_tree_count")),
@@ -93,9 +98,109 @@ func _run() -> void:
 		" cache_hits=", int(snapshot.get("chunk_cache_hits", 0)),
 		" cache_size=", int(snapshot.get("chunk_cache_size", 0)),
 		" intermediate_lod_step=", int(snapshot.get("intermediate_lod_step", 0)),
-		" intermediate_lod_ring_chunks=", int(snapshot.get("intermediate_lod_ring_chunks", 0))
+		" intermediate_lod_ring_chunks=", int(snapshot.get("intermediate_lod_ring_chunks", 0)),
+		" engineering_selected=", str(snapshot.get("selected_item", "")),
+		" machines=", machine_rows.size()
 	)
 	get_tree().quit(0)
+
+
+func _focus_engineering_placement_evidence() -> bool:
+	if _world.has_method("qa_clear_forced_mining_target"):
+		_world.call("qa_clear_forced_mining_target")
+	var machine_root_value: Variant = _world.get("_machine_root")
+	if not machine_root_value is Node3D:
+		push_error("QA_ENGINEERING_PLACEMENT machine root is unavailable")
+		get_tree().quit(1)
+		return false
+	var machine_root := machine_root_value as Node3D
+	var crusher: StaticBody3D
+	for child: Node in machine_root.get_children():
+		var body := child as StaticBody3D
+		if body == null:
+			continue
+		var machine_type := StringName(body.get_meta("teknik_machine_type", &""))
+		if machine_type == StringName(KineticMachineState.TYPE_CRUSHER):
+			crusher = body
+			break
+	if crusher == null or crusher.get_child_count() == 0:
+		push_error("QA_ENGINEERING_PLACEMENT placed Stone Crusher is unavailable")
+		get_tree().quit(1)
+		return false
+
+	var target: Vector3 = crusher.global_position + Vector3(0.0, 0.25, 0.0)
+	var camera_x: float = target.x + 2.4
+	var camera_z: float = target.z + 2.4
+	var camera_ground: int = TerrainGenerator.surface_height(
+		int(_world.qa_world_seed()),
+		floori(camera_x),
+		floori(camera_z)
+	)
+	_player.global_position = Vector3(
+		camera_x,
+		maxf(target.y + 0.7, float(camera_ground) + 2.0),
+		camera_z
+	)
+	_player.velocity = Vector3.ZERO
+	_player.look_at_world(target)
+	await get_tree().physics_frame
+	await get_tree().process_frame
+	await get_tree().create_timer(0.35).timeout
+	if _world.has_method("_refresh_target_machine"):
+		_world.call("_refresh_target_machine")
+	await get_tree().process_frame
+
+	var hotbar_panel := _world.get_node_or_null("GameplayHUD/BottomHotbar") as Control
+	var hotbar_button := _world.get_node_or_null(
+		"GameplayHUD/BottomHotbar/PlaceableHotbar/Hotbar_%s" % str(ItemRegistry.ITEM_STONE_CRUSHER)
+	) as Button
+	var inventory_button := _world.get_node_or_null("GameplayHUD/InventoryButton") as Button
+	if hotbar_panel == null or hotbar_button == null or inventory_button == null:
+		push_error("QA_ENGINEERING_PLACEMENT bottom hotbar or inventory button is unavailable")
+		get_tree().quit(1)
+		return false
+	var viewport_rect: Rect2 = get_viewport().get_visible_rect()
+	var hotbar_rect: Rect2 = hotbar_panel.get_global_rect()
+	var inventory_rect: Rect2 = inventory_button.get_global_rect()
+	var safely_left_of_actions: bool = hotbar_rect.end.x <= viewport_rect.size.x * 0.75
+	var layout_valid: bool = (
+		viewport_rect.encloses(hotbar_rect)
+		and viewport_rect.encloses(inventory_rect)
+		and not hotbar_rect.intersects(inventory_rect)
+		and safely_left_of_actions
+	)
+	var selected: bool = (
+		StringName(_world.get("_selected_item")) == ItemRegistry.ITEM_STONE_CRUSHER
+		and hotbar_button.button_pressed
+		and not hotbar_button.disabled
+		and int(_world.call("qa_inventory_count", ItemRegistry.ITEM_STONE_CRUSHER)) > 0
+	)
+	var interaction_hint_value: Variant = _world.get("_interaction_hint")
+	var machine_panel_value: Variant = _world.get("_machine_hud_panel")
+	var target_ui_visible: bool = (
+		interaction_hint_value is Control
+		and (interaction_hint_value as Control).visible
+		and machine_panel_value is Control
+		and (machine_panel_value as Control).visible
+	)
+	if not layout_valid or not selected or not target_ui_visible:
+		push_error(
+			"QA_ENGINEERING_PLACEMENT evidence failed: layout=%s selected=%s target_ui=%s hotbar=%s viewport=%s"
+			% [layout_valid, selected, target_ui_visible, hotbar_rect, viewport_rect]
+		)
+		get_tree().quit(1)
+		return false
+	print(
+		"QA_ENGINEERING_PLACEMENT_PASS crusher=", crusher.global_position,
+		" camera=", _player.global_position,
+		" selected=", _world.get("_selected_item"),
+		" hotbar=", hotbar_rect,
+		" inventory_button=", inventory_rect,
+		" right_action_clearance=", viewport_rect.size.x * 0.75 - hotbar_rect.end.x,
+		" target_ui_visible=", target_ui_visible,
+		" persisted=", _world.call("qa_reload_machines_for_test")
+	)
+	return true
 
 
 func _focus_mining_evidence() -> bool:
