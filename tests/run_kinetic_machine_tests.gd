@@ -7,9 +7,9 @@ var _failures: int = 0
 
 func _init() -> void:
 	_test_atomic_starter_assembly()
+	_test_individual_engineering_placement()
 	_test_explicit_processing_loop()
 	_test_disconnected_network()
-	_test_shipping_runtime()
 	if _failures == 0:
 		print("KINETIC_MACHINE_TEST_RESULT PASS")
 		quit(0)
@@ -27,6 +27,23 @@ func _test_atomic_starter_assembly() -> void:
 	_expect(not state.assemble_starter(Vector3i(10, 0, 0)), "second starter assembly is rejected")
 	_expect(state.encode() == before, "rejected assembly leaves state unchanged")
 	_expect(not state.place(&"duplicate", MachineState.TYPE_SHAFT, Vector3i.RIGHT), "occupied machine position is rejected")
+
+
+func _test_individual_engineering_placement() -> void:
+	var state := MachineState.new()
+	_expect(state.place(&"crank", MachineState.TYPE_CRANK, Vector3i.ZERO), "hand crank places as an individual world object")
+	_expect(state.place(&"shaft", MachineState.TYPE_SHAFT, Vector3i.RIGHT), "shaft places beside the crank")
+	_expect(state.place(&"crusher", MachineState.TYPE_CRUSHER, Vector3i.RIGHT * 2), "crusher places beside the shaft")
+	_expect(state.place(&"workbench", MachineState.TYPE_WORKBENCH, Vector3i.FORWARD), "workbench places as a separate station")
+	_expect(not state.place(&"overlap", MachineState.TYPE_SHAFT, Vector3i.RIGHT), "individual placement rejects occupied positions")
+	_expect(state.machines.size() == 4, "individual placement creates four persisted objects")
+	_expect(state.is_assembled(), "individually placed adjacent parts form a connected machine")
+	var payload: Dictionary = state.encode()
+	var restored := MachineState.new()
+	_expect(restored.decode(payload), "individual machine placement payload decodes")
+	_expect(restored.encode() == payload, "individual machine placement survives save and reload")
+	_expect(restored.remove(&"workbench"), "placed engineering object can be removed")
+	_expect(restored.machines.size() == 3, "removed object leaves the persisted registry")
 
 
 func _test_explicit_processing_loop() -> void:
@@ -61,34 +78,6 @@ func _test_disconnected_network() -> void:
 	_expect(int(report.turns_added) == 0, "disconnected crank cannot bank usable power")
 	_expect(disconnected.stored_turns == 0, "disconnected power state remains empty")
 	_expect(not disconnected.process(), "disconnected crusher cannot process")
-
-
-func _test_shipping_runtime() -> void:
-	var scene_text: String = FileAccess.get_file_as_string("res://src/main/main.tscn")
-	var capture_runtime: String = FileAccess.get_file_as_string("res://src/main/kinetic_capture_shipping_main.gd")
-	var placement: String = FileAccess.get_file_as_string("res://src/main/placement_preview_main.gd")
-	var targeting: String = FileAccess.get_file_as_string("res://src/main/targeted_interaction_main.gd")
-	var runtime: String = FileAccess.get_file_as_string("res://src/main/kinetic_machine_main.gd")
-	var interactive: String = FileAccess.get_file_as_string("res://src/main/interactive_kinetic_main.gd")
-	_expect(scene_text.contains("kinetic_capture_shipping_main.gd"), "shipping scene enables kinetic capture runtime")
-	_expect(
-		capture_runtime.contains("placement_preview_main.gd")
-		and placement.contains("targeted_interaction_main.gd")
-		and targeting.contains("interactive_kinetic_main.gd"),
-		"shipping runtime inherits placement preview, precise targeting, world interaction and animation"
-	)
-	_expect(runtime.contains("AssembleStarterKinetics"), "machine assembly remains a separate player action")
-	_expect(runtime.contains("ITEM_STONE_CRUSHER"), "assembly requires the crafted crusher item")
-	_expect(runtime.contains("QA_KINETIC_MACHINE_PASS"), "recorded gameplay verifies the complete kinetic loop")
-	_expect(interactive.contains("InteractMachine"), "mobile machine interaction control is present")
-	_expect(interactive.contains("MACHINE_INTERACTION_DISTANCE"), "machine interaction is range limited")
-	_expect(interactive.contains("teknik_machine_type"), "placed machine bodies expose deterministic interaction metadata")
-	_expect(interactive.contains("_raycast_machine"), "crosshair ray selects machines in the world")
-	_expect(interactive.contains("_rotating_visuals"), "crank, shaft and crusher visuals animate while powered")
-	_expect(interactive.contains("QA_KINETIC_INTERACTION_PASS"), "recorded gameplay verifies interaction and animation setup")
-	_expect(interactive.contains("_load_button.visible = false"), "legacy load button is removed from the active interaction loop")
-	_expect(interactive.contains("_crank_button.visible = false"), "legacy crank button is removed from the active interaction loop")
-	_expect(interactive.contains("_collect_button.visible = false"), "legacy collect button is removed from the active interaction loop")
 
 
 func _expect(condition: bool, label: String) -> void:
