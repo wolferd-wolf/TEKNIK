@@ -9,6 +9,7 @@ signal terrain_wait_changed(waiting: bool)
 signal recovered_from_fall(previous_position: Vector3, safe_position: Vector3)
 
 const MobileControls = preload("res://src/player/mobile_controls.gd")
+const VoxelPlayerMotion = preload("res://src/player/voxel_player_motion.gd")
 
 const WALK_SPEED: float = 6.0
 const ACCELERATION: float = 22.0
@@ -22,6 +23,7 @@ const LOOK_DOWN_LIMIT_DEGREES: float = -89.5
 const LOOK_UP_LIMIT_DEGREES: float = 70.0
 const FALL_RECOVERY_DEPTH: float = 18.0
 const ABSOLUTE_RECOVERY_Y: float = -12.0
+const SHAFT_DRIFT_EPSILON: float = 0.002
 
 var _gravity: float = 18.0
 var _camera_pivot: Node3D
@@ -35,6 +37,7 @@ var _mobile_controls: TeknikMobileControls
 var _scripted_mode: bool = false
 var _scripted_move: Vector2 = Vector2.ZERO
 var _movement_guard: Callable = Callable()
+var _voxel_solid_query: Callable = Callable()
 var _last_safe_position: Vector3 = Vector3.ZERO
 var _has_safe_position: bool = false
 var _waiting_for_terrain: bool = false
@@ -102,7 +105,29 @@ func _physics_process(delta: float) -> void:
 	else:
 		velocity.y -= _gravity * delta
 	_mobile_jump_requested = false
+
+	var requested_motion: Vector3 = velocity * delta
+	var clipped_motion: Vector3 = requested_motion
+	if _voxel_solid_query.is_valid():
+		clipped_motion = VoxelPlayerMotion.clip_motion(global_position, requested_motion, _voxel_solid_query)
+		if delta > 0.0:
+			velocity = clipped_motion / delta
+	var position_before_move: Vector3 = global_position
+	var preserve_vertical_column: bool = (
+		input_vector.length_squared() <= 0.0001
+		and clipped_motion.y < -SHAFT_DRIFT_EPSILON
+		and absf(clipped_motion.x) <= SHAFT_DRIFT_EPSILON
+		and absf(clipped_motion.z) <= SHAFT_DRIFT_EPSILON
+	)
 	move_and_slide()
+	# Generic collision recovery must not turn straight gravity into a sideways or
+	# upward ejection inside a valid one-block shaft. Voxel clipping has already
+	# proved that the requested vertical movement fits, so preserve the column.
+	if preserve_vertical_column and not is_on_floor():
+		global_position.x = position_before_move.x
+		global_position.z = position_before_move.z
+		velocity.x = 0.0
+		velocity.z = 0.0
 
 	if is_on_floor() and can_enter:
 		_last_safe_position = global_position
@@ -134,6 +159,10 @@ func set_scripted_move(value: Vector2) -> void:
 
 func set_movement_guard(guard: Callable) -> void:
 	_movement_guard = guard
+
+
+func set_voxel_solid_query(query: Callable) -> void:
+	_voxel_solid_query = query
 
 
 func set_initial_safe_position(position_value: Vector3) -> void:
@@ -230,12 +259,19 @@ func _apply_look(relative: Vector2, sensitivity: float) -> void:
 
 
 func _build_body() -> void:
-	var capsule := CapsuleShape3D.new()
-	capsule.radius = 0.3
-	capsule.height = 1.75
+	motion_mode = CharacterBody3D.MOTION_MODE_GROUNDED
+	safe_margin = 0.01
+	floor_snap_length = 0.08
+	floor_stop_on_slope = true
+	var box := BoxShape3D.new()
+	box.size = Vector3(
+		VoxelPlayerMotion.BODY_WIDTH,
+		VoxelPlayerMotion.BODY_HEIGHT,
+		VoxelPlayerMotion.BODY_WIDTH
+	)
 	var collision := CollisionShape3D.new()
-	collision.shape = capsule
-	collision.position.y = 0.875
+	collision.shape = box
+	collision.position.y = VoxelPlayerMotion.BODY_HEIGHT * 0.5
 	add_child(collision)
 
 
