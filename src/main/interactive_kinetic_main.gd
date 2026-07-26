@@ -84,7 +84,7 @@ func _rebuild_machine_visuals() -> void:
 		var body := child as StaticBody3D
 		if body == null:
 			continue
-		var machine_id := StringName(body.get_meta("teknik_machine_id", &""))
+		var machine_id: String = str(body.get_meta("teknik_machine_id", ""))
 		var row: Dictionary = _machines.machines.get(machine_id, {})
 		var machine_type := StringName(str(row.get("type", "")))
 		var primary := body.get_child(0) as Node3D if body.get_child_count() > 0 else null
