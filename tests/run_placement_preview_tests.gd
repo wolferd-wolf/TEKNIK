@@ -46,9 +46,14 @@ func _test_face_adjacent_targets() -> void:
 func _test_shipping_stack() -> void:
 	var scene: String = FileAccess.get_file_as_string("res://src/main/main.tscn")
 	var capture: String = FileAccess.get_file_as_string("res://src/main/kinetic_capture_shipping_main.gd")
+	var vitals: String = FileAccess.get_file_as_string("res://src/main/survival_vitals_main.gd")
 	var preview: String = FileAccess.get_file_as_string("res://src/main/placement_preview_main.gd")
 	_expect(scene.contains("kinetic_capture_shipping_main.gd"), "shipping scene retains the validated capture entry point")
-	_expect(capture.contains("placement_preview_main.gd"), "shipping runtime enables exact placement previews")
+	_expect(
+		capture.contains("survival_vitals_main.gd")
+		and vitals.contains("placement_preview_main.gd"),
+		"shipping runtime enables exact placement previews through the actual inheritance chain"
+	)
 	_expect(preview.contains("BlockPlacementPreview"), "placement preview has a dedicated world-space wireframe")
 	_expect(preview.contains("PREVIEW_VALID_COLOR") and preview.contains("PREVIEW_INVALID_COLOR"), "preview distinguishes valid and invalid placement")
 	_expect(preview.contains("_survival_place_voxel(voxel"), "place action consumes the exact voxel shown by the preview")
