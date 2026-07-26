@@ -15,6 +15,9 @@ const WALK_SPEED: float = 6.0
 const ACCELERATION: float = 22.0
 const AIR_CONTROL: float = 5.0
 const JUMP_VELOCITY: float = 7.0
+const JUMP_BUFFER_SECONDS: float = 0.18
+const COYOTE_TIME_SECONDS: float = 0.10
+const GROUND_STICK_SPEED: float = 1.5
 const MOUSE_SENSITIVITY: float = 0.0024
 const TOUCH_LOOK_SENSITIVITY: float = 0.0042
 const LOOK_SENSITIVITY_SCALE_MIN: float = 0.5
@@ -23,7 +26,7 @@ const LOOK_DOWN_LIMIT_DEGREES: float = -89.5
 const LOOK_UP_LIMIT_DEGREES: float = 70.0
 const FALL_RECOVERY_DEPTH: float = 18.0
 const ABSOLUTE_RECOVERY_Y: float = -12.0
-const SHAFT_DRIFT_EPSILON: float = 0.002
+const MOTION_EPSILON: float = 0.00001
 
 var _gravity: float = 18.0
 var _camera_pivot: Node3D
@@ -41,6 +44,9 @@ var _voxel_solid_query: Callable = Callable()
 var _last_safe_position: Vector3 = Vector3.ZERO
 var _has_safe_position: bool = false
 var _waiting_for_terrain: bool = false
+var _grounded: bool = false
+var _jump_buffer_remaining: float = 0.0
+var _coyote_time_remaining: float = 0.0
 var _status_label: Label
 
 
@@ -79,12 +85,42 @@ func _physics_process(delta: float) -> void:
 		input_vector = _scripted_move
 	elif not _modal_ui_open:
 		input_vector = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
-	if not _scripted_mode and not _modal_ui_open and _mobile_move.length_squared() > input_vector.length_squared():
+	if (
+		not _scripted_mode
+		and not _modal_ui_open
+		and _mobile_move.length_squared() > input_vector.length_squared()
+	):
 		input_vector = _mobile_move
+
+	if (
+		not _scripted_mode
+		and not _modal_ui_open
+		and (Input.is_action_just_pressed("jump") or _mobile_jump_requested)
+	):
+		request_jump()
+	_mobile_jump_requested = false
+
+	if _voxel_solid_query.is_valid():
+		if not VoxelPlayerMotion.is_clear(global_position, _voxel_solid_query):
+			var recovered: Vector3 = VoxelPlayerMotion.recover_position(
+				global_position,
+				_voxel_solid_query
+			)
+			if recovered != global_position:
+				global_position = recovered
+				velocity = Vector3.ZERO
+		_grounded = VoxelPlayerMotion.is_supported(global_position, _voxel_solid_query)
+
+	if _grounded:
+		_coyote_time_remaining = COYOTE_TIME_SECONDS
+	else:
+		_coyote_time_remaining = maxf(0.0, _coyote_time_remaining - delta)
+	_jump_buffer_remaining = maxf(0.0, _jump_buffer_remaining - delta)
+
 	var local_direction := Vector3(input_vector.x, 0.0, input_vector.y)
 	var direction := (global_transform.basis * local_direction).normalized()
 	var target_velocity := direction * WALK_SPEED
-	var response: float = ACCELERATION if is_on_floor() else AIR_CONTROL
+	var response: float = ACCELERATION if _grounded else AIR_CONTROL
 	velocity.x = move_toward(velocity.x, target_velocity.x, response * delta)
 	velocity.z = move_toward(velocity.z, target_velocity.z, response * delta)
 
@@ -97,42 +133,61 @@ func _physics_process(delta: float) -> void:
 		velocity.z = 0.0
 	_set_waiting_for_terrain(not can_enter)
 
-	if is_on_floor():
-		if (Input.is_action_just_pressed("jump") or _mobile_jump_requested) and can_enter and not _modal_ui_open:
-			velocity.y = JUMP_VELOCITY
-		elif velocity.y < 0.0:
-			velocity.y = -0.5
+	var jumping: bool = (
+		_jump_buffer_remaining > 0.0
+		and _coyote_time_remaining > 0.0
+		and can_enter
+		and not _modal_ui_open
+	)
+	if jumping:
+		velocity.y = JUMP_VELOCITY
+		_grounded = false
+		_coyote_time_remaining = 0.0
+		_jump_buffer_remaining = 0.0
+	elif _grounded:
+		velocity.y = -GROUND_STICK_SPEED
 	else:
 		velocity.y -= _gravity * delta
-	_mobile_jump_requested = false
 
 	var requested_motion: Vector3 = velocity * delta
-	var clipped_motion: Vector3 = requested_motion
 	if _voxel_solid_query.is_valid():
-		clipped_motion = VoxelPlayerMotion.clip_motion(global_position, requested_motion, _voxel_solid_query)
-		if delta > 0.0:
-			velocity = clipped_motion / delta
-	var position_before_move: Vector3 = global_position
-	var preserve_vertical_column: bool = (
-		input_vector.length_squared() <= 0.0001
-		and clipped_motion.y < -SHAFT_DRIFT_EPSILON
-		and absf(clipped_motion.x) <= SHAFT_DRIFT_EPSILON
-		and absf(clipped_motion.z) <= SHAFT_DRIFT_EPSILON
-	)
-	move_and_slide()
-	# Generic collision recovery must not turn straight gravity into a sideways or
-	# upward ejection inside a valid one-block shaft. Voxel clipping has already
-	# proved that the requested vertical movement fits, so preserve the column.
-	if preserve_vertical_column and not is_on_floor():
-		global_position.x = position_before_move.x
-		global_position.z = position_before_move.z
-		velocity.x = 0.0
-		velocity.z = 0.0
+		var result: Dictionary = VoxelPlayerMotion.solve_motion(
+			global_position,
+			requested_motion,
+			_voxel_solid_query,
+			_grounded and not jumping
+		)
+		var actual_motion: Vector3 = result.get("motion", Vector3.ZERO)
+		global_position += actual_motion
 
-	if is_on_floor() and can_enter:
+		if absf(actual_motion.x - requested_motion.x) > MOTION_EPSILON:
+			velocity.x = 0.0
+		if absf(actual_motion.z - requested_motion.z) > MOTION_EPSILON:
+			velocity.z = 0.0
+		if absf(actual_motion.y - requested_motion.y) > MOTION_EPSILON:
+			if requested_motion.y < 0.0:
+				_grounded = true
+			velocity.y = 0.0
+		else:
+			_grounded = bool(result.get("grounded", false))
+	else:
+		# The shipping scene installs the authoritative voxel query during _ready().
+		# This fallback keeps isolated controller tests deterministic.
+		global_position += requested_motion
+		_grounded = false
+
+	if _grounded and can_enter:
 		_last_safe_position = global_position
 		_has_safe_position = true
 	_recover_if_needed()
+
+
+func request_jump() -> void:
+	_jump_buffer_remaining = JUMP_BUFFER_SECONDS
+
+
+func is_grounded() -> bool:
+	return _grounded
 
 
 func set_camera_active(active: bool) -> void:
@@ -144,6 +199,7 @@ func set_scripted_mode(enabled: bool) -> void:
 	_scripted_mode = enabled
 	_scripted_move = Vector2.ZERO
 	velocity = Vector3.ZERO
+	_jump_buffer_remaining = 0.0
 	if _mobile_controls != null:
 		_mobile_controls.visible = not enabled and not _modal_ui_open
 	Input.mouse_mode = (
@@ -163,6 +219,9 @@ func set_movement_guard(guard: Callable) -> void:
 
 func set_voxel_solid_query(query: Callable) -> void:
 	_voxel_solid_query = query
+	if _voxel_solid_query.is_valid():
+		global_position = VoxelPlayerMotion.recover_position(global_position, _voxel_solid_query)
+		_grounded = VoxelPlayerMotion.is_supported(global_position, _voxel_solid_query)
 
 
 func set_initial_safe_position(position_value: Vector3) -> void:
@@ -186,10 +245,12 @@ func set_modal_ui_open(open: bool) -> void:
 	_modal_ui_open = open
 	_mobile_move = Vector2.ZERO
 	_mobile_jump_requested = false
+	_jump_buffer_remaining = 0.0
 	if open:
 		break_hold_changed.emit(false)
 	if _mobile_controls != null:
 		_mobile_controls.visible = not open and not _scripted_mode
+		_mobile_controls.set_process_input(not open and not _scripted_mode)
 	if not _scripted_mode:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if open else Input.MOUSE_MODE_CAPTURED
 
@@ -211,7 +272,7 @@ static func clamp_look_pitch(pitch: float) -> float:
 
 
 func look_at_world(target: Vector3) -> void:
-	var eye: Vector3 = global_position + Vector3(0.0, 1.55, 0.0)
+	var eye: Vector3 = global_position + Vector3(0.0, VoxelPlayerMotion.EYE_HEIGHT, 0.0)
 	var delta: Vector3 = target - eye
 	var horizontal := Vector2(delta.x, delta.z)
 	if horizontal.length_squared() > 0.0001:
@@ -223,11 +284,15 @@ func look_at_world(target: Vector3) -> void:
 func _recover_if_needed() -> void:
 	if not _has_safe_position:
 		return
-	if global_position.y >= ABSOLUTE_RECOVERY_Y and global_position.y >= _last_safe_position.y - FALL_RECOVERY_DEPTH:
+	if (
+		global_position.y >= ABSOLUTE_RECOVERY_Y
+		and global_position.y >= _last_safe_position.y - FALL_RECOVERY_DEPTH
+	):
 		return
 	var fallen_position: Vector3 = global_position
 	global_position = _last_safe_position + Vector3.UP * 0.35
 	velocity = Vector3.ZERO
+	_grounded = false
 	recovered_from_fall.emit(fallen_position, _last_safe_position)
 
 
@@ -259,9 +324,14 @@ func _apply_look(relative: Vector2, sensitivity: float) -> void:
 
 
 func _build_body() -> void:
+	# Terrain collision is solved once against authoritative 1x1x1 voxel AABBs.
+	# Keeping the CharacterBody mask at zero prevents the old chunk triangle mesh
+	# from resolving the same motion a second time and wedging the player at seams.
+	collision_layer = 2
+	collision_mask = 0
 	motion_mode = CharacterBody3D.MOTION_MODE_GROUNDED
-	safe_margin = 0.01
-	floor_snap_length = 0.08
+	safe_margin = 0.001
+	floor_snap_length = 0.0
 	floor_stop_on_slope = true
 	var box := BoxShape3D.new()
 	box.size = Vector3(
@@ -278,7 +348,7 @@ func _build_body() -> void:
 func _build_camera() -> void:
 	_camera_pivot = Node3D.new()
 	_camera_pivot.name = "CameraPivot"
-	_camera_pivot.position = Vector3(0.0, 1.55, 0.0)
+	_camera_pivot.position = Vector3(0.0, VoxelPlayerMotion.EYE_HEIGHT, 0.0)
 	add_child(_camera_pivot)
 	_camera = Camera3D.new()
 	_camera.name = "PlayerCamera"
