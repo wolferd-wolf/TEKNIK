@@ -16,6 +16,8 @@ const AIR_CONTROL: float = 5.0
 const JUMP_VELOCITY: float = 7.0
 const MOUSE_SENSITIVITY: float = 0.0024
 const TOUCH_LOOK_SENSITIVITY: float = 0.0042
+const LOOK_SENSITIVITY_SCALE_MIN: float = 0.5
+const LOOK_SENSITIVITY_SCALE_MAX: float = 2.0
 const LOOK_DOWN_LIMIT_DEGREES: float = -89.5
 const LOOK_UP_LIMIT_DEGREES: float = 70.0
 const FALL_RECOVERY_DEPTH: float = 18.0
@@ -25,6 +27,8 @@ var _gravity: float = 18.0
 var _camera_pivot: Node3D
 var _camera: Camera3D
 var _look_enabled: bool = true
+var _look_sensitivity_scale: float = 1.0
+var _modal_ui_open: bool = false
 var _mobile_move: Vector2 = Vector2.ZERO
 var _mobile_jump_requested: bool = false
 var _mobile_controls: TeknikMobileControls
@@ -48,12 +52,12 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if _scripted_mode:
+	if _scripted_mode or _modal_ui_open:
 		return
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F8:
 		diagnostics_requested.emit()
 	elif event is InputEventMouseMotion and _look_enabled:
-		_apply_look(event.relative, MOUSE_SENSITIVITY)
+		_apply_look(event.relative, MOUSE_SENSITIVITY * _look_sensitivity_scale)
 	elif event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			break_hold_changed.emit(event.pressed)
@@ -67,10 +71,12 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	var input_vector: Vector2 = _scripted_move if _scripted_mode else Input.get_vector(
-		"move_left", "move_right", "move_forward", "move_back"
-	)
-	if not _scripted_mode and _mobile_move.length_squared() > input_vector.length_squared():
+	var input_vector: Vector2 = Vector2.ZERO
+	if _scripted_mode:
+		input_vector = _scripted_move
+	elif not _modal_ui_open:
+		input_vector = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	if not _scripted_mode and not _modal_ui_open and _mobile_move.length_squared() > input_vector.length_squared():
 		input_vector = _mobile_move
 	var local_direction := Vector3(input_vector.x, 0.0, input_vector.y)
 	var direction := (global_transform.basis * local_direction).normalized()
@@ -89,7 +95,7 @@ func _physics_process(delta: float) -> void:
 	_set_waiting_for_terrain(not can_enter)
 
 	if is_on_floor():
-		if (Input.is_action_just_pressed("jump") or _mobile_jump_requested) and can_enter:
+		if (Input.is_action_just_pressed("jump") or _mobile_jump_requested) and can_enter and not _modal_ui_open:
 			velocity.y = JUMP_VELOCITY
 		elif velocity.y < 0.0:
 			velocity.y = -0.5
@@ -114,8 +120,12 @@ func set_scripted_mode(enabled: bool) -> void:
 	_scripted_move = Vector2.ZERO
 	velocity = Vector3.ZERO
 	if _mobile_controls != null:
-		_mobile_controls.visible = not enabled
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if enabled else Input.MOUSE_MODE_CAPTURED
+		_mobile_controls.visible = not enabled and not _modal_ui_open
+	Input.mouse_mode = (
+		Input.MOUSE_MODE_VISIBLE
+		if enabled or _modal_ui_open
+		else Input.MOUSE_MODE_CAPTURED
+	)
 
 
 func set_scripted_move(value: Vector2) -> void:
@@ -129,6 +139,30 @@ func set_movement_guard(guard: Callable) -> void:
 func set_initial_safe_position(position_value: Vector3) -> void:
 	_last_safe_position = position_value
 	_has_safe_position = true
+
+
+func set_look_sensitivity_scale(value: float) -> void:
+	_look_sensitivity_scale = clampf(
+		value,
+		LOOK_SENSITIVITY_SCALE_MIN,
+		LOOK_SENSITIVITY_SCALE_MAX
+	)
+
+
+func look_sensitivity_scale() -> float:
+	return _look_sensitivity_scale
+
+
+func set_modal_ui_open(open: bool) -> void:
+	_modal_ui_open = open
+	_mobile_move = Vector2.ZERO
+	_mobile_jump_requested = false
+	if open:
+		break_hold_changed.emit(false)
+	if _mobile_controls != null:
+		_mobile_controls.visible = not open and not _scripted_mode
+	if not _scripted_mode:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if open else Input.MOUSE_MODE_CAPTURED
 
 
 func safe_position() -> Vector3:
@@ -262,7 +296,7 @@ func _on_mobile_movement_changed(value: Vector2) -> void:
 
 
 func _on_mobile_look_dragged(relative: Vector2) -> void:
-	_apply_look(relative, TOUCH_LOOK_SENSITIVITY)
+	_apply_look(relative, TOUCH_LOOK_SENSITIVITY * _look_sensitivity_scale)
 
 
 func _on_mobile_jump_pressed() -> void:

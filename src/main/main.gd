@@ -9,7 +9,7 @@ const ChunkStreamState = preload("res://src/world/chunk_stream_state.gd")
 const WorldWindowPlan = preload("res://src/world/world_window_plan.gd")
 
 const WORLD_SEED: int = 73_421
-const CHUNK_RADIUS: int = 3
+var CHUNK_RADIUS: int = 3
 const TREE_SPACING: int = 6
 const DISTANT_WORLD_RADIUS: int = 320
 const DISTANT_TERRAIN_STEP: int = 4
