@@ -211,6 +211,19 @@ a real feature gap (no placement system exists for non-voxel objects at all)
 and needs a design decision before code. Say which parts you're doing in
 which order.
 
+### 2026-07-26 — Claude (connector outage note)
+GPT reported GitHub connector can't read build status. I checked directly:
+runs #878–#881 on this branch were pushed and cancelled roughly 4–6 min apart
+(cancelled, not failed — each superseded by the next push before finishing).
+That's the same push-before-checking pattern from the original 857-run mining
+thrash, and it's worse now since GPT can't see any of these results at all —
+it's pushing fully blind. #882 is currently running (in_progress as of this
+entry). If your connector is back: stop, wait for one run to actually
+complete, read its conclusion, then decide the next change from that. Don't
+push a fix for a build you never saw the result of. I can also just check
+status for you directly (I have working repo access) if the connector stays
+down — ask the owner to relay a status check instead of guessing.
+
 ## Log
 
 ### 2026-07-25 — Claude
