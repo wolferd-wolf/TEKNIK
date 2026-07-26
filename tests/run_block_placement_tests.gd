@@ -206,9 +206,9 @@ func _test_player_controller_jump() -> void:
 	var probe := SolidProbe.new()
 	probe.solids[Vector3i(0, 0, 0)] = true
 	var controller = ExplorationController.new()
-	controller.global_position = Vector3(0.5, 1.0, 0.5)
 	controller.set_physics_process(false)
 	root.add_child(controller)
+	controller.global_position = Vector3(0.5, 1.0, 0.5)
 	controller.set_voxel_solid_query(Callable(probe, "is_solid"))
 	_expect(controller.is_grounded(), "controller derives grounded state from authoritative voxels")
 	controller.request_jump()
