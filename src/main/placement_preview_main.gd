@@ -30,6 +30,14 @@ func _process(delta: float) -> void:
 		_placement_preview_root.visible = false
 
 
+func _on_break_requested(origin: Vector3, direction: Vector3) -> void:
+	if _try_break_engineering_item(origin, direction):
+		_mining.set_pressed(false)
+		_set_block_target({})
+		return
+	super._on_break_requested(origin, direction)
+
+
 func _on_place_requested(origin: Vector3, direction: Vector3) -> void:
 	var preview: Dictionary = _find_placement_preview(origin, direction)
 	_set_placement_preview(preview)
@@ -42,12 +50,18 @@ func _on_place_requested(origin: Vector3, direction: Vector3) -> void:
 		})
 		return
 	var voxel: Vector3i = preview.get("voxel", Vector3i.ZERO)
-	var material: int = ItemRegistry.material_for_item(_selected_item)
-	if not _survival_place_voxel(voxel, material, "placed", true):
+	var placed: bool = false
+	if ItemRegistry.is_object_placeable(_selected_item):
+		placed = _place_engineering_item(voxel, _selected_item, true)
+	else:
+		var material: int = ItemRegistry.material_for_item(_selected_item)
+		placed = _survival_place_voxel(voxel, material, "placed", true)
+	if not placed:
 		return
-	_runtime_log.event("info", "interaction", "previewed_block_placed", {
+	_runtime_log.event("info", "interaction", "previewed_item_placed", {
 		"voxel": str(voxel),
 		"item": str(_selected_item),
+		"object_placeable": ItemRegistry.is_object_placeable(_selected_item),
 		"exact_preview": true,
 	})
 
@@ -97,18 +111,26 @@ func _find_placement_preview(origin: Vector3, direction: Vector3) -> Dictionary:
 	if face == Vector3i.ZERO:
 		return {}
 	var voxel: Vector3i = hit.get("voxel", Vector3i.ZERO) + face
-	var material: int = ItemRegistry.material_for_item(_selected_item)
 	var reason: String = ""
 	var valid: bool = true
-	if material == ItemRegistry.AIR or _inventory.count(_selected_item) <= 0:
+	if _inventory.count(_selected_item) <= 0:
 		valid = false
 		reason = "missing_selected_item"
-	elif _current_material(voxel) != VoxelChunk.AIR:
-		valid = false
-		reason = "occupied"
-	elif _placement_intersects_player(voxel):
-		valid = false
-		reason = "player_overlap"
+	elif ItemRegistry.is_object_placeable(_selected_item):
+		valid = _can_place_engineering_item(voxel, _selected_item)
+		if not valid:
+			reason = "object_position_rejected"
+	else:
+		var material: int = ItemRegistry.material_for_item(_selected_item)
+		if material == ItemRegistry.AIR:
+			valid = false
+			reason = "selected_item_not_placeable"
+		elif _current_material(voxel) != VoxelChunk.AIR:
+			valid = false
+			reason = "occupied"
+		elif _placement_intersects_player(voxel):
+			valid = false
+			reason = "player_overlap"
 	return {
 		"voxel": voxel,
 		"normal": normal,
