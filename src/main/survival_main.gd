@@ -8,8 +8,9 @@ const HotbarSelectionState = preload("res://src/survival/hotbar_selection_state.
 const INVENTORY_PATH: String = "user://teknik-inventory.json"
 const HOTBAR_STATE_PATH: String = "user://teknik-hotbar-state.json"
 const INVENTORY_SAVE_DELAY_MS: int = 700
-const HOTBAR_PANEL_SIZE := Vector2(612.0, 66.0)
+const HOTBAR_PANEL_SIZE := Vector2(612.0, 77.0)
 const HOTBAR_SLOT_SIZE := Vector2(72.0, 58.0)
+const HOTBAR_BOTTOM_MARGIN: float = 8.0
 const INVENTORY_WINDOW_SIZE := Vector2(620.0, 460.0)
 
 var _inventory: TeknikStackInventory = StackInventory.new()
@@ -233,7 +234,8 @@ func _build_inventory_hud() -> void:
 	_bottom_hotbar_panel = PanelContainer.new()
 	_bottom_hotbar_panel.name = "BottomHotbar"
 	_bottom_hotbar_panel.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_bottom_hotbar_panel.position = Vector2(-360.0, -76.0)
+	_bottom_hotbar_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_bottom_hotbar_panel.position = Vector2(-360.0, -(HOTBAR_PANEL_SIZE.y + HOTBAR_BOTTOM_MARGIN))
 	_bottom_hotbar_panel.custom_minimum_size = HOTBAR_PANEL_SIZE
 	_gameplay_hud_layer.add_child(_bottom_hotbar_panel)
 
