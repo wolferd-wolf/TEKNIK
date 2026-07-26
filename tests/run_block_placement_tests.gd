@@ -43,6 +43,7 @@ func _init() -> void:
 	_test_mobile_action_zones()
 	_test_touch_settings_input()
 	_test_player_shaft_collision()
+	_test_player_controller_jump()
 	_test_survival_inventory_rules()
 	_test_atomic_crafting_rules()
 	_test_survival_shipping_stack()
@@ -164,21 +165,57 @@ func _test_touch_settings_input() -> void:
 
 
 func _test_player_shaft_collision() -> void:
+	_expect(is_equal_approx(VoxelPlayerMotion.BLOCK_SIZE, 1.0), "voxel movement uses one-unit blocks")
+	_expect(is_equal_approx(VoxelPlayerMotion.BODY_WIDTH, 0.60), "player width matches Minecraft's standing box")
+	_expect(is_equal_approx(VoxelPlayerMotion.BODY_HEIGHT, 1.80), "player height matches Minecraft's standing box")
+	_expect(is_equal_approx(VoxelPlayerMotion.EYE_HEIGHT, 1.62), "camera height matches Minecraft's standing eye")
 	var probe := SolidProbe.new()
-	for y: int in range(0, 2):
+	for y: int in range(-1, 5):
 		for z: int in range(-1, 2):
 			for x: int in range(-1, 2):
 				if x == 0 and z == 0:
 					continue
 				probe.solids[Vector3i(x, y, z)] = true
 	var query := Callable(probe, "is_solid")
-	var centered: Vector3 = VoxelPlayerMotion.clip_motion(Vector3(0.5, 2.0, 0.5), Vector3(0.0, -1.5, 0.0), query)
-	_expect(is_equal_approx(centered.y, -1.5), "centered box falls straight through a one-block shaft")
+	var centered: Vector3 = VoxelPlayerMotion.clip_motion(Vector3(0.5, 3.0, 0.5), Vector3(0.0, -2.4, 0.0), query)
+	_expect(is_equal_approx(centered.y, -2.4), "centered box falls straight through a one-block shaft")
 	_expect(is_zero_approx(centered.x) and is_zero_approx(centered.z), "straight-down fall does not eject the player sideways")
-	var edge_supported: Vector3 = VoxelPlayerMotion.clip_motion(Vector3(0.75, 2.0, 0.5), Vector3(0.0, -1.5, 0.0), query)
-	_expect(is_zero_approx(edge_supported.y), "off-center box stays supported when it cannot fully fit")
-	var wall_clipped: Vector3 = VoxelPlayerMotion.clip_motion(Vector3(0.5, 0.1, 0.5), Vector3(0.8, 0.0, 0.0), query)
-	_expect(wall_clipped.x > 0.20 and wall_clipped.x < 0.22, "shaft wall clips motion instead of pushing the player out")
+	var near_edge: Vector3 = VoxelPlayerMotion.clip_motion(Vector3(0.70, 3.0, 0.5), Vector3(0.0, -2.4, 0.0), query)
+	_expect(is_equal_approx(near_edge.y, -2.4), "valid shaft tolerance accepts the full standing player box")
+	var edge_supported: Vector3 = VoxelPlayerMotion.clip_motion(Vector3(0.80, 3.0, 0.5), Vector3(0.0, -2.4, 0.0), query)
+	_expect(is_zero_approx(edge_supported.y), "off-center box stays supported only when it genuinely cannot fit")
+	var corner_probe := SolidProbe.new()
+	for y: int in range(1, 3):
+		for z: int in range(0, 3):
+			corner_probe.solids[Vector3i(1, y, z)] = true
+	var wall_clipped: Vector3 = VoxelPlayerMotion.clip_motion(
+		Vector3(0.5, 1.0, 0.5),
+		Vector3(0.8, 0.0, 0.8),
+		Callable(corner_probe, "is_solid")
+	)
+	_expect(wall_clipped.x > 0.19 and wall_clipped.x < 0.22, "wall clips only the blocked axis")
+	_expect(is_equal_approx(wall_clipped.z, 0.8), "free axis slides along a wall instead of sticking")
+	var floor_probe := SolidProbe.new()
+	floor_probe.solids[Vector3i(0, 0, 0)] = true
+	var floor_query := Callable(floor_probe, "is_solid")
+	var grounded: Dictionary = VoxelPlayerMotion.solve_motion(Vector3(0.5, 1.0, 0.5), Vector3(0.0, -0.05, 0.0), floor_query)
+	_expect(bool(grounded.get("grounded", false)), "grounded state survives a clipped downward probe")
+
+
+func _test_player_controller_jump() -> void:
+	var probe := SolidProbe.new()
+	probe.solids[Vector3i(0, 0, 0)] = true
+	var controller = ExplorationController.new()
+	controller.global_position = Vector3(0.5, 1.0, 0.5)
+	controller.set_physics_process(false)
+	root.add_child(controller)
+	controller.set_voxel_solid_query(Callable(probe, "is_solid"))
+	_expect(controller.is_grounded(), "controller derives grounded state from authoritative voxels")
+	controller.request_jump()
+	controller._physics_process(1.0 / 30.0)
+	_expect(controller.global_position.y > 1.1, "jump button produces upward movement on the next physics tick")
+	_expect(controller.velocity.y > 0.0, "jump retains positive vertical velocity after leaving the floor")
+	controller.free()
 
 
 func _test_survival_inventory_rules() -> void:
@@ -252,6 +289,8 @@ func _test_survival_shipping_stack() -> void:
 	_expect(controller.contains("break_hold_changed") and controller.contains("break_hold_changed.connect"), "mouse and mobile break holds reach the shipping interaction layer")
 	_expect(controller.contains("BoxShape3D") and controller.contains("VoxelPlayerMotion.clip_motion"), "shipping player uses voxel-clipped box collision")
 	_expect(capture.contains("TouchSlider.new") and capture.contains("set_voxel_solid_query"), "shipping settings and player use the replacement touch and collision paths")
+	_expect(not controller.contains("move_and_slide()") and not controller.contains("is_on_floor()"), "shipping player has one voxel collision authority and stable ground state")
+	_expect(controller.contains("collision_mask = 0") and controller.contains("JUMP_BUFFER_SECONDS"), "shipping player avoids double collision and buffers jump input")
 
 
 func _expect(condition: bool, label: String) -> void:
