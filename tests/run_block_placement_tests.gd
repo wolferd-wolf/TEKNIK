@@ -177,6 +177,7 @@ func _test_atomic_crafting_rules() -> void:
 func _test_survival_shipping_stack() -> void:
 	var scene: String = FileAccess.get_file_as_string("res://src/main/main.tscn")
 	var capture: String = FileAccess.get_file_as_string("res://src/main/kinetic_capture_shipping_main.gd")
+	var vitals: String = FileAccess.get_file_as_string("res://src/main/survival_vitals_main.gd")
 	var placement: String = FileAccess.get_file_as_string("res://src/main/placement_preview_main.gd")
 	var targeting: String = FileAccess.get_file_as_string("res://src/main/targeted_interaction_main.gd")
 	var kinetic: String = FileAccess.get_file_as_string("res://src/main/kinetic_machine_main.gd")
@@ -189,7 +190,8 @@ func _test_survival_shipping_stack() -> void:
 	var mining_visual: String = FileAccess.get_file_as_string("res://src/player/mining_block_visual.gd")
 	_expect(
 		scene.contains("kinetic_capture_shipping_main.gd")
-		and capture.contains("placement_preview_main.gd")
+		and capture.contains("survival_vitals_main.gd")
+		and vitals.contains("placement_preview_main.gd")
 		and placement.contains("targeted_interaction_main.gd")
 		and targeting.contains("interactive_kinetic_main.gd")
 		and kinetic.contains("survival_shipping_main.gd")
