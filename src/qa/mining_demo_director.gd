@@ -35,7 +35,7 @@ func _run() -> void:
 	var base_z: int = floori(_player.global_position.z) - 4
 	var surface_y: int = TerrainGenerator.surface_height(seed, base_x, base_z)
 	var target := Vector3i(base_x, surface_y + 1, base_z)
-	_world.qa_apply_voxel_edit(target, VoxelChunk.STONE, "qa_mining_demo_target")
+	_world.qa_apply_voxel_edit(target, TerrainGenerator.STONE, "qa_mining_demo_target")
 	if not await _wait_for_world_idle():
 		return
 
@@ -69,7 +69,7 @@ func _run() -> void:
 	if cancel_progress < CANCEL_PROGRESS_MIN or cancel_progress > CANCEL_PROGRESS_MAX:
 		_fail("cancellation sample did not reach a visible middle crack stage")
 		return
-	if mining.progress() > 0.001 or int(_world.call("_current_material", target)) != VoxelChunk.STONE:
+	if mining.progress() > 0.001 or int(_world.call("_current_material", target)) != TerrainGenerator.STONE:
 		_fail("release did not cancel mining without removing the block")
 		return
 	print("QA_MINING_CANCEL_PASS voxel=", target, " progress_before_release=", cancel_progress)
