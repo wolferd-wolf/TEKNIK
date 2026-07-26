@@ -65,6 +65,8 @@ func _build_interaction_hud() -> void:
 
 
 func _disable_legacy_machine_actions() -> void:
+	if _assemble_button != null:
+		_assemble_button.visible = false
 	if _load_button != null:
 		_load_button.visible = false
 	if _crank_button != null:
@@ -82,11 +84,9 @@ func _rebuild_machine_visuals() -> void:
 		var body := child as StaticBody3D
 		if body == null:
 			continue
-		var machine_id := StringName(body.name.trim_prefix("Machine_"))
+		var machine_id := StringName(body.get_meta("teknik_machine_id", &""))
 		var row: Dictionary = _machines.machines.get(machine_id, {})
 		var machine_type := StringName(str(row.get("type", "")))
-		body.set_meta("teknik_machine_id", machine_id)
-		body.set_meta("teknik_machine_type", machine_type)
 		var primary := body.get_child(0) as Node3D if body.get_child_count() > 0 else null
 		if machine_type == KineticMachineState.TYPE_CRANK or machine_type == KineticMachineState.TYPE_SHAFT:
 			if primary != null:
@@ -118,6 +118,7 @@ func _add_crusher_rollers(body: StaticBody3D) -> void:
 func _refresh_target_machine() -> void:
 	_target_machine = _raycast_machine()
 	var has_target: bool = _target_machine != null
+	_set_machine_hud_targeted(has_target)
 	if _interact_button != null:
 		_interact_button.disabled = not has_target
 		_interact_button.visible = has_target
@@ -216,6 +217,7 @@ func qa_save_edits_now() -> void:
 		"QA_KINETIC_INTERACTION_PASS targetable=", annotated,
 		" rotating_visuals=", _rotating_visuals.size(),
 		" range=", MACHINE_INTERACTION_DISTANCE,
-		" legacy_actions_hidden=", not _load_button.visible and not _crank_button.visible and not _collect_button.visible,
-		" idle_prompt_hidden=", not _interaction_hint.visible
+		" legacy_actions_hidden=", not _assemble_button.visible and not _load_button.visible and not _crank_button.visible and not _collect_button.visible,
+		" idle_prompt_hidden=", not _interaction_hint.visible,
+		" idle_machine_panel_hidden=", not _machine_hud_panel.visible
 	)
