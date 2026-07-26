@@ -281,6 +281,87 @@ final confirmation.
 the owner to relay) confirming whether the pushed fix actually goes green
 before building anything further on top of it.
 
+## Current assignment — crafting space, settings panel, misc polish (2026-07-26)
+
+Owner asked for three things plus open latitude to add more. I fixed the
+digging-stuck bug myself this round (two separate root causes, see log below
+- capsule radius and collision-rebuild priority). These three are UI/feature
+work, assigned to you:
+
+**1. Separate crafting space in inventory.**
+Right now `_toggle_inventory_window` (survival_main.gd) presumably shares
+space with the hotbar-driven inventory list. Give crafting its own distinct
+area inside the inventory window (`INVENTORY_WINDOW_SIZE`), separate from
+the raw-material grid - a dedicated panel listing `RecipeBook` entries with
+craft buttons, not mixed in with inventory slot display. Reuse the existing
+Engineering-panel recipe logic (`engineering_progression_main.gd`) rather
+than re-implementing crafting rules; this is a layout/placement change, not
+new crafting logic.
+
+**2. Settings icon + render distance slider.**
+Add a settings button (same visual language as the existing inventory
+button) opening a small settings panel. First control: a low/high slider for
+render distance.
+
+The actual knob this needs to touch: `CHUNK_RADIUS: int = 3` in `main.gd` -
+currently a compile-time `const`. Making it live-adjustable means:
+- Converting it to a `var` the settings panel can write to.
+- Finding every place that reads `CHUNK_RADIUS` as a constant (streaming
+  window plans, LOD ring calculations, etc.) and confirming they re-read the
+  current value rather than baking it in once at `_ready()`.
+- Triggering a re-evaluation of the streaming/LOD window when the value
+  changes (the player shouldn't need to walk away and back for a new radius
+  to take effect).
+- Deciding what "low" and "high" actually map to (e.g. 2 and 5) based on
+  what's plausible for a Vivo T3x, not arbitrary numbers - flag this as a
+  guess needing device confirmation, don't present it as settled.
+
+This is more than a UI slider - it's turning a baked-in constant into a live
+setting. Say explicitly in your commit what you changed structurally vs.
+what's just the panel/slider widget.
+
+**3. Additional things worth adding (my suggestions, take or leave):**
+- **Sensitivity slider** in the same settings panel - `MOUSE_SENSITIVITY`
+  and `TOUCH_LOOK_SENSITIVITY` in `exploration_controller.gd` are hardcoded
+  consts today, same shape of problem as render distance. Natural pairing,
+  same underlying pattern (const → live setting).
+- **No audio exists in the project at all** - no mining sound, no placement
+  sound, no footsteps. I'm not assigning this as a task since it needs actual
+  sound assets sourced first, but flagging it as the single biggest polish
+  gap once UI work settles.
+- **FPS counter is always visible** (`src/ui/fps_counter.gd`) with no way to
+  hide it - worth a toggle in the new settings panel rather than always-on
+  clutter, now that there's a settings panel to put it in.
+
+**Verify with the existing screenshot/QA capture tooling** as usual - a
+screenshot showing the settings panel open with the render distance slider,
+and the crafting space visibly separate from the inventory grid. Not a green
+CI run by itself.
+
+### 2026-07-26 — Claude (digging-stuck bug: two separate root causes fixed)
+Owner reported getting stuck every time digging straight down. Found and
+fixed two independent contributing causes rather than guessing at one:
+
+1. `exploration_controller.gd`: capsule radius was 0.42 (diameter 0.84) vs
+   1.0-unit voxel blocks - only 0.16m total horizontal clearance in a 1-wide
+   shaft, requiring near-pixel-perfect centering to descend without clipping
+   a wall. Reduced to 0.3 (diameter 0.6, matching Minecraft's own hitbox
+   ratio) for 0.4m clearance.
+2. `budgeted_main.gd`, `_commit_terrain_chunk()`: mining a block tears down
+   the chunk's old collision body immediately but only re-queues a new one
+   on the shared, budgeted streaming-collision queue (FIFO, 2 adds/frame,
+   same queue as ordinary movement-driven chunk loading). A chunk the player
+   just mined into could sit with stale/absent collision for several frames
+   behind unrelated background work. Changed edit-triggered rebuilds to
+   push_front instead of append so they're processed next, ahead of
+   streaming adds.
+
+Neither fix is verified on-device yet - I can't test physical feel, only
+verify the code logic and the numbers involved. If digging down is still
+inconsistent after both of these, the real remaining fix is making
+player-local edits rebuild collision synchronously rather than through the
+budgeted queue at all - that's a bigger architecture change, not done here.
+
 ## Log
 
 ### 2026-07-25 — Claude
