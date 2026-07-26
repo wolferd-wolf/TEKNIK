@@ -148,8 +148,8 @@ func _item_for_machine_type(machine_type: StringName) -> StringName:
 			return &""
 
 
-func _machine_id_for_position(machine_type: StringName, position: Vector3i) -> StringName:
-	return StringName("%s_%d_%d_%d" % [str(machine_type), position.x, position.y, position.z])
+func _machine_id_for_position(machine_type: StringName, position: Vector3i) -> String:
+	return "%s_%d_%d_%d" % [str(machine_type), position.x, position.y, position.z]
 
 
 func _machine_at_position(position: Vector3i) -> bool:
@@ -167,6 +167,8 @@ func _can_place_engineering_item(voxel: Vector3i, item_id: StringName) -> bool:
 		return false
 	if _current_material(voxel) != VoxelChunk.AIR:
 		return false
+	if _current_material(voxel - Vector3i.UP) == VoxelChunk.AIR:
+		return false
 	if _placement_intersects_player(voxel):
 		return false
 	return not _machine_at_position(voxel)
@@ -176,11 +178,13 @@ func _place_engineering_item(voxel: Vector3i, item_id: StringName, consume_item:
 	var machine_type: StringName = _machine_type_for_item(item_id)
 	if machine_type == &"":
 		return false
-	if _current_material(voxel) != VoxelChunk.AIR or _placement_intersects_player(voxel) or _machine_at_position(voxel):
+	if _current_material(voxel) != VoxelChunk.AIR or _current_material(voxel - Vector3i.UP) == VoxelChunk.AIR:
+		return false
+	if _placement_intersects_player(voxel) or _machine_at_position(voxel):
 		return false
 	if consume_item and _inventory.count(item_id) <= 0:
 		return false
-	var machine_id: StringName = _machine_id_for_position(machine_type, voxel)
+	var machine_id: String = _machine_id_for_position(machine_type, voxel)
 	if not _machines.place(machine_id, machine_type, voxel):
 		return false
 	if consume_item and not _inventory.remove(item_id, 1):
@@ -196,7 +200,7 @@ func _place_engineering_item(voxel: Vector3i, item_id: StringName, consume_item:
 	if consume_item:
 		_mark_inventory_changed("engineering_object_placed", item_id, -1)
 	_runtime_log.event("info", "kinetics", "machine_placed", {
-		"id": str(machine_id),
+		"id": machine_id,
 		"type": str(machine_type),
 		"item": str(item_id),
 		"voxel": str(voxel),
@@ -210,7 +214,7 @@ func _try_break_engineering_item(origin: Vector3, direction: Vector3) -> bool:
 	var body: StaticBody3D = _raycast_engineering_body(origin, direction)
 	if body == null:
 		return false
-	var machine_id := StringName(body.get_meta("teknik_machine_id", &""))
+	var machine_id: String = str(body.get_meta("teknik_machine_id", ""))
 	var row: Dictionary = _machines.machines.get(machine_id, {})
 	var machine_type := StringName(str(row.get("type", "")))
 	var item_id: StringName = _item_for_machine_type(machine_type)
@@ -231,7 +235,7 @@ func _try_break_engineering_item(origin: Vector3, direction: Vector3) -> bool:
 	_rebuild_machine_visuals()
 	_mark_inventory_changed("engineering_object_collected", item_id, 1)
 	_runtime_log.event("info", "kinetics", "machine_collected", {
-		"id": str(machine_id),
+		"id": machine_id,
 		"type": str(machine_type),
 		"item": str(item_id),
 		"voxel": str(position),
@@ -326,12 +330,12 @@ func _rebuild_machine_visuals() -> void:
 	_machine_root.name = "PlacedKineticMachines"
 	add_child(_machine_root)
 	for id_variant: Variant in _machines.machines.keys():
-		var machine_id := StringName(id_variant)
+		var machine_id: String = str(id_variant)
 		var row: Dictionary = _machines.machines[machine_id]
 		var machine_type := StringName(str(row.get("type", "")))
 		var grid_position: Vector3i = row.get("position", Vector3i.ZERO)
 		var body := StaticBody3D.new()
-		body.name = "Machine_" + str(machine_id)
+		body.name = "Machine_" + machine_id
 		body.position = Vector3(
 			float(grid_position.x) + 0.5,
 			float(grid_position.y) + 0.5,
