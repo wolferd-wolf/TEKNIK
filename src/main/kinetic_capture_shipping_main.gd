@@ -1,6 +1,7 @@
 extends "res://src/main/survival_vitals_main.gd"
 
 const MiningDemoDirector = preload("res://src/qa/mining_demo_director.gd")
+const TouchSlider = preload("res://src/ui/touch_slider.gd")
 
 const SETTINGS_PATH: String = "user://teknik-settings.json"
 const SETTINGS_SCHEMA: int = 1
@@ -11,7 +12,9 @@ const LOOK_SENSITIVITY_MIN: float = 0.5
 const LOOK_SENSITIVITY_MAX: float = 2.0
 const DEFAULT_LOOK_SENSITIVITY: float = 1.0
 const INVENTORY_WORKSPACE_SIZE := Vector2(840.0, 520.0)
+const INVENTORY_WORKSPACE_POSITION := Vector2(24.0, 88.0)
 const SETTINGS_PANEL_SIZE := Vector2(312.0, 430.0)
+const SETTINGS_PANEL_POSITION := Vector2(920.0, 120.0)
 const INVALID_SETTINGS_CENTER := Vector3i(2_000_000_000, 0, 2_000_000_000)
 
 var _settings_render_distance: int = DEFAULT_RENDER_DISTANCE
@@ -19,9 +22,9 @@ var _settings_look_sensitivity: float = DEFAULT_LOOK_SENSITIVITY
 var _settings_show_fps: bool = true
 var _settings_panel: PanelContainer
 var _settings_button: Button
-var _render_distance_slider: HSlider
+var _render_distance_slider: TeknikTouchSlider
 var _render_distance_label: Label
-var _look_sensitivity_slider: HSlider
+var _look_sensitivity_slider: TeknikTouchSlider
 var _look_sensitivity_label: Label
 var _fps_toggle: CheckButton
 var _inventory_workspace: HBoxContainer
@@ -37,6 +40,7 @@ func _ready() -> void:
 	super._ready()
 	if is_instance_valid(_player):
 		_player.set_look_sensitivity_scale(_settings_look_sensitivity)
+		_player.set_voxel_solid_query(Callable(self, "_player_voxel_is_solid"))
 	_build_inventory_crafting_workspace()
 	_build_settings_ui()
 	_apply_fps_visibility()
@@ -45,6 +49,10 @@ func _ready() -> void:
 		director.name = "MiningDemoDirector"
 		add_child(director)
 		director.begin(self, _player)
+
+
+func _player_voxel_is_solid(voxel: Vector3i) -> bool:
+	return _current_material(voxel) != VoxelChunk.AIR
 
 
 func _build_inventory_crafting_workspace() -> void:
@@ -57,8 +65,16 @@ func _build_inventory_crafting_workspace() -> void:
 	if inventory_grid == null or _recipe_list == null:
 		return
 
-	_inventory_window.position = Vector2(-560.0, -260.0)
+	# The previous center-anchor offsets placed the window outside the phone canvas.
+	# Use an explicit viewport-space rectangle so Inventory is always visible.
+	_inventory_window.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_inventory_window.grow_horizontal = Control.GROW_DIRECTION_END
+	_inventory_window.grow_vertical = Control.GROW_DIRECTION_END
+	_inventory_window.position = INVENTORY_WORKSPACE_POSITION
+	_inventory_window.size = INVENTORY_WORKSPACE_SIZE
 	_inventory_window.custom_minimum_size = INVENTORY_WORKSPACE_SIZE
+	_inventory_window.mouse_filter = Control.MOUSE_FILTER_STOP
+	_inventory_window.z_index = 40
 
 	_inventory_workspace = HBoxContainer.new()
 	_inventory_workspace.name = "InventoryWorkspace"
@@ -123,11 +139,6 @@ func _build_inventory_crafting_workspace() -> void:
 	if _engineering_screen != null:
 		_engineering_screen.visible = false
 
-	# The original 612px hotbar started at x=280, colliding with the expanded
-	# inventory/settings touch area. Shift it just enough to retain the right-side
-	# BREAK/PLACE/JUMP clearance checked by the existing QA gate.
-	if _bottom_hotbar_panel != null:
-		_bottom_hotbar_panel.position.x = -328.0
 	_build_inventory_and_settings_buttons()
 	_refresh_recipe_panel()
 
@@ -168,9 +179,14 @@ func _build_settings_ui() -> void:
 		return
 	_settings_panel = PanelContainer.new()
 	_settings_panel.name = "SettingsPanel"
-	_settings_panel.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
-	_settings_panel.position = Vector2(-332.0, -215.0)
+	_settings_panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_settings_panel.grow_horizontal = Control.GROW_DIRECTION_END
+	_settings_panel.grow_vertical = Control.GROW_DIRECTION_END
+	_settings_panel.position = SETTINGS_PANEL_POSITION
+	_settings_panel.size = SETTINGS_PANEL_SIZE
 	_settings_panel.custom_minimum_size = SETTINGS_PANEL_SIZE
+	_settings_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_settings_panel.z_index = 50
 	_settings_panel.visible = false
 	_gameplay_hud_layer.add_child(_settings_panel)
 
@@ -186,13 +202,13 @@ func _build_settings_ui() -> void:
 	_render_distance_label = Label.new()
 	_render_distance_label.name = "RenderDistanceLabel"
 	content.add_child(_render_distance_label)
-	_render_distance_slider = HSlider.new()
+	_render_distance_slider = TouchSlider.new()
 	_render_distance_slider.name = "RenderDistanceSlider"
 	_render_distance_slider.min_value = RENDER_DISTANCE_MIN
 	_render_distance_slider.max_value = RENDER_DISTANCE_MAX
 	_render_distance_slider.step = 1.0
 	_render_distance_slider.value = _settings_render_distance
-	_render_distance_slider.custom_minimum_size = Vector2(280.0, 42.0)
+	_render_distance_slider.custom_minimum_size = Vector2(280.0, 48.0)
 	_render_distance_slider.value_changed.connect(_on_render_distance_changed)
 	content.add_child(_render_distance_slider)
 	var render_note := Label.new()
@@ -204,13 +220,13 @@ func _build_settings_ui() -> void:
 	_look_sensitivity_label = Label.new()
 	_look_sensitivity_label.name = "LookSensitivityLabel"
 	content.add_child(_look_sensitivity_label)
-	_look_sensitivity_slider = HSlider.new()
+	_look_sensitivity_slider = TouchSlider.new()
 	_look_sensitivity_slider.name = "LookSensitivitySlider"
 	_look_sensitivity_slider.min_value = LOOK_SENSITIVITY_MIN
 	_look_sensitivity_slider.max_value = LOOK_SENSITIVITY_MAX
 	_look_sensitivity_slider.step = 0.1
 	_look_sensitivity_slider.value = _settings_look_sensitivity
-	_look_sensitivity_slider.custom_minimum_size = Vector2(280.0, 42.0)
+	_look_sensitivity_slider.custom_minimum_size = Vector2(280.0, 48.0)
 	_look_sensitivity_slider.value_changed.connect(_on_look_sensitivity_changed)
 	content.add_child(_look_sensitivity_slider)
 
@@ -263,10 +279,11 @@ func _close_engineering_station() -> void:
 func _toggle_inventory_window() -> void:
 	if _inventory_window == null:
 		return
-	_inventory_window.visible = not _inventory_window.visible
-	if not _inventory_window.visible and _settings_panel != null:
+	var opening: bool = not _inventory_window.visible
+	_inventory_window.visible = opening
+	if _settings_panel != null:
 		_settings_panel.visible = false
-	_set_modal_controls(_inventory_window.visible)
+	_set_modal_controls(opening)
 
 
 func _toggle_settings_panel() -> void:
@@ -432,6 +449,8 @@ func qa_save_edits_now() -> void:
 		and _look_sensitivity_slider != null
 		and is_instance_valid(_player)
 		and is_equal_approx(_player.look_sensitivity_scale(), _settings_look_sensitivity)
+		and _inventory_window.get_global_rect().position.x >= 0.0
+		and _settings_panel.get_global_rect().end.x <= get_viewport().get_visible_rect().size.x
 		and recipe_controls > 0
 	)
 	if not evidence_valid:
@@ -444,6 +463,8 @@ func qa_save_edits_now() -> void:
 		" sensitivity=", _settings_look_sensitivity,
 		" recipes=", recipe_controls,
 		" crafting_separate=", _inventory_items_panel != _inventory_crafting_panel,
+		" inventory_rect=", _inventory_window.get_global_rect(),
+		" settings_rect=", _settings_panel.get_global_rect(),
 		" settings_visible=", _settings_panel.visible,
 		" fps_visible=", _settings_show_fps
 	)
