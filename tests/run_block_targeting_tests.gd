@@ -126,6 +126,7 @@ func _test_busy_rebuild_retention() -> void:
 func _test_shipping_mining_stack() -> void:
 	var scene: String = FileAccess.get_file_as_string("res://src/main/main.tscn")
 	var capture: String = FileAccess.get_file_as_string("res://src/main/kinetic_capture_shipping_main.gd")
+	var vitals: String = FileAccess.get_file_as_string("res://src/main/survival_vitals_main.gd")
 	var placement: String = FileAccess.get_file_as_string("res://src/main/placement_preview_main.gd")
 	var targeting: String = FileAccess.get_file_as_string("res://src/main/targeted_interaction_main.gd")
 	var controller: String = FileAccess.get_file_as_string("res://src/player/mining_controller.gd")
@@ -133,7 +134,12 @@ func _test_shipping_mining_stack() -> void:
 	var crosshair: String = FileAccess.get_file_as_string("res://src/player/block_target_crosshair.gd")
 	var machines: String = FileAccess.get_file_as_string("res://src/main/interactive_kinetic_main.gd")
 	_expect(scene.contains("kinetic_capture_shipping_main.gd"), "shipping scene retains the validated capture entry point")
-	_expect(capture.contains("placement_preview_main.gd") and placement.contains("targeted_interaction_main.gd"), "shipping runtime reaches the replacement mining controller")
+	_expect(
+		capture.contains("survival_vitals_main.gd")
+		and vitals.contains("placement_preview_main.gd")
+		and placement.contains("targeted_interaction_main.gd"),
+		"shipping runtime reaches the replacement mining controller through the actual inheritance chain"
+	)
 	_expect(targeting.contains("MiningController") and targeting.contains("_process_mining"), "runtime uses one mining state machine")
 	_expect(targeting.contains("mining_completed_waiting_for_mesh") and targeting.contains("mining_visible_commit"), "runtime waits for the edited block to disappear visibly")
 	_expect(not targeting.contains("VisibleMiningLock") and not targeting.contains("MiningHoldState"), "obsolete layered mining patches are removed from shipping")
