@@ -41,6 +41,10 @@ func _input(event: InputEvent) -> void:
 func _handle_touch(event: InputEventScreenTouch) -> void:
 	var viewport_size: Vector2 = get_viewport_rect().size
 	if event.pressed:
+		# GUI still receives the event; the gameplay touch state simply does not
+		# claim inventory, hotbar or modal-inventory touches as movement/look input.
+		if _touch_hits_inventory_ui(event.position):
+			return
 		if ControlMath.is_log_zone(event.position, viewport_size):
 			_log_active = true
 			log_pressed.emit()
@@ -91,6 +95,23 @@ func _handle_touch(event: InputEventScreenTouch) -> void:
 		if ControlMath.is_log_zone(event.position, viewport_size):
 			_log_active = false
 		queue_redraw()
+
+
+func _touch_hits_inventory_ui(position: Vector2) -> bool:
+	var scene: Node = get_tree().current_scene
+	if scene == null:
+		return false
+	var inventory_screen := scene.get_node_or_null("GameplayHUD/InventoryScreen") as Control
+	if inventory_screen != null and inventory_screen.visible:
+		return true
+	for path: NodePath in [
+		NodePath("GameplayHUD/BottomHotbar"),
+		NodePath("GameplayHUD/InventoryButton"),
+	]:
+		var control := scene.get_node_or_null(path) as Control
+		if control != null and control.visible and control.get_global_rect().has_point(position):
+			return true
+	return false
 
 
 func _handle_drag(event: InputEventScreenDrag) -> void:
