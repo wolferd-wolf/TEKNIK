@@ -53,29 +53,36 @@ static func is_registered(item_id: StringName) -> bool:
 	return item_id in registered_items()
 
 
-static func is_placeable(item_id: StringName) -> bool:
+static func is_voxel_placeable(item_id: StringName) -> bool:
 	return material_for_item(item_id) != AIR
 
 
+static func is_object_placeable(item_id: StringName) -> bool:
+	return item_id in object_placeable_items()
+
+
+static func is_placeable(item_id: StringName) -> bool:
+	return is_voxel_placeable(item_id) or is_object_placeable(item_id)
+
+
+static func voxel_placeable_items() -> Array[StringName]:
+	return [ITEM_STONE, ITEM_SOIL, ITEM_GRASS, ITEM_SAND]
+
+
+static func object_placeable_items() -> Array[StringName]:
+	return [ITEM_WORKBENCH, ITEM_STONE_SHAFT, ITEM_HAND_CRANK, ITEM_STONE_CRUSHER]
+
+
 static func placeable_items() -> Array[StringName]:
-	return [
-		ITEM_STONE,
-		ITEM_SOIL,
-		ITEM_GRASS,
-		ITEM_SAND,
-	]
+	var items: Array[StringName] = voxel_placeable_items()
+	items.append_array(object_placeable_items())
+	return items
 
 
 static func max_stack(item_id: StringName) -> int:
 	if not is_registered(item_id):
 		return 0
-	if item_id in [
-		ITEM_STONE_GEAR,
-		ITEM_WORKBENCH,
-		ITEM_STONE_SHAFT,
-		ITEM_HAND_CRANK,
-		ITEM_STONE_CRUSHER,
-	]:
+	if item_id in [ITEM_STONE_GEAR, ITEM_WORKBENCH, ITEM_STONE_SHAFT, ITEM_HAND_CRANK, ITEM_STONE_CRUSHER]:
 		return 32
 	return MAX_STACK
 
