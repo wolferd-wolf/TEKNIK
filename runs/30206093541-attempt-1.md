@@ -1,0 +1,75 @@
+# TEKNIK CI Run Report
+
+- **Run:** [30206093541 — attempt 1](https://github.com/wolferd-wolf/TEKNIK/actions/runs/30206093541)
+- **Overall result:** **cancelled**
+- **Workflow:** TEKNIK CI
+- **Event:** push
+- **Branch/ref:** `agent/bootstrap-foundation`
+- **Commit:** [`294efc0afe397b2060c82828dda6dfe20a795327`](https://github.com/wolferd-wolf/TEKNIK/commit/294efc0afe397b2060c82828dda6dfe20a795327)
+- **Actor:** wolferd-wolf
+- **Generated:** 2026-07-26T14:32:33Z
+- **Full report artifact:** `TEKNIK-CI-Report-30206093541-attempt-1`
+
+## Required job results
+
+- procedural-preflight: **success**
+- test-and-build-android: **cancelled**
+
+## Jobs and steps
+
+### procedural-preflight — success
+
+- `1` Set up job: **success**
+- `2` Check out source: **success**
+- `3` Install procedural preflight runtime: **success**
+- `4` Validate procedural world scripts: **success**
+- `8` Post Check out source: **success**
+- `9` Complete job: **success**
+
+### test-and-build-android — cancelled
+
+- `1` Set up job: **success**
+- `2` Check out source: **success**
+- `3` Verify single workflow: **success**
+- `4` Install Java 17: **success**
+- `5` Install Rust: **success**
+- `6` Restore Rust build cache: **success**
+- `7` Install build dependencies: **success**
+- `8` Install Godot and export templates: **success**
+- `9` Check out pinned godot-cpp: **success**
+- `10` Restore godot-cpp build cache: **success**
+- `11` Build native Linux test bridge: **cancelled**
+- `12` Test replacement mining lifecycle: **skipped**
+- `13` Test placement feedback isolation: **skipped**
+- `14` Test survival vitals persistence: **skipped**
+- `15` Import project and run essential tests: **skipped**
+- `16` Capture populated HUD layout: **skipped**
+- `17` Publish populated HUD evidence: **skipped**
+- `18` Set up Android command-line tools: **skipped**
+- `19` Install Android ARM64 dependencies: **skipped**
+- `20` Build native Android ARM64 extension: **skipped**
+- `21` Configure Android export: **skipped**
+- `22` Export Android debug APK: **skipped**
+- `23` Publish phone APK: **skipped**
+- `43` Post Restore godot-cpp build cache: **skipped**
+- `44` Post Restore Rust build cache: **skipped**
+- `45` Post Install Java 17: **success**
+- `46` Post Check out source: **success**
+- `47` Complete job: **success**
+
+
+## Failed steps
+
+- None
+
+## Artifacts available before report upload
+
+- None
+
+## Included in the complete report artifact
+
+- This Markdown summary
+- Machine-readable JSON summary
+- Raw jobs/steps API response
+- Raw artifact API response
+- Downloaded logs for every completed non-report job
