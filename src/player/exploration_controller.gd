@@ -149,6 +149,8 @@ func _physics_process(delta: float) -> void:
 	else:
 		velocity.y -= _gravity * delta
 
+	# VoxelPlayerMotion.clip_motion remains as a compatibility wrapper for tests;
+	# the controller uses solve_motion so it also receives grounded/step results.
 	var requested_motion: Vector3 = velocity * delta
 	if _voxel_solid_query.is_valid():
 		var result: Dictionary = VoxelPlayerMotion.solve_motion(
