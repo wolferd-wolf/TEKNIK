@@ -3,6 +3,8 @@ extends SceneTree
 const ControlMath = preload("res://src/player/mobile_control_math.gd")
 const ExplorationController = preload("res://src/player/exploration_controller.gd")
 const MiningController = preload("res://src/player/mining_controller.gd")
+const VoxelPlayerMotion = preload("res://src/player/voxel_player_motion.gd")
+const TouchSlider = preload("res://src/ui/touch_slider.gd")
 const InteractionMath = preload("res://src/world/world_interaction_math.gd")
 const VoxelRaycast = preload("res://src/world/voxel_raycast.gd")
 const EditRebuildScheduler = preload("res://src/world/edit_rebuild_scheduler.gd")
@@ -22,6 +24,14 @@ class BusyProbe:
 		return coordinates.has(coordinate)
 
 
+class SolidProbe:
+	extends RefCounted
+	var solids: Dictionary = {}
+
+	func is_solid(voxel: Vector3i) -> bool:
+		return solids.has(voxel)
+
+
 func _init() -> void:
 	_test_face_targeting()
 	_test_straight_down_mining_aim()
@@ -31,6 +41,8 @@ func _init() -> void:
 	_test_busy_rebuild_retention()
 	_test_boundary_rebuilds()
 	_test_mobile_action_zones()
+	_test_touch_settings_input()
+	_test_player_shaft_collision()
 	_test_survival_inventory_rules()
 	_test_atomic_crafting_rules()
 	_test_survival_shipping_stack()
@@ -143,6 +155,32 @@ func _test_mobile_action_zones() -> void:
 	_expect(not ControlMath.is_look_zone(log_point, viewport), "diagnostics touch is not consumed by camera look")
 
 
+func _test_touch_settings_input() -> void:
+	_expect(is_equal_approx(TouchSlider.value_for_position(0.0, 280.0, 2.0, 5.0, 1.0), 2.0), "render-distance slider accepts the left touch edge")
+	_expect(is_equal_approx(TouchSlider.value_for_position(280.0, 280.0, 2.0, 5.0, 1.0), 5.0), "render-distance slider accepts the right touch edge")
+	_expect(is_equal_approx(TouchSlider.value_for_position(112.0, 280.0, 0.5, 2.0, 0.1), 1.1), "sensitivity touch snaps to a 0.1 step")
+	var source: String = FileAccess.get_file_as_string("res://src/ui/touch_slider.gd")
+	_expect(source.contains("InputEventScreenTouch") and source.contains("InputEventScreenDrag"), "settings sliders handle native phone touch and drag events")
+
+
+func _test_player_shaft_collision() -> void:
+	var probe := SolidProbe.new()
+	for y: int in range(0, 2):
+		for z: int in range(-1, 2):
+			for x: int in range(-1, 2):
+				if x == 0 and z == 0:
+					continue
+				probe.solids[Vector3i(x, y, z)] = true
+	var query := Callable(probe, "is_solid")
+	var centered: Vector3 = VoxelPlayerMotion.clip_motion(Vector3(0.5, 2.0, 0.5), Vector3(0.0, -1.5, 0.0), query)
+	_expect(is_equal_approx(centered.y, -1.5), "centered box falls straight through a one-block shaft")
+	_expect(is_zero_approx(centered.x) and is_zero_approx(centered.z), "straight-down fall does not eject the player sideways")
+	var edge_supported: Vector3 = VoxelPlayerMotion.clip_motion(Vector3(0.75, 2.0, 0.5), Vector3(0.0, -1.5, 0.0), query)
+	_expect(is_zero_approx(edge_supported.y), "off-center box stays supported when it cannot fully fit")
+	var wall_clipped: Vector3 = VoxelPlayerMotion.clip_motion(Vector3(0.5, 0.1, 0.5), Vector3(0.8, 0.0, 0.0), query)
+	_expect(wall_clipped.x > 0.20 and wall_clipped.x < 0.22, "shaft wall clips motion instead of pushing the player out")
+
+
 func _test_survival_inventory_rules() -> void:
 	var inventory: TeknikStackInventory = StackInventory.new()
 	_expect(inventory.add(ItemRegistry.ITEM_STONE, 65) == 0, "collected blocks fill bounded stacks")
@@ -212,6 +250,8 @@ func _test_survival_shipping_stack() -> void:
 	_expect(targeting.contains("QA_MINING_SYSTEM_PASS"), "recorded gameplay verifies replacement mining feedback")
 	_expect(crosshair.contains("PRESET_FULL_RECT") and crosshair.contains("RETICLE_COLOR"), "center crosshair remains small and stable")
 	_expect(controller.contains("break_hold_changed") and controller.contains("break_hold_changed.connect"), "mouse and mobile break holds reach the shipping interaction layer")
+	_expect(controller.contains("BoxShape3D") and controller.contains("VoxelPlayerMotion.clip_motion"), "shipping player uses voxel-clipped box collision")
+	_expect(capture.contains("TouchSlider.new") and capture.contains("set_voxel_solid_query"), "shipping settings and player use the replacement touch and collision paths")
 
 
 func _expect(condition: bool, label: String) -> void:
