@@ -197,7 +197,7 @@ func _apply_look(relative: Vector2, sensitivity: float) -> void:
 
 func _build_body() -> void:
 	var capsule := CapsuleShape3D.new()
-	capsule.radius = 0.42
+	capsule.radius = 0.3
 	capsule.height = 1.75
 	var collision := CollisionShape3D.new()
 	collision.shape = capsule
