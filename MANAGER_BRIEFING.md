@@ -142,6 +142,75 @@ inventory list, etc.). The actual fix:
    expected, stop and describe the tradeoff here before doing it — don't
    silently expand scope.
 
+## Current assignment — Minecraft-style UI overhaul (2026-07-26)
+
+Owner wants HUD redesigned: bottom hotbar (not top-left stacked panels),
+dedicated inventory button/screen, and placeable engineering blocks (Stone
+Shaft, Stone Workbench, Stone Crusher, etc.) as real hotbar slots — not
+text-only inventory lines.
+
+**Root cause of current limitation, already traced:**
+
+`src/survival/item_registry.gd`:
+- `placeable_items()` hardcodes exactly 4 entries: Stone, Soil, Grass, Sand.
+- `material_for_item()` maps every crafted item (Stone Gear, Stone Workbench,
+  Crushed Stone, Stone Shaft, Hand Crank, Stone Crusher) to `AIR`, so
+  `is_placeable()` is false for all of them.
+- Result: crafted items can never be selected or placed. They render as an
+  inert text line in `survival_main.gd::_refresh_inventory_hud()`, never as
+  a button.
+- Kinetics "Assemble Starter Machine" only flips an internal boolean and
+  consumes item counts — no scene/mesh is ever placed in the world. There is
+  currently no physical machine object anywhere in the game.
+
+**Scope, explicit:**
+
+1. **Bottom hotbar.** Move the placeable-item row from the top-left stacked
+   panel to a horizontal bar anchored bottom-center, Minecraft-style. Numbered
+   slots, selected slot highlighted, touch-friendly on mobile (this still has
+   to work with the existing BREAK/PLACE/JUMP touch buttons on the right —
+   don't let the hotbar collide with them, same class of bug as the panel
+   overlap we just fixed. Check actual screen bounds, don't eyeball it).
+
+2. **Inventory button + screen.** A button (or icon) that opens a full
+   inventory view — separate from the always-on hotbar — showing all
+   registered items (`ItemRegistry.registered_items()`), placeable or not.
+   This is where Stone Gear (an ingredient, not itself placed) can live
+   without needing its own hotbar slot.
+
+3. **Placeable engineering blocks — this is the part that needs new
+   underlying support, not just layout:**
+   - Extend the placement system so Stone Workbench, Stone Shaft, Stone
+     Crusher, Hand Crank can be placed as real objects in the world, the same
+     way Stone/Soil/Grass/Sand blocks are today.
+   - These are NOT simple terrain voxels — a workbench is a station you
+     interact with, not solid ground. Don't force them through
+     `material_for_item()`/the voxel material path as-is. Figure out whether
+     they need their own placement system (a placed-object registry keyed by
+     world position, separate from the voxel grid) before writing code.
+     State the design decision here before implementing it — this is exactly
+     the kind of thing that turns into scope creep if done silently.
+   - Persistence matters: placed structures need to survive save/load, same
+     guarantee `SaveGuardian`/world edits already have for voxel edits. Don't
+     ship a placement feature that forgets itself on reload.
+
+4. **Kinetics panel**: once a machine can actually be placed, decide whether
+   the abstract Input/Output/RPM/Turns numbers move to a world-space label
+   over the placed object, or stay in a HUD panel that only appears when
+   looking at a placed machine. Either way, stop showing meaningless
+   "Input: 0/16, Turns: 0" before anything is assembled — noise.
+
+**What "done" looks like:** a screenshot (via the existing
+`src/qa/gameplay_capture_director.gd` tooling) showing a bottom hotbar with a
+placeable engineering block selected, and that block visibly placed in the
+world after pressing PLACE — not just a green CI run. If persistence can't be
+demonstrated in that screenshot, describe how it was tested instead.
+
+**Do not treat this as pure UI polish.** Items 1–2 are layout work. Item 3 is
+a real feature gap (no placement system exists for non-voxel objects at all)
+and needs a design decision before code. Say which parts you're doing in
+which order.
+
 ## Log
 
 ### 2026-07-25 — Claude
