@@ -43,10 +43,21 @@ func _init() -> void:
 	_test_mobile_action_zones()
 	_test_touch_settings_input()
 	_test_player_shaft_collision()
-	_test_player_controller_jump()
 	_test_survival_inventory_rules()
 	_test_atomic_crafting_rules()
 	_test_survival_shipping_stack()
+	call_deferred("_run_live_controller_test")
+
+
+func _run_live_controller_test() -> void:
+	# A SceneTree script's _init() runs before its root viewport has entered the
+	# tree. Wait for the real first frame so global transforms match gameplay.
+	await process_frame
+	_test_player_controller_jump()
+	_finish()
+
+
+func _finish() -> void:
 	if _failures == 0:
 		print("BLOCK_PLACEMENT_TEST_RESULT PASS")
 		quit(0)
@@ -215,7 +226,7 @@ func _test_player_controller_jump() -> void:
 	controller._physics_process(1.0 / 30.0)
 	_expect(controller.global_position.y > 1.1, "jump button produces upward movement on the next physics tick")
 	_expect(controller.velocity.y > 0.0, "jump retains positive vertical velocity after leaving the floor")
-	controller.free()
+	controller.queue_free()
 
 
 func _test_survival_inventory_rules() -> void:
