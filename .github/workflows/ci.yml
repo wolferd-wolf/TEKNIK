@@ -1,6 +1,5 @@
 # Focused Phase 1 + original terrain texture pipeline. It preserves the verified
-# cave foundation, validates ores, atlas rendering, items, save data and mobile UI,
-# then publishes one ARM64 APK.
+# cave foundation, regenerates and validates the atlas, then publishes one ARM64 APK.
 name: TEKNIK Textured Ore APK
 
 on:
@@ -41,7 +40,30 @@ jobs:
       - name: Install focused build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential clang lld scons git curl unzip xvfb libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
+          sudo apt-get install -y -qq build-essential clang lld scons git curl unzip xvfb python3-pil libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
+
+      - name: Generate the HD terrain atlas
+        run: |
+          python3 tools/generate_terrain_atlas.py
+          python3 - <<'PY'
+          from PIL import Image
+          atlas = Image.open("assets/textures/terrain_atlas.png")
+          assert atlas.size == (512, 256), atlas.size
+          assert atlas.mode in ("P", "RGB", "RGBA"), atlas.mode
+          print("HD_TERRAIN_ATLAS_GENERATED", atlas.size, atlas.mode)
+          PY
+
+      - name: Persist generated atlas on the source branch
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          set -Eeuo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/textures/terrain_atlas.png
+          if ! git diff --cached --quiet; then
+            git commit -m "Generate HD terrain atlas [skip ci]"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
 
       - name: Install Godot and export templates
         run: |
@@ -152,7 +174,7 @@ jobs:
       - name: Publish textured ore phone APK
         uses: actions/upload-artifact@v4
         with:
-          name: TEKNIK-Textured-Ores-Android-ARM64-${{ github.sha }}
+          name: TEKNIK-HD-Grass-Android-ARM64-${{ github.sha }}
           if-no-files-found: error
           retention-days: 30
           path: build/TEKNIK-arm64-debug.apk

@@ -1,12 +1,12 @@
 shader_type spatial;
 render_mode cull_back, diffuse_lambert, specular_disabled;
 
-// Minecraft is used only as a scale/readability reference: logical 16x16 art,
-// stable face orientation, nearest sampling and mipmaps for distant terrain.
+// 32x32 logical art is enlarged to 64x64 atlas cells. Nearest sampling keeps
+// the voxel language crisp; mipmaps stop distant terrain from shimmering.
 uniform sampler2D terrain_atlas : source_color, filter_nearest_mipmap, repeat_disable;
 uniform vec2 atlas_grid = vec2(8.0, 4.0);
 
-const float TILE_TEXEL_INSET = 0.015625; // Half a texel inside each 32x32 atlas tile.
+const float TILE_TEXEL_INSET = 0.0078125; // Half a texel inside each 64x64 cell.
 
 varying vec3 terrain_world_position;
 varying vec3 terrain_local_normal;
@@ -18,19 +18,19 @@ void vertex() {
 
 vec3 material_reference(float material_id, vec3 normal_value) {
 	if (material_id < 1.5) {
-		return vec3(0.409, 0.446, 0.432);
+		return vec3(0.421, 0.453, 0.439);
 	}
 	if (material_id < 2.5) {
-		return vec3(0.468, 0.332, 0.211);
+		return vec3(0.491, 0.350, 0.237);
 	}
 	if (material_id < 3.5) {
 		if (normal_value.y > 0.5) {
-			return vec3(0.379, 0.557, 0.237);
+			return vec3(0.386, 0.544, 0.247);
 		}
-		return vec3(0.468, 0.332, 0.211);
+		return vec3(0.465, 0.397, 0.240);
 	}
 	if (material_id < 4.5) {
-		return vec3(0.724, 0.619, 0.397);
+		return vec3(0.725, 0.621, 0.406);
 	}
 	if (material_id < 5.5) {
 		return vec3(0.604, 0.651, 0.635);
@@ -80,10 +80,12 @@ vec2 projected_uv(vec3 position_value, vec3 normal_value) {
 	if (absolute_normal.y >= absolute_normal.x && absolute_normal.y >= absolute_normal.z) {
 		return position_value.xz;
 	}
+	// Image V increases downward while world Y increases upward. Negating world Y
+	// keeps the grass sod band at the physical TOP edge and lets the fringe hang down.
 	if (absolute_normal.x >= absolute_normal.z) {
-		return position_value.zy;
+		return vec2(position_value.z, -position_value.y);
 	}
-	return position_value.xy;
+	return vec2(position_value.x, -position_value.y);
 }
 
 float block_hash(vec3 cell) {
@@ -106,15 +108,12 @@ void fragment() {
 		float variant = floor(block_hash(block_cell + material_offset) * 4.0);
 		float tile = atlas_tile(material_id, normal_value, variant);
 		vec2 tile_coordinate = vec2(mod(tile, atlas_grid.x), floor(tile / atlas_grid.x));
-
-		// Keep every face upright. The previous UV rotation made the grass fringe run
-		// vertically and destroyed the perceived one-metre block scale.
 		vec2 local_uv = fract(projected_uv(terrain_world_position, normal_value) + vec2(0.0001));
 		local_uv = mix(vec2(TILE_TEXEL_INSET), vec2(1.0 - TILE_TEXEL_INSET), local_uv);
 		vec2 atlas_uv = (tile_coordinate + local_uv) / atlas_grid;
 		vec3 texture_color = texture(terrain_atlas, atlas_uv).rgb;
 		vec3 reference = max(material_reference(material_id, normal_value), vec3(0.08));
-		vec3 biome_tint = clamp(COLOR.rgb / reference, vec3(0.70), vec3(1.30));
+		vec3 biome_tint = clamp(COLOR.rgb / reference, vec3(0.76), vec3(1.24));
 		ALBEDO = clamp(texture_color * biome_tint, vec3(0.0), vec3(1.0));
 		ROUGHNESS = material_id >= 5.0 ? 0.92 : 0.98;
 	}

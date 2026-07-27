@@ -17,9 +17,10 @@ func _init() -> void:
 	_test_ore_drops_without_hotbar_expansion()
 	if _failures == 0:
 		print(
-			"TERRAIN_TEXTURE_ORE_TESTS_PASS atlas=256x128",
-			" logical_texels=16x16",
+			"TERRAIN_TEXTURE_ORE_TESTS_PASS atlas=512x256",
+			" logical_texels=32x32",
 			" variants=4",
+			" side_v=world_y_inverted",
 			" materials=8",
 			" grass_faces=top_side_soil_bottom",
 			" ore_drops=concentrates",
@@ -35,10 +36,14 @@ func _test_texture_assets() -> void:
 	var atlas := load("res://assets/textures/terrain_atlas.png") as Texture2D
 	_expect(atlas != null, "terrain atlas loads")
 	if atlas != null:
-		_expect(atlas.get_width() == 256, "atlas width is eight 32-pixel tiles")
-		_expect(atlas.get_height() == 128, "atlas height is four 32-pixel rows")
+		_expect(atlas.get_width() == 512, "atlas width is eight 64-pixel tiles")
+		_expect(atlas.get_height() == 256, "atlas height is four 64-pixel rows")
 	var shader := load("res://assets/textures/terrain_atlas.gdshader") as Shader
 	_expect(shader != null, "terrain atlas shader loads")
+	if shader != null:
+		_expect("filter_nearest_mipmap" in shader.code, "shader uses nearest mipmaps")
+		_expect("-position_value.y" in shader.code, "side faces invert world Y for upright grass")
+		_expect("0.0078125" in shader.code, "shader uses a half texel inset for 64-pixel cells")
 
 
 func _test_material_encoding_and_shared_shader() -> void:
@@ -79,10 +84,7 @@ func _test_material_encoding_and_shared_shader() -> void:
 			var atlas_parameter: Variant = shader_material.get_shader_parameter("terrain_atlas")
 			var atlas_grid_parameter: Variant = shader_material.get_shader_parameter("atlas_grid")
 			_expect(atlas_parameter != null, "shader receives atlas texture")
-			_expect(
-				atlas_grid_parameter == Vector2(8.0, 4.0),
-				"shader uses the 8x4 atlas layout"
-			)
+			_expect(atlas_grid_parameter == Vector2(8.0, 4.0), "shader uses the 8x4 atlas layout")
 
 
 func _test_ore_distribution_and_depth_rules() -> void:
