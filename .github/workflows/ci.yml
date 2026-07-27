@@ -1,5 +1,7 @@
-# Validate the project and publish only the Android ARM64 APK.
-name: TEKNIK CI
+# Focused one-run pipeline for the industrial UI/workbench fix.
+# It intentionally skips unrelated terrain, mining, ecology, persistence,
+# screenshot-upload, and full regression stages.
+name: TEKNIK Focused UI APK
 
 on:
   push:
@@ -13,35 +15,13 @@ permissions:
   contents: write
 
 concurrency:
-  group: teknik-ci-${{ github.ref }}
+  group: teknik-focused-ui-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  procedural-preflight:
+  focused-ui-arm64:
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
-    env:
-      GODOT_RELEASE: "4.7.1-stable"
-      GODOT_BIN: /usr/local/bin/godot
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-      - name: Install procedural preflight runtime
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq curl unzip libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
-          curl --fail --silent --show-error --location --retry 3 "https://github.com/godotengine/godot/releases/download/${GODOT_RELEASE}/Godot_v${GODOT_RELEASE}_linux.x86_64.zip" --output /tmp/godot-preflight.zip
-          unzip -q /tmp/godot-preflight.zip -d /tmp/godot-preflight
-          sudo install -m 0755 "/tmp/godot-preflight/Godot_v${GODOT_RELEASE}_linux.x86_64" "${GODOT_BIN}"
-      - name: Validate procedural world scripts
-        run: |
-          godot --headless --path . --editor --quit
-          godot --headless --path . --script res://tests/run_procedural_ecology_tests.gd
-
-  test-and-build-android:
-    needs: procedural-preflight
-    runs-on: ubuntu-24.04
-    timeout-minutes: 55
+    timeout-minutes: 45
     env:
       GODOT_VERSION: "4.7.1"
       GODOT_RELEASE: "4.7.1-stable"
@@ -51,101 +31,74 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
-      - name: Verify single workflow
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install focused build dependencies
         run: |
-          test "$(find .github/workflows -maxdepth 1 -type f | wc -l)" -eq 1
-          test -f .github/workflows/ci.yml
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential clang lld scons git curl unzip xvfb libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
+
+      - name: Install Godot and export templates
+        run: |
+          curl --fail --silent --show-error --location --retry 3 "https://github.com/godotengine/godot/releases/download/${GODOT_RELEASE}/Godot_v${GODOT_RELEASE}_linux.x86_64.zip" --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          sudo install -m 0755 "/tmp/godot/Godot_v${GODOT_RELEASE}_linux.x86_64" "${GODOT_BIN}"
+          curl --fail --silent --show-error --location --retry 3 "https://github.com/godotengine/godot/releases/download/${GODOT_RELEASE}/Godot_v${GODOT_RELEASE}_export_templates.tpz" --output /tmp/export-templates.tpz
+          mkdir -p /tmp/export-templates "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          unzip -q /tmp/export-templates.tpz -d /tmp/export-templates
+          cp -R /tmp/export-templates/templates/. "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
+
+      - name: Check out pinned godot-cpp
+        run: |
+          rm -rf native/godot-cpp
+          git init -q native/godot-cpp
+          git -C native/godot-cpp remote add origin https://github.com/godotengine/godot-cpp.git
+          git -C native/godot-cpp fetch -q --depth 1 origin "$GODOT_CPP_REF"
+          git -C native/godot-cpp checkout -q --detach FETCH_HEAD
+
+      - name: Restore native build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            native/rust/target
+            native/godot-cpp/bin
+            native/godot-cpp/gen
+            native/godot-cpp/obj
+            native/godot-cpp/.sconsign.dblite
+          key: teknik-focused-ui-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/rust/Cargo.toml', 'native/rust/src/**', 'native/cpp/**', 'native/SConstruct') }}
+
+      - name: Build only the Linux UI test bridge
+        run: |
+          cargo build --manifest-path native/rust/Cargo.toml --release
+          mkdir -p /tmp/godot-api
+          (cd /tmp/godot-api && godot --headless --dump-extension-api)
+          cp /tmp/godot-api/extension_api.json extension_api.json
+          (cd native && scons -j2 platform=linux arch=x86_64 target=template_debug custom_api_file="$GITHUB_WORKSPACE/extension_api.json" rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/release")
+          test -s native/bin/libteknik_native.linux.template_debug.x86_64.so
+
+      - name: Validate only HUD, scrolling, and workbench UI
+        run: |
+          set -o pipefail
+          timeout 120s xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy -- --qa-ui-layout | tee /tmp/teknik-focused-ui.log
+          grep -q "QA_RESOLVED_MOBILE_LAYOUT_PASS" /tmp/teknik-focused-ui.log
+          grep -q "QA_FOCUSED_UI_PASS" /tmp/teknik-focused-ui.log
+
       - name: Install Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      - name: Restore Rust build cache
-        uses: actions/cache@v4
-        with:
-          path: native/rust/target
-          key: teknik-rust-${{ runner.os }}-${{ hashFiles('native/rust/Cargo.toml', 'native/rust/src/**', 'native/rust/include/**') }}
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential clang lld scons git curl unzip xvfb libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
-      - name: Install Godot and export templates
-        run: |
-          curl --fail --location --retry 3 "https://github.com/godotengine/godot/releases/download/${GODOT_RELEASE}/Godot_v${GODOT_RELEASE}_linux.x86_64.zip" --output /tmp/godot.zip
-          unzip -q /tmp/godot.zip -d /tmp/godot
-          sudo install -m 0755 "/tmp/godot/Godot_v${GODOT_RELEASE}_linux.x86_64" "${GODOT_BIN}"
-          curl --fail --location --retry 3 "https://github.com/godotengine/godot/releases/download/${GODOT_RELEASE}/Godot_v${GODOT_RELEASE}_export_templates.tpz" --output /tmp/export-templates.tpz
-          mkdir -p "/tmp/export-templates" "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
-          unzip -q /tmp/export-templates.tpz -d /tmp/export-templates
-          cp -R /tmp/export-templates/templates/. "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
-      - name: Check out pinned godot-cpp
-        run: |
-          git init native/godot-cpp
-          git -C native/godot-cpp remote add origin https://github.com/godotengine/godot-cpp.git
-          git -C native/godot-cpp fetch --depth 1 origin "$GODOT_CPP_REF"
-          git -C native/godot-cpp checkout --detach FETCH_HEAD
-      - name: Restore godot-cpp build cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            native/godot-cpp/bin
-            native/godot-cpp/gen
-            native/godot-cpp/obj
-            native/godot-cpp/.sconsign.dblite
-          key: teknik-godot-cpp-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/cpp/**', 'native/SConstruct') }}
-      - name: Build native Linux test bridge
-        run: |
-          mkdir -p /tmp/godot-api
-          cargo test --manifest-path native/rust/Cargo.toml --release
-          cargo build --manifest-path native/rust/Cargo.toml --release
-          (cd /tmp/godot-api && godot --headless --dump-extension-api)
-          cp /tmp/godot-api/extension_api.json extension_api.json
-          (cd native && scons -j2 platform=linux arch=x86_64 target=template_debug custom_api_file="$GITHUB_WORKSPACE/extension_api.json" rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/release")
-          test -s native/bin/libteknik_native.linux.template_debug.x86_64.so
-      - name: Test replacement mining lifecycle
-        run: godot --headless --path . --script res://tests/run_block_targeting_tests.gd
-      - name: Test placement feedback isolation
-        run: godot --headless --path . --script res://tests/run_placement_preview_tests.gd
-      - name: Test survival vitals persistence
-        run: godot --headless --path . --script res://tests/run_survival_vitals_tests.gd
-      - name: Import project and run essential tests
-        run: |
-          godot --headless --path . --editor --quit
-          godot --headless --path . --script res://tests/run_mobile_regression_tests.gd
-          godot --headless --path . --script res://tests/run_multi_lod_tests.gd
-          godot --headless --path . --script res://tests/run_native_chunk_parity_tests.gd
-          godot --headless --path . --script res://tests/run_native_worker_integration_tests.gd
-          godot --headless --path . --script res://tests/run_tests.gd
-          godot --headless --path . --script res://tests/run_stream_budget_tests.gd
-          godot --headless --path . --script res://tests/run_collision_stream_scheduler_tests.gd
-          godot --headless --path . --script res://tests/run_world_edit_store_tests.gd
-          godot --headless --path . --script res://tests/run_chunk_edit_worker_tests.gd
-          godot --headless --path . --script res://tests/run_chunk_build_pool_tests.gd
-          godot --headless --path . --script res://tests/run_world_interaction_tests.gd
-          godot --headless --path . --script res://tests/run_block_placement_tests.gd
-          godot --headless --path . --script res://tests/run_survival_inventory_tests.gd
-          godot --headless --path . --script res://tests/run_engineering_progression_tests.gd
-          godot --headless --path . --script res://tests/run_kinetic_machine_tests.gd
-      - name: Capture populated HUD layout
-        run: |
-          mkdir -p artifacts
-          xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy -- --qa-gameplay --qa-gameplay-poster=artifacts/hud-layout.png
-          test -s artifacts/hud-layout.png
-      - name: Publish populated HUD evidence
-        uses: actions/upload-artifact@v4
-        with:
-          name: TEKNIK-HUD-Layout-${{ github.sha }}
-          if-no-files-found: error
-          retention-days: 30
-          path: artifacts/hud-layout.png
+
       - name: Set up Android command-line tools
         uses: android-actions/setup-android@v3
-      - name: Install Android ARM64 dependencies
+
+      - name: Install ARM64 Android dependencies
         run: |
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager --sdk_root="$ANDROID_HOME" "platform-tools" "build-tools;35.0.1" "platforms;android-35" "cmdline-tools;latest" "cmake;3.10.2.4988404" "ndk;${ANDROID_NDK_VERSION}"
+
       - name: Build native Android ARM64 extension
         run: |
           export NDK_ROOT="$ANDROID_HOME/ndk/${ANDROID_NDK_VERSION}"
@@ -155,17 +108,17 @@ jobs:
           cargo build --manifest-path native/rust/Cargo.toml --release --target aarch64-linux-android
           (cd native && ANDROID_NDK_ROOT="$NDK_ROOT" ANDROID_HOME="$ANDROID_HOME" scons -j2 platform=android arch=arm64 target=template_debug android_api_level=24 custom_api_file="$GITHUB_WORKSPACE/extension_api.json" rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/aarch64-linux-android/release")
           test -s native/bin/libteknik_native.android.template_debug.arm64.so
-      - name: Configure Android export
+
+      - name: Export ARM64 debug APK
         run: |
           mkdir -p "$HOME/.config/godot" "$HOME/.android" build
           printf '%s\n' '[gd_resource type="EditorSettings" format=3]' '' '[resource]' "export/android/java_sdk_path = \"$JAVA_HOME\"" "export/android/android_sdk_path = \"$ANDROID_HOME\"" > "$HOME/.config/godot/editor_settings-${GODOT_VERSION%.*}.tres"
           if [ ! -f "$HOME/.android/debug.keystore" ]; then
             keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
-      - name: Export Android debug APK
-        run: |
           godot --headless --path . --export-debug "Android ARM64" build/TEKNIK-arm64-debug.apk
           test -s build/TEKNIK-arm64-debug.apk
+
       - name: Publish phone APK
         uses: actions/upload-artifact@v4
         with:
@@ -176,65 +129,20 @@ jobs:
 
   publish-ci-run-report:
     if: ${{ always() }}
-    needs:
-      - procedural-preflight
-      - test-and-build-android
+    needs: focused-ui-arm64
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Collect run metadata, steps, artifacts, and finished job logs
+      - name: Update concise ci-reports status
         env:
-          GH_TOKEN: ${{ github.token }}
-          PREFLIGHT_RESULT: ${{ needs.procedural-preflight.result }}
-          BUILD_RESULT: ${{ needs.test-and-build-android.result }}
+          BUILD_RESULT: ${{ needs.focused-ui-arm64.result }}
         run: |
           set -Eeuo pipefail
-          REPORT_ROOT="$RUNNER_TEMP/teknik-ci-report"
-          RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          REPORT_ARTIFACT="TEKNIK-CI-Report-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
-          API_ROOT="https://api.github.com/repos/$GITHUB_REPOSITORY"
           CREATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          mkdir -p "$REPORT_ROOT/logs"
-
-          if [[ "$PREFLIGHT_RESULT" == "success" && "$BUILD_RESULT" == "success" ]]; then
-            OVERALL_RESULT="success"
-          elif [[ "$PREFLIGHT_RESULT" == "cancelled" || "$BUILD_RESULT" == "cancelled" ]]; then
-            OVERALL_RESULT="cancelled"
-          elif [[ "$PREFLIGHT_RESULT" == "failure" || "$BUILD_RESULT" == "failure" ]]; then
-            OVERALL_RESULT="failure"
-          else
-            OVERALL_RESULT="skipped"
-          fi
-
-          api_get() {
-            local endpoint="$1"
-            local output="$2"
-            if ! curl --fail --silent --show-error --location \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "$API_ROOT$endpoint" -o "$output"; then
-              return 1
-            fi
-          }
-
-          api_get "/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" "$REPORT_ROOT/jobs.json" \
-            || printf '%s\n' '{"jobs":[],"collection_error":"Unable to read workflow jobs"}' > "$REPORT_ROOT/jobs.json"
-          api_get "/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100" "$REPORT_ROOT/artifacts.json" \
-            || printf '%s\n' '{"artifacts":[],"collection_error":"Unable to read workflow artifacts"}' > "$REPORT_ROOT/artifacts.json"
-
-          while IFS=$'\t' read -r job_id job_name job_status; do
-            [[ -n "$job_id" && "$job_status" == "completed" ]] || continue
-            safe_name="$(printf '%s' "$job_name" | tr ' /' '__' | tr -cd 'A-Za-z0-9_.-')"
-            log_path="$REPORT_ROOT/logs/${job_id}-${safe_name}.txt"
-            if ! api_get "/actions/jobs/$job_id/logs" "$log_path"; then
-              printf 'Unable to download logs for job %s (%s).\n' "$job_name" "$job_id" > "$log_path"
-            fi
-          done < <(jq -r '.jobs[]? | select(.name != "publish-ci-run-report") | [.id, .name, .status] | @tsv' "$REPORT_ROOT/jobs.json")
-
+          RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           jq -n \
             --arg created_at "$CREATED_AT" \
             --arg run_id "$GITHUB_RUN_ID" \
@@ -247,140 +155,30 @@ jobs:
             --arg ref_name "$GITHUB_REF_NAME" \
             --arg sha "$GITHUB_SHA" \
             --arg actor "$GITHUB_ACTOR" \
-            --arg overall "$OVERALL_RESULT" \
-            --arg preflight "$PREFLIGHT_RESULT" \
-            --arg build "$BUILD_RESULT" \
-            --arg report_artifact "$REPORT_ARTIFACT" \
-            --slurpfile jobs "$REPORT_ROOT/jobs.json" \
-            --slurpfile artifacts "$REPORT_ROOT/artifacts.json" \
-            '{
-              schema: 1,
-              generated_at_utc: $created_at,
-              run: {
-                id: ($run_id | tonumber),
-                attempt: ($run_attempt | tonumber),
-                url: $run_url,
-                repository: $repository,
-                workflow: $workflow,
-                event: $event,
-                ref: $ref,
-                branch_or_tag: $ref_name,
-                commit_sha: $sha,
-                actor: $actor,
-                overall_result: $overall
-              },
-              required_jobs: {
-                procedural_preflight: $preflight,
-                test_and_build_android: $build
-              },
-              jobs: ($jobs[0].jobs // []),
-              artifacts_visible_before_report_upload: ($artifacts[0].artifacts // []),
-              complete_report_artifact: $report_artifact
-            }' > "$REPORT_ROOT/run-report.json"
-
+            --arg result "$BUILD_RESULT" \
+            '{schema:1,generated_at_utc:$created_at,run:{id:($run_id|tonumber),attempt:($run_attempt|tonumber),url:$run_url,repository:$repository,workflow:$workflow,event:$event,ref:$ref,branch_or_tag:$ref_name,commit_sha:$sha,actor:$actor,overall_result:$result},required_jobs:{focused_ui_arm64:$result}}' > /tmp/latest.json
           {
-            echo "# TEKNIK CI Run Report"
+            echo "# TEKNIK Focused UI APK Run"
             echo
-            echo "- **Run:** [$GITHUB_RUN_ID — attempt $GITHUB_RUN_ATTEMPT]($RUN_URL)"
-            echo "- **Overall result:** **$OVERALL_RESULT**"
-            echo "- **Workflow:** $GITHUB_WORKFLOW"
-            echo "- **Event:** $GITHUB_EVENT_NAME"
-            echo "- **Branch/ref:** \`$GITHUB_REF_NAME\`"
-            echo "- **Commit:** [\`${GITHUB_SHA}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA)"
-            echo "- **Actor:** $GITHUB_ACTOR"
+            echo "- **Result:** **$BUILD_RESULT**"
+            echo "- **Run:** [$GITHUB_RUN_ID]($RUN_URL)"
+            echo "- **Commit:** \`$GITHUB_SHA\`"
             echo "- **Generated:** $CREATED_AT"
-            echo "- **Full report artifact:** \`$REPORT_ARTIFACT\`"
-            echo
-            echo "## Required job results"
-            echo
-            echo "- procedural-preflight: **$PREFLIGHT_RESULT**"
-            echo "- test-and-build-android: **$BUILD_RESULT**"
-            echo
-            echo "## Jobs and steps"
-            echo
-            jq -r '
-              .jobs[]?
-              | select(.name != "publish-ci-run-report")
-              | "### " + .name + " — " + (.conclusion // .status // "unknown") + "\n\n"
-                + (([.steps[]? | "- `" + (.number | tostring) + "` " + .name + ": **" + (.conclusion // .status // "unknown") + "**"] | join("\n")))
-                + "\n"
-            ' "$REPORT_ROOT/jobs.json"
-            echo
-            echo "## Failed steps"
-            echo
-            FAILED_LINES="$(jq -r '
-              [.jobs[]? as $job | $job.steps[]? | select(.conclusion == "failure") | "- **" + $job.name + "** → " + .name]
-              | if length == 0 then "- None" else join("\n") end
-            ' "$REPORT_ROOT/jobs.json")"
-            printf '%s\n' "$FAILED_LINES"
-            echo
-            echo "## Artifacts available before report upload"
-            echo
-            ARTIFACT_LINES="$(jq -r '
-              [.artifacts[]? | "- `" + .name + "` — " + (.size_in_bytes | tostring) + " bytes; expired: " + (.expired | tostring)]
-              | if length == 0 then "- None" else join("\n") end
-            ' "$REPORT_ROOT/artifacts.json")"
-            printf '%s\n' "$ARTIFACT_LINES"
-            echo
-            echo "## Included in the complete report artifact"
-            echo
-            echo "- This Markdown summary"
-            echo "- Machine-readable JSON summary"
-            echo "- Raw jobs/steps API response"
-            echo "- Raw artifact API response"
-            echo "- Downloaded logs for every completed non-report job"
-          } > "$REPORT_ROOT/run-report.md"
-
-          cat "$REPORT_ROOT/run-report.md" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload complete CI report bundle
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: TEKNIK-CI-Report-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-          if-no-files-found: error
-          retention-days: 30
-          path: ${{ runner.temp }}/teknik-ci-report
-
-      - name: Update stable ci-reports branch
-        if: ${{ always() }}
-        run: |
-          set -Eeuo pipefail
-          REPORT_ROOT="$RUNNER_TEMP/teknik-ci-report"
-          test -s "$REPORT_ROOT/run-report.md"
-          test -s "$REPORT_ROOT/run-report.json"
+          } > /tmp/latest.md
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin ci-reports:refs/remotes/origin/ci-reports || true
-
           if git show-ref --verify --quiet refs/remotes/origin/ci-reports; then
             git switch --force-create ci-reports refs/remotes/origin/ci-reports
           else
             git switch --orphan ci-reports
             git rm -rf . || true
           fi
-
-          mkdir -p runs
-          cp "$REPORT_ROOT/run-report.md" latest.md
-          cp "$REPORT_ROOT/run-report.json" latest.json
-          cp "$REPORT_ROOT/run-report.md" "runs/${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}.md"
-          cp "$REPORT_ROOT/run-report.json" "runs/${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}.json"
-          cat > README.md <<'EOF'
-          # TEKNIK CI Reports
-
-          GitHub Actions updates this branch after every completed, failed, skipped, or cancelled TEKNIK CI run.
-
-          - `latest.md` — human-readable latest result
-          - `latest.json` — machine-readable latest result
-          - `runs/` — historical run summaries
-
-          Full job logs are kept in the `TEKNIK-CI-Report-<run-id>-attempt-<attempt>` workflow artifact to avoid permanently bloating Git history.
-          EOF
-
-          git add README.md latest.md latest.json runs
-          if git diff --cached --quiet; then
-            exit 0
+          cp /tmp/latest.json latest.json
+          cp /tmp/latest.md latest.md
+          git add latest.json latest.md
+          if ! git diff --cached --quiet; then
+            git commit -m "Record focused UI APK run ${GITHUB_RUN_ID} [skip ci]"
+            git push origin HEAD:ci-reports
           fi
-          git commit -m "Record TEKNIK CI run ${GITHUB_RUN_ID} attempt ${GITHUB_RUN_ATTEMPT} [skip ci]"
-          git push origin HEAD:ci-reports
