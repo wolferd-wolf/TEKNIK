@@ -1,20 +1,20 @@
 {
   "schema": 1,
-  "generated_at_utc": "2026-07-27T13:15:37Z",
+  "generated_at_utc": "2026-07-27T14:26:31Z",
   "run": {
-    "id": 30268321235,
+    "id": 30274473555,
     "attempt": 1,
-    "url": "https://github.com/wolferd-wolf/TEKNIK/actions/runs/30268321235",
+    "url": "https://github.com/wolferd-wolf/TEKNIK/actions/runs/30274473555",
     "repository": "wolferd-wolf/TEKNIK",
-    "workflow": "TEKNIK Textured Ore APK",
+    "workflow": "TEKNIK CC0 Texture Array APK",
     "event": "push",
-    "ref": "refs/heads/agent/grass-edge-hd-atlas",
-    "branch_or_tag": "agent/grass-edge-hd-atlas",
-    "commit_sha": "5d393195c6302c733ac8318585639ddb03d03279",
+    "ref": "refs/heads/agent/cc0-texture-array-distance-fade",
+    "branch_or_tag": "agent/cc0-texture-array-distance-fade",
+    "commit_sha": "37853db01c006154a3ae2431c2172cd704b114cb",
     "actor": "wolferd-wolf",
-    "overall_result": "success"
+    "overall_result": "cancelled"
   },
   "required_jobs": {
-    "phase_one_arm64": "success"
+    "phase_one_arm64": "cancelled"
   }
 }
