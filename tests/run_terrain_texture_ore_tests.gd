@@ -47,7 +47,7 @@ func _test_texture_assets() -> void:
 	_expect(manifest != null, "terrain layer provenance manifest exists")
 	if manifest != null:
 		var manifest_text: String = manifest.get_as_text()
-		_expect("OpenGameArt" in manifest_text, "manifest records internet source")
+		_expect("opengameart.org" in manifest_text, "manifest records internet source")
 		_expect("CC0-1.0" in manifest_text, "manifest records CC0 license")
 		_expect("8bf522a2ee3953c205620d1de13faaa1e12e2811d7afb25225f531db700f1c2f" in manifest_text, "manifest pins grass source")
 		_expect("8267f53518e6f47f33639bef5e8de86eb9a46830019f7c8371357e8aeb330993" in manifest_text, "manifest pins dirt source")
