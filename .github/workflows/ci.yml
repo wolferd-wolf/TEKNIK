@@ -1,7 +1,6 @@
-# Focused one-run pipeline for the industrial UI/workbench fix.
-# It intentionally skips unrelated terrain, mining, ecology, persistence,
-# screenshot-upload, and full regression stages.
-name: TEKNIK Focused UI APK
+# Focused cave-foundation pipeline. It validates deterministic cave generation
+# in both Godot and Rust, then publishes only the Android ARM64 APK.
+name: TEKNIK Cave Foundation APK
 
 on:
   push:
@@ -15,13 +14,15 @@ permissions:
   contents: write
 
 concurrency:
+  # Keep the previous focused group name so this cave run cancels any superseded
+  # UI-only build still running on the same branch.
   group: teknik-focused-ui-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  focused-ui-arm64:
+  cave-foundation-arm64:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 48
     env:
       GODOT_VERSION: "4.7.1"
       GODOT_RELEASE: "4.7.1-stable"
@@ -38,7 +39,7 @@ jobs:
       - name: Install focused build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential clang lld scons git curl unzip xvfb libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
+          sudo apt-get install -y -qq build-essential clang lld scons git curl unzip libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
 
       - name: Install Godot and export templates
         run: |
@@ -67,10 +68,12 @@ jobs:
             native/godot-cpp/gen
             native/godot-cpp/obj
             native/godot-cpp/.sconsign.dblite
-          key: teknik-focused-ui-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/rust/Cargo.toml', 'native/rust/src/**', 'native/cpp/**', 'native/SConstruct') }}
+          key: teknik-caves-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/rust/Cargo.toml', 'native/rust/src/**', 'native/cpp/**', 'native/SConstruct') }}
 
-      - name: Build only the Linux UI test bridge
+      - name: Test cave core and build Linux bridge
         run: |
+          set -o pipefail
+          cargo test --manifest-path native/rust/Cargo.toml --release | tee /tmp/teknik-rust-caves.log
           cargo build --manifest-path native/rust/Cargo.toml --release
           mkdir -p /tmp/godot-api
           (cd /tmp/godot-api && godot --headless --dump-extension-api)
@@ -78,20 +81,13 @@ jobs:
           (cd native && scons -j2 platform=linux arch=x86_64 target=template_debug custom_api_file="$GITHUB_WORKSPACE/extension_api.json" rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/release")
           test -s native/bin/libteknik_native.linux.template_debug.x86_64.so
 
-      - name: Register Godot script classes
-        run: |
-          godot --headless --path . --editor --quit
-          test -s .godot/global_script_class_cache.cfg
-          grep -q 'TeknikTouchSlider' .godot/global_script_class_cache.cfg
-          grep -q 'TeknikMiningDemoDirector' .godot/global_script_class_cache.cfg
-          grep -q 'TeknikSurvivalVitals' .godot/global_script_class_cache.cfg
-
-      - name: Validate only HUD, scrolling, and workbench UI
+      - name: Import project and validate cave parity
         run: |
           set -o pipefail
-          timeout 120s xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy -- --qa-ui-layout | tee /tmp/teknik-focused-ui.log
-          grep -q "QA_RESOLVED_MOBILE_LAYOUT_PASS" /tmp/teknik-focused-ui.log
-          grep -q "QA_FOCUSED_UI_PASS" /tmp/teknik-focused-ui.log
+          godot --headless --path . --editor --quit
+          test -s .godot/global_script_class_cache.cfg
+          timeout 180s godot --headless --path . --script res://tests/run_cave_generation_tests.gd | tee /tmp/teknik-cave-parity.log
+          grep -q "CAVE_GENERATION_TESTS_PASS" /tmp/teknik-cave-parity.log
 
       - name: Install Java 17
         uses: actions/setup-java@v4
@@ -127,17 +123,17 @@ jobs:
           godot --headless --path . --export-debug "Android ARM64" build/TEKNIK-arm64-debug.apk
           test -s build/TEKNIK-arm64-debug.apk
 
-      - name: Publish phone APK
+      - name: Publish cave phone APK
         uses: actions/upload-artifact@v4
         with:
-          name: TEKNIK-Android-ARM64-${{ github.sha }}
+          name: TEKNIK-Caves-Android-ARM64-${{ github.sha }}
           if-no-files-found: error
           retention-days: 30
           path: build/TEKNIK-arm64-debug.apk
 
   publish-ci-run-report:
     if: ${{ always() }}
-    needs: focused-ui-arm64
+    needs: cave-foundation-arm64
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -146,7 +142,7 @@ jobs:
 
       - name: Update concise ci-reports status
         env:
-          BUILD_RESULT: ${{ needs.focused-ui-arm64.result }}
+          BUILD_RESULT: ${{ needs.cave-foundation-arm64.result }}
         run: |
           set -Eeuo pipefail
           CREATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -164,9 +160,9 @@ jobs:
             --arg sha "$GITHUB_SHA" \
             --arg actor "$GITHUB_ACTOR" \
             --arg result "$BUILD_RESULT" \
-            '{schema:1,generated_at_utc:$created_at,run:{id:($run_id|tonumber),attempt:($run_attempt|tonumber),url:$run_url,repository:$repository,workflow:$workflow,event:$event,ref:$ref,branch_or_tag:$ref_name,commit_sha:$sha,actor:$actor,overall_result:$result},required_jobs:{focused_ui_arm64:$result}}' > /tmp/latest.json
+            '{schema:1,generated_at_utc:$created_at,run:{id:($run_id|tonumber),attempt:($run_attempt|tonumber),url:$run_url,repository:$repository,workflow:$workflow,event:$event,ref:$ref,branch_or_tag:$ref_name,commit_sha:$sha,actor:$actor,overall_result:$result},required_jobs:{cave_foundation_arm64:$result}}' > /tmp/latest.json
           {
-            echo "# TEKNIK Focused UI APK Run"
+            echo "# TEKNIK Cave Foundation APK Run"
             echo
             echo "- **Result:** **$BUILD_RESULT**"
             echo "- **Run:** [$GITHUB_RUN_ID]($RUN_URL)"
@@ -187,6 +183,6 @@ jobs:
           cp /tmp/latest.md latest.md
           git add latest.json latest.md
           if ! git diff --cached --quiet; then
-            git commit -m "Record focused UI APK run ${GITHUB_RUN_ID} [skip ci]"
+            git commit -m "Record cave foundation run ${GITHUB_RUN_ID} [skip ci]"
             git push origin HEAD:ci-reports
           fi
