@@ -14,8 +14,6 @@ permissions:
   contents: write
 
 concurrency:
-  # Keep the previous focused group name so this cave run cancels any superseded
-  # UI-only build still running on the same branch.
   group: teknik-focused-ui-${{ github.ref }}
   cancel-in-progress: true
 
@@ -35,6 +33,23 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Test Rust cave core first
+        run: |
+          set +e
+          cargo test --manifest-path native/rust/Cargo.toml --release > /tmp/teknik-rust-caves.log 2>&1
+          STATUS=$?
+          cat /tmp/teknik-rust-caves.log
+          exit "$STATUS"
+
+      - name: Publish Rust cave failure log
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: TEKNIK-Rust-Cave-Failure-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 7
+          path: /tmp/teknik-rust-caves.log
 
       - name: Install focused build dependencies
         run: |
@@ -70,10 +85,8 @@ jobs:
             native/godot-cpp/.sconsign.dblite
           key: teknik-caves-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/rust/Cargo.toml', 'native/rust/src/**', 'native/cpp/**', 'native/SConstruct') }}
 
-      - name: Test cave core and build Linux bridge
+      - name: Build Linux native bridge
         run: |
-          set -o pipefail
-          cargo test --manifest-path native/rust/Cargo.toml --release | tee /tmp/teknik-rust-caves.log
           cargo build --manifest-path native/rust/Cargo.toml --release
           mkdir -p /tmp/godot-api
           (cd /tmp/godot-api && godot --headless --dump-extension-api)
