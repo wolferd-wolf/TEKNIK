@@ -5,6 +5,9 @@ const SCHEMA: int = 1
 const UNLOCK_HAND_CRAFTING: StringName = &"hand_crafting"
 const UNLOCK_WORKBENCH: StringName = &"workbench"
 const UNLOCK_STONE_PROCESSING: StringName = &"stone_processing"
+const UNLOCK_ANDESITE_ENGINEERING: StringName = &"andesite_engineering"
+const UNLOCK_BRASS_ENGINEERING: StringName = &"brass_engineering"
+const UNLOCK_PRECISION_ENGINEERING: StringName = &"precision_engineering"
 const UNLOCK_KINETIC_STARTER: StringName = &"kinetic_starter"
 
 var _unlocks: Dictionary = {UNLOCK_HAND_CRAFTING: true}

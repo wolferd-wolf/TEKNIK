@@ -2,8 +2,10 @@ class_name TeknikStackInventory
 extends RefCounted
 
 const ItemRegistry = preload("res://src/survival/item_registry.gd")
-const SCHEMA: int = 1
-const SLOT_COUNT: int = 12
+const SCHEMA: int = 2
+const LEGACY_SCHEMA: int = 1
+const SLOT_COUNT: int = 36
+const LEGACY_SLOT_COUNT: int = 12
 
 var _slots: Array[Dictionary] = []
 
@@ -82,10 +84,17 @@ func encode() -> Dictionary:
 
 
 func decode(payload: Dictionary) -> bool:
-	if int(payload.get("schema", -1)) != SCHEMA:
-		return false
+	var schema: int = int(payload.get("schema", -1))
+	var expected_slots: int = 0
+	match schema:
+		LEGACY_SCHEMA:
+			expected_slots = LEGACY_SLOT_COUNT
+		SCHEMA:
+			expected_slots = SLOT_COUNT
+		_:
+			return false
 	var incoming: Variant = payload.get("slots", [])
-	if not incoming is Array or (incoming as Array).size() != SLOT_COUNT:
+	if not incoming is Array or (incoming as Array).size() != expected_slots:
 		return false
 	var restored: Array[Dictionary] = []
 	for value: Variant in incoming:
@@ -96,8 +105,13 @@ func decode(payload: Dictionary) -> bool:
 		var amount: int = int(source.get("count", 0))
 		if amount < 0:
 			return false
-		if amount > 0 and (not ItemRegistry.is_registered(item_id) or amount > ItemRegistry.max_stack(item_id)):
+		if amount > 0 and (
+			not ItemRegistry.is_registered(item_id)
+			or amount > ItemRegistry.max_stack(item_id)
+		):
 			return false
 		restored.append({"item": item_id if amount > 0 else &"", "count": amount})
+	while restored.size() < SLOT_COUNT:
+		restored.append({"item": &"", "count": 0})
 	_slots = restored
 	return true

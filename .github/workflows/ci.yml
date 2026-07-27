@@ -1,6 +1,6 @@
-# Focused cave-foundation pipeline. It validates deterministic cave generation
-# in both Godot and Rust, then publishes only the Android ARM64 APK.
-name: TEKNIK Cave Foundation APK
+# Focused Phase 1 engineering pipeline. It preserves the verified cave foundation,
+# validates the complete item/recipe/save catalog, then publishes the ARM64 APK.
+name: TEKNIK Phase 1 Engineering APK
 
 on:
   push:
@@ -14,11 +14,11 @@ permissions:
   contents: write
 
 concurrency:
-  group: teknik-focused-ui-${{ github.ref }}
+  group: teknik-phase-one-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  cave-foundation-arm64:
+  phase-one-arm64:
     runs-on: ubuntu-24.04
     timeout-minutes: 48
     env:
@@ -34,22 +34,8 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Test Rust cave core first
-        run: |
-          set +e
-          cargo test --manifest-path native/rust/Cargo.toml --release > /tmp/teknik-rust-caves.log 2>&1
-          STATUS=$?
-          cat /tmp/teknik-rust-caves.log
-          exit "$STATUS"
-
-      - name: Publish Rust cave failure log
-        if: ${{ failure() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: TEKNIK-Rust-Cave-Failure-${{ github.sha }}
-          if-no-files-found: error
-          retention-days: 7
-          path: /tmp/teknik-rust-caves.log
+      - name: Verify cave-native core first
+        run: cargo test --manifest-path native/rust/Cargo.toml --release
 
       - name: Install focused build dependencies
         run: |
@@ -83,7 +69,7 @@ jobs:
             native/godot-cpp/gen
             native/godot-cpp/obj
             native/godot-cpp/.sconsign.dblite
-          key: teknik-caves-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/rust/Cargo.toml', 'native/rust/src/**', 'native/cpp/**', 'native/SConstruct') }}
+          key: teknik-phase-one-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/rust/Cargo.toml', 'native/rust/src/**', 'native/cpp/**', 'native/SConstruct') }}
 
       - name: Build Linux native bridge
         run: |
@@ -94,13 +80,17 @@ jobs:
           (cd native && scons -j2 platform=linux arch=x86_64 target=template_debug custom_api_file="$GITHUB_WORKSPACE/extension_api.json" rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/release")
           test -s native/bin/libteknik_native.linux.template_debug.x86_64.so
 
-      - name: Import project and validate cave parity
+      - name: Import project and validate caves plus Phase 1
         run: |
           set -o pipefail
           godot --headless --path . --editor --quit
           test -s .godot/global_script_class_cache.cfg
           timeout 180s godot --headless --path . --script res://tests/run_cave_generation_tests.gd | tee /tmp/teknik-cave-parity.log
           grep -q "CAVE_GENERATION_TESTS_PASS" /tmp/teknik-cave-parity.log
+          timeout 120s godot --headless --path . --script res://tests/run_phase_one_item_tests.gd | tee /tmp/teknik-phase-one.log
+          grep -q "PHASE_ONE_ITEM_TESTS_PASS" /tmp/teknik-phase-one.log
+          timeout 120s godot --headless --path . --script res://tests/run_survival_inventory_tests.gd | tee /tmp/teknik-inventory.log
+          grep -q "SURVIVAL_INVENTORY_TEST_RESULT PASS" /tmp/teknik-inventory.log
 
       - name: Install Java 17
         uses: actions/setup-java@v4
@@ -136,17 +126,17 @@ jobs:
           godot --headless --path . --export-debug "Android ARM64" build/TEKNIK-arm64-debug.apk
           test -s build/TEKNIK-arm64-debug.apk
 
-      - name: Publish cave phone APK
+      - name: Publish Phase 1 phone APK
         uses: actions/upload-artifact@v4
         with:
-          name: TEKNIK-Caves-Android-ARM64-${{ github.sha }}
+          name: TEKNIK-Phase1-Android-ARM64-${{ github.sha }}
           if-no-files-found: error
           retention-days: 30
           path: build/TEKNIK-arm64-debug.apk
 
   publish-ci-run-report:
     if: ${{ always() }}
-    needs: cave-foundation-arm64
+    needs: phase-one-arm64
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -155,7 +145,7 @@ jobs:
 
       - name: Update concise ci-reports status
         env:
-          BUILD_RESULT: ${{ needs.cave-foundation-arm64.result }}
+          BUILD_RESULT: ${{ needs.phase-one-arm64.result }}
         run: |
           set -Eeuo pipefail
           CREATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -173,16 +163,15 @@ jobs:
             --arg sha "$GITHUB_SHA" \
             --arg actor "$GITHUB_ACTOR" \
             --arg result "$BUILD_RESULT" \
-            '{schema:1,generated_at_utc:$created_at,run:{id:($run_id|tonumber),attempt:($run_attempt|tonumber),url:$run_url,repository:$repository,workflow:$workflow,event:$event,ref:$ref,branch_or_tag:$ref_name,commit_sha:$sha,actor:$actor,overall_result:$result},required_jobs:{cave_foundation_arm64:$result}}' > /tmp/latest.json
+            '{schema:1,generated_at_utc:$created_at,run:{id:($run_id|tonumber),attempt:($run_attempt|tonumber),url:$run_url,repository:$repository,workflow:$workflow,event:$event,ref:$ref,branch_or_tag:$ref_name,commit_sha:$sha,actor:$actor,overall_result:$result},required_jobs:{phase_one_arm64:$result}}' > /tmp/latest.json
           {
-            echo "# TEKNIK Cave Foundation APK Run"
+            echo "# TEKNIK Phase 1 Engineering APK Run"
             echo
             echo "- **Result:** **$BUILD_RESULT**"
             echo "- **Run:** [$GITHUB_RUN_ID]($RUN_URL)"
             echo "- **Commit:** \`$GITHUB_SHA\`"
             echo "- **Generated:** $CREATED_AT"
           } > /tmp/latest.md
-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin ci-reports:refs/remotes/origin/ci-reports || true
@@ -196,6 +185,6 @@ jobs:
           cp /tmp/latest.md latest.md
           git add latest.json latest.md
           if ! git diff --cached --quiet; then
-            git commit -m "Record cave foundation run ${GITHUB_RUN_ID} [skip ci]"
+            git commit -m "Record Phase 1 run ${GITHUB_RUN_ID} [skip ci]"
             git push origin HEAD:ci-reports
           fi
