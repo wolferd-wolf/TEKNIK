@@ -12,6 +12,9 @@ const HOTBAR_PANEL_SIZE := Vector2(612.0, 77.0)
 const HOTBAR_SLOT_SIZE := Vector2(72.0, 58.0)
 const HOTBAR_BOTTOM_MARGIN: float = 8.0
 const INVENTORY_WINDOW_SIZE := Vector2(620.0, 460.0)
+const MATERIAL_CACHE_LIMIT: int = 8192
+
+var _material_cache: Dictionary = {}
 
 var _inventory: TeknikStackInventory = StackInventory.new()
 var _hotbar_selection: TeknikHotbarSelectionState = HotbarSelectionState.new()
@@ -171,8 +174,15 @@ func _select_hotbar_item(item_id: StringName) -> bool:
 
 
 func _current_material(voxel: Vector3i) -> int:
+	if _world_edits.has_override(voxel):
+		return _world_edits.get_override(voxel, VoxelChunk.AIR)
+	if _material_cache.has(voxel):
+		return _material_cache[voxel]
 	var generated: int = TerrainGenerator.voxel_at(WORLD_SEED, voxel)
-	return _world_edits.get_override(voxel, generated)
+	if _material_cache.size() >= MATERIAL_CACHE_LIMIT:
+		_material_cache.clear()
+	_material_cache[voxel] = generated
+	return generated
 
 
 func _mark_inventory_changed(event_name: String, item_id: StringName, delta: int) -> void:
