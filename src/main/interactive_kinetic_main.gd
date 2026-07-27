@@ -162,7 +162,7 @@ func _interaction_prompt(machine_type: StringName) -> String:
 		KineticMachineState.TYPE_SHAFT:
 			return "Shaft: connected at %.0f RPM" % float(_machines.network_report().get("source_rpm", 0.0))
 		_:
-			return "Workbench: engineering recipes available"
+			return "INTERACT: open workbench blueprints"
 
 
 func _interact_with_target() -> bool:
@@ -171,6 +171,10 @@ func _interact_with_target() -> bool:
 		_set_machine_message("No machine in range")
 		return false
 	var machine_type := StringName(_target_machine.get_meta("teknik_machine_type", &""))
+	return _interact_with_machine_type(machine_type)
+
+
+func _interact_with_machine_type(machine_type: StringName) -> bool:
 	match machine_type:
 		KineticMachineState.TYPE_CRANK:
 			var report: Dictionary = _machines.crank(KineticMachineState.PROCESS_TURNS)
@@ -197,7 +201,13 @@ func _interact_with_target() -> bool:
 			_set_machine_message("Shaft connection is healthy")
 			return true
 		_:
-			_set_machine_message("Workbench ready")
+			# A workbench is an interactive station. The old branch only printed
+			# "Workbench ready", so touch input succeeded without opening anything.
+			_open_engineering_station()
+			var industrial_ui := get_node_or_null("IndustrialBlueprintUI")
+			if industrial_ui != null and industrial_ui.has_method("open_workbench"):
+				industrial_ui.call("open_workbench")
+			_set_machine_message("Workbench blueprints opened")
 			return true
 
 
@@ -213,11 +223,25 @@ func qa_save_edits_now() -> void:
 		push_error("QA_KINETIC_INTERACTION machine targeting or animation setup failed")
 		get_tree().quit(1)
 		return
+
+	var workbench_opened: bool = _interact_with_machine_type(StringName(KineticMachineState.TYPE_WORKBENCH))
+	var industrial_ui := get_node_or_null("IndustrialBlueprintUI")
+	var workbench_page_visible: bool = (
+		industrial_ui != null
+		and industrial_ui.has_method("is_crafting_page_visible")
+		and bool(industrial_ui.call("is_crafting_page_visible"))
+	)
+	if not workbench_opened or not workbench_page_visible:
+		push_error("QA_KINETIC_INTERACTION workbench did not open the crafting workspace")
+		get_tree().quit(1)
+		return
+
 	print(
 		"QA_KINETIC_INTERACTION_PASS targetable=", annotated,
 		" rotating_visuals=", _rotating_visuals.size(),
 		" range=", MACHINE_INTERACTION_DISTANCE,
 		" legacy_actions_hidden=", not _assemble_button.visible and not _load_button.visible and not _crank_button.visible and not _collect_button.visible,
 		" idle_prompt_hidden=", not _interaction_hint.visible,
-		" idle_machine_panel_hidden=", not _machine_hud_panel.visible
+		" idle_machine_panel_hidden=", not _machine_hud_panel.visible,
+		" workbench_workspace_visible=", workbench_page_visible
 	)

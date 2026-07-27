@@ -1,10 +1,12 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
-; kinetic_capture_shipping_main.gd extends kinetic_machine_main.gd and adds
-; QA-only evidence freezing. The inherited production stack remains:
-; kinetic machines -> survival progression -> multi-LOD terrain -> incremental
-; collision -> movement-aware caching -> chunk-local vegetation.
+; kinetic_capture_shipping_main.gd remains the active production and QA tip.
+; The UI controller is a child presentation layer, not another gameplay main.
 [ext_resource type="Script" path="res://src/main/kinetic_capture_shipping_main.gd" id="1_main"]
+[ext_resource type="Script" path="res://src/ui/industrial_blueprint_ui.gd" id="2_ui"]
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_main")
+
+[node name="IndustrialBlueprintUI" type="Node" parent="."]
+script = ExtResource("2_ui")
