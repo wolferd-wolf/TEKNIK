@@ -17,7 +17,12 @@ static func recolor_report(report: Dictionary, world_origin: Vector3i, seed: int
 	if packed_faces.size() / PackedFaceCodec.WORDS_PER_FACE * 4 == vertices.size():
 		_recolor_packed(arrays, packed_faces, world_origin, seed)
 	else:
-		_recolor_legacy(arrays, world_origin, seed)
+		_recolor_legacy(
+			arrays,
+			world_origin,
+			seed,
+			report.get("material_sampler", Callable())
+		)
 	report["arrays"] = arrays
 
 
@@ -111,15 +116,16 @@ static func _recolor_packed(
 			sample.z,
 			surface_y
 		)
-		var material: int = _visible_material(
-			int(decoded.material),
+		var voxel_material: int = int(decoded.material)
+		var visible_material: int = _visible_material(
+			voxel_material,
 			direction == PackedFaceCodec.FACE_POS_Y,
 			weights,
 			surface_y
 		)
-		var base: Color = BiomePalette.color(
+		var base: Color = _material_color(
 			seed,
-			material,
+			visible_material,
 			sample,
 			surface_y,
 			cache
@@ -129,13 +135,18 @@ static func _recolor_packed(
 			base.r * face_light * variation,
 			base.g * face_light * variation,
 			base.b * face_light * variation,
-			1.0
+			float(voxel_material) / 255.0
 		)
 		_write_flat_face(colors, base_vertex, face_color)
 	arrays[Mesh.ARRAY_COLOR] = colors
 
 
-static func _recolor_legacy(arrays: Array, world_origin: Vector3i, seed: int) -> void:
+static func _recolor_legacy(
+	arrays: Array,
+	world_origin: Vector3i,
+	seed: int,
+	material_sampler: Callable = Callable()
+) -> void:
 	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
 	var old_colors: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
@@ -166,15 +177,25 @@ static func _recolor_legacy(arrays: Array, world_origin: Vector3i, seed: int) ->
 			sample.z,
 			surface_y
 		)
-		var material: int = _visible_material(
-			_infer_face_material(old_colors, base_vertex),
+		var voxel_material: int = 0
+		if material_sampler.is_valid():
+			var world_center: Vector3 = Vector3(world_origin) + local_center
+			var inside: Vector3 = world_center - normal * 0.01
+			var owning_voxel := Vector3i(floori(inside.x), floori(inside.y), floori(inside.z))
+			voxel_material = int(material_sampler.call(owning_voxel))
+		if voxel_material <= 0:
+			voxel_material = _encoded_material(old_colors, base_vertex)
+		if voxel_material == 0:
+			voxel_material = _infer_face_material(old_colors, base_vertex)
+		var visible_material: int = _visible_material(
+			voxel_material,
 			normal.y > 0.5,
 			weights,
 			surface_y
 		)
-		var base: Color = BiomePalette.color(
+		var base: Color = _material_color(
 			seed,
-			material,
+			visible_material,
 			sample,
 			surface_y,
 			cache
@@ -184,10 +205,36 @@ static func _recolor_legacy(arrays: Array, world_origin: Vector3i, seed: int) ->
 			base.r * face_light * variation,
 			base.g * face_light * variation,
 			base.b * face_light * variation,
-			1.0
+			float(voxel_material) / 255.0
 		)
 		_write_flat_face(colors, base_vertex, face_color)
 	arrays[Mesh.ARRAY_COLOR] = colors
+
+
+static func _material_color(
+	seed: int,
+	material: int,
+	world_position: Vector3i,
+	surface_y: float,
+	cache: Dictionary
+) -> Color:
+	match material:
+		TerrainGenerator.ZINC_ORE:
+			return Color("9aa6a2")
+		TerrainGenerator.COPPER_ORE:
+			return Color("b76845")
+		TerrainGenerator.IRON_ORE:
+			return Color("9a6f58")
+		TerrainGenerator.GOLD_ORE:
+			return Color("d2a438")
+		_:
+			return BiomePalette.color(
+				seed,
+				material,
+				world_position,
+				surface_y,
+				cache
+			)
 
 
 static func _visible_material(
@@ -196,6 +243,8 @@ static func _visible_material(
 	weights: Vector4,
 	surface_y: float
 ) -> int:
+	if voxel_material >= TerrainGenerator.ZINC_ORE:
+		return voxel_material
 	if is_upward_face:
 		return voxel_material
 	if voxel_material == TerrainGenerator.GRASS:
@@ -236,6 +285,18 @@ static func _write_flat_face(
 	colors[base_vertex + 3] = face_color
 
 
+static func _encoded_material(colors: PackedColorArray, base_vertex: int) -> int:
+	var encoded: int = roundi(
+		(
+			colors[base_vertex].a
+			+ colors[base_vertex + 1].a
+			+ colors[base_vertex + 2].a
+			+ colors[base_vertex + 3].a
+		) * 0.25 * 255.0
+	)
+	return encoded if encoded >= TerrainGenerator.STONE and encoded <= TerrainGenerator.GOLD_ORE else 0
+
+
 static func _infer_face_material(old_colors: PackedColorArray, base_vertex: int) -> int:
 	var average := Color(
 		(
@@ -269,12 +330,20 @@ static func _infer_material(value: Color) -> int:
 		Vector3(0.376, 0.271, 0.212) / 0.286,
 		Vector3(0.647, 0.549, 0.361) / 0.519,
 		Vector3(0.365, 0.408, 0.396) / 0.390,
+		Vector3(0.604, 0.651, 0.635) / 0.630,
+		Vector3(0.718, 0.408, 0.271) / 0.466,
+		Vector3(0.604, 0.435, 0.345) / 0.461,
+		Vector3(0.824, 0.643, 0.220) / 0.562,
 	]
 	var materials: Array[int] = [
 		TerrainGenerator.GRASS,
 		TerrainGenerator.SOIL,
 		TerrainGenerator.SAND,
 		TerrainGenerator.STONE,
+		TerrainGenerator.ZINC_ORE,
+		TerrainGenerator.COPPER_ORE,
+		TerrainGenerator.IRON_ORE,
+		TerrainGenerator.GOLD_ORE,
 	]
 	var best_material: int = TerrainGenerator.STONE
 	var best_distance: float = INF

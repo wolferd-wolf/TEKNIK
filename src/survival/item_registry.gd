@@ -6,6 +6,10 @@ const STONE: int = 1
 const SOIL: int = 2
 const GRASS: int = 3
 const SAND: int = 4
+const ZINC_ORE: int = 5
+const COPPER_ORE: int = 6
+const IRON_ORE: int = 7
+const GOLD_ORE: int = 8
 
 const ITEM_STONE: StringName = &"stone"
 const ITEM_SOIL: StringName = &"soil"
@@ -18,7 +22,8 @@ const ITEM_STONE_SHAFT: StringName = &"stone_shaft"
 const ITEM_HAND_CRANK: StringName = &"hand_crank"
 const ITEM_STONE_CRUSHER: StringName = &"stone_crusher"
 
-# Original TEKNIK feedstock used until dedicated ore processing is added.
+# Original TEKNIK feedstock. Underground ore voxels now yield these directly;
+# they remain non-placeable so the stable eight-slot hotbar does not expand.
 const ITEM_ZINC_CONCENTRATE: StringName = &"zinc_concentrate"
 const ITEM_COPPER_CONCENTRATE: StringName = &"copper_concentrate"
 const ITEM_IRON_CONCENTRATE: StringName = &"iron_concentrate"
@@ -86,10 +91,10 @@ const ITEM_DATA = {
 	ITEM_STONE_SHAFT: ["Stone Shaft", "Primitive Components", "An early rotational connector.", "767b78", 32],
 	ITEM_HAND_CRANK: ["Hand Crank", "Kinetic Components", "A manual rotational power source.", "957047", 32],
 	ITEM_STONE_CRUSHER: ["Stone Crusher", "Machines", "The starter material-processing machine.", "676b69", 32],
-	ITEM_ZINC_CONCENTRATE: ["Zinc Concentrate", "Mineral Feedstock", "A zinc-rich fraction separated from crushed rock.", "87948f", 64],
-	ITEM_COPPER_CONCENTRATE: ["Copper Concentrate", "Mineral Feedstock", "A copper-rich fraction separated from crushed rock.", "9a5f48", 64],
-	ITEM_IRON_CONCENTRATE: ["Iron Concentrate", "Mineral Feedstock", "A dense iron-bearing mineral fraction.", "7b817e", 64],
-	ITEM_GOLD_CONCENTRATE: ["Gold Concentrate", "Mineral Feedstock", "A small heavy-mineral fraction containing gold.", "b38c34", 64],
+	ITEM_ZINC_CONCENTRATE: ["Zinc Concentrate", "Mineral Feedstock", "A zinc-rich fraction mined from underground ore.", "87948f", 64],
+	ITEM_COPPER_CONCENTRATE: ["Copper Concentrate", "Mineral Feedstock", "A copper-rich fraction mined from underground ore.", "9a5f48", 64],
+	ITEM_IRON_CONCENTRATE: ["Iron Concentrate", "Mineral Feedstock", "A dense iron-bearing mineral fraction mined underground.", "7b817e", 64],
+	ITEM_GOLD_CONCENTRATE: ["Gold Concentrate", "Mineral Feedstock", "A small heavy-mineral fraction mined from deep ore.", "b38c34", 64],
 	ITEM_COPPER_INGOT: ["Copper Ingot", "Metals", "Refined conductive copper.", "b76845", 64],
 	ITEM_IRON_INGOT: ["Iron Ingot", "Metals", "Refined structural iron.", "aeb3b0", 64],
 	ITEM_GOLD_INGOT: ["Gold Ingot", "Metals", "Refined soft conductive gold.", "d8ad38", 64],
@@ -121,6 +126,10 @@ static func item_for_material(material: int) -> StringName:
 		SOIL: return ITEM_SOIL
 		GRASS: return ITEM_GRASS
 		SAND: return ITEM_SAND
+		ZINC_ORE: return ITEM_ZINC_CONCENTRATE
+		COPPER_ORE: return ITEM_COPPER_CONCENTRATE
+		IRON_ORE: return ITEM_IRON_CONCENTRATE
+		GOLD_ORE: return ITEM_GOLD_CONCENTRATE
 		_: return &""
 
 

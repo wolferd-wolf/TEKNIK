@@ -1,6 +1,7 @@
-# Focused Phase 1 engineering pipeline. It preserves the verified cave foundation,
-# validates the complete item/recipe/save catalog and mobile UI, then publishes ARM64.
-name: TEKNIK Phase 1 Engineering APK
+# Focused Phase 1 + original terrain texture pipeline. It preserves the verified
+# cave foundation, validates ores, atlas rendering, items, save data and mobile UI,
+# then publishes one ARM64 APK.
+name: TEKNIK Textured Ore APK
 
 on:
   push:
@@ -14,7 +15,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: teknik-phase-one-${{ github.ref }}
+  group: teknik-textured-ore-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -34,7 +35,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Verify cave-native core first
+      - name: Verify cave and ore native core first
         run: cargo test --manifest-path native/rust/Cargo.toml --release
 
       - name: Install focused build dependencies
@@ -69,7 +70,7 @@ jobs:
             native/godot-cpp/gen
             native/godot-cpp/obj
             native/godot-cpp/.sconsign.dblite
-          key: teknik-phase-one-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/rust/Cargo.toml', 'native/rust/src/**', 'native/cpp/**', 'native/SConstruct') }}
+          key: teknik-textured-ore-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/rust/Cargo.toml', 'native/rust/src/**', 'native/cpp/**', 'native/SConstruct') }}
 
       - name: Build Linux native bridge
         run: |
@@ -80,13 +81,15 @@ jobs:
           (cd native && scons -j2 platform=linux arch=x86_64 target=template_debug custom_api_file="$GITHUB_WORKSPACE/extension_api.json" rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/release")
           test -s native/bin/libteknik_native.linux.template_debug.x86_64.so
 
-      - name: Import project and validate Phase 1 contracts
+      - name: Import project and validate terrain, Phase 1 and save contracts
         run: |
           set -o pipefail
           godot --headless --path . --editor --quit
           test -s .godot/global_script_class_cache.cfg
           timeout 180s godot --headless --path . --script res://tests/run_cave_generation_tests.gd | tee /tmp/teknik-cave-parity.log
           grep -q "CAVE_GENERATION_TESTS_PASS" /tmp/teknik-cave-parity.log
+          timeout 120s godot --headless --path . --script res://tests/run_terrain_texture_ore_tests.gd | tee /tmp/teknik-texture-ore.log
+          grep -q "TERRAIN_TEXTURE_ORE_TESTS_PASS" /tmp/teknik-texture-ore.log
           timeout 120s godot --headless --path . --script res://tests/run_phase_one_item_tests.gd | tee /tmp/teknik-phase-one.log
           grep -q "PHASE_ONE_ITEM_TESTS_PASS" /tmp/teknik-phase-one.log
           timeout 120s godot --headless --path . --script res://tests/run_survival_inventory_tests.gd | tee /tmp/teknik-inventory.log
@@ -137,10 +140,10 @@ jobs:
           godot --headless --path . --export-debug "Android ARM64" build/TEKNIK-arm64-debug.apk
           test -s build/TEKNIK-arm64-debug.apk
 
-      - name: Publish Phase 1 phone APK
+      - name: Publish textured ore phone APK
         uses: actions/upload-artifact@v4
         with:
-          name: TEKNIK-Phase1-Android-ARM64-${{ github.sha }}
+          name: TEKNIK-Textured-Ores-Android-ARM64-${{ github.sha }}
           if-no-files-found: error
           retention-days: 30
           path: build/TEKNIK-arm64-debug.apk
@@ -170,7 +173,7 @@ jobs:
             --arg actor "$GITHUB_ACTOR" --arg result "$BUILD_RESULT" \
             '{schema:1,generated_at_utc:$created_at,run:{id:($run_id|tonumber),attempt:($run_attempt|tonumber),url:$run_url,repository:$repository,workflow:$workflow,event:$event,ref:$ref,branch_or_tag:$ref_name,commit_sha:$sha,actor:$actor,overall_result:$result},required_jobs:{phase_one_arm64:$result}}' > /tmp/latest.json
           {
-            echo "# TEKNIK Phase 1 Engineering APK Run"
+            echo "# TEKNIK Textured Ore APK Run"
             echo
             echo "- **Result:** **$BUILD_RESULT**"
             echo "- **Run:** [$GITHUB_RUN_ID]($RUN_URL)"
@@ -190,6 +193,6 @@ jobs:
           cp /tmp/latest.md latest.md
           git add latest.json latest.md
           if ! git diff --cached --quiet; then
-            git commit -m "Record Phase 1 run ${GITHUB_RUN_ID} [skip ci]"
+            git commit -m "Record textured ore run ${GITHUB_RUN_ID} [skip ci]"
             git push origin HEAD:ci-reports
           fi

@@ -2,6 +2,7 @@ extends RefCounted
 class_name TeknikGreedyMesher
 
 const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
+const TerrainTextureMaterial = preload("res://src/world/terrain_texture_material.gd")
 const PADDED_SIZE: int = VoxelChunk.SIZE + 2
 const PADDED_VOLUME: int = PADDED_SIZE * PADDED_SIZE * PADDED_SIZE
 
@@ -161,11 +162,7 @@ static func mesh_from_arrays(arrays: Array) -> ArrayMesh:
 	if vertices.is_empty():
 		return mesh
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	var material := StandardMaterial3D.new()
-	material.vertex_color_use_as_albedo = true
-	material.roughness = 0.94
-	material.cull_mode = BaseMaterial3D.CULL_BACK
-	mesh.surface_set_material(0, material)
+	mesh.surface_set_material(0, TerrainTextureMaterial.shared_material())
 	return mesh
 
 
@@ -195,15 +192,16 @@ static func _append_quad(
 		face_light = 0.76
 	else:
 		face_light = 0.94
+	var material_id: int = absi(face)
 	for local_position: Vector3 in local_positions:
 		var sample_position := Vector3i(
 			roundi(float(world_origin.x) + local_position.x),
 			roundi(float(world_origin.y) + local_position.y),
 			roundi(float(world_origin.z) + local_position.z)
 		)
-		var color: Color = _material_color(absi(face))
+		var color: Color = _material_color(material_id)
 		if color_sampler.is_valid():
-			var sampled_color: Variant = color_sampler.call(absi(face), sample_position)
+			var sampled_color: Variant = color_sampler.call(material_id, sample_position)
 			if sampled_color is Color:
 				color = sampled_color
 		var variation: float = 0.96 + fposmod(
@@ -211,7 +209,12 @@ static func _append_quad(
 			1.0
 		) * 0.07
 		normals.append(normal)
-		colors.append(Color(color.r * face_light * variation, color.g * face_light * variation, color.b * face_light * variation, 1.0))
+		colors.append(Color(
+			color.r * face_light * variation,
+			color.g * face_light * variation,
+			color.b * face_light * variation,
+			float(material_id) / 255.0
+		))
 	if face > 0:
 		indices.append_array(PackedInt32Array([base, base + 3, base + 2, base, base + 2, base + 1]))
 	else:
@@ -228,5 +231,13 @@ static func _material_color(material: int) -> Color:
 			return Color("4e723f")
 		4:
 			return Color("9a895f")
+		5:
+			return Color("9aa6a2")
+		6:
+			return Color("b76845")
+		7:
+			return Color("9a6f58")
+		8:
+			return Color("d2a438")
 		_:
 			return Color("8c7e69")

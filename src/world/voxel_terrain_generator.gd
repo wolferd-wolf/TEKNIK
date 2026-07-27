@@ -5,11 +5,16 @@ const WorldSeed = preload("res://src/world/world_seed.gd")
 const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
 const TerrainDomainWarp = preload("res://src/world/terrain_domain_warp.gd")
 const CaveDensity = preload("res://src/world/cave_density.gd")
+const OreField = preload("res://src/world/ore_field.gd")
 
 const STONE: int = 1
 const SOIL: int = 2
 const GRASS: int = 3
 const SAND: int = 4
+const ZINC_ORE: int = 5
+const COPPER_ORE: int = 6
+const IRON_ORE: int = 7
+const GOLD_ORE: int = 8
 const WATER_LEVEL: int = 7
 const MAX_SURFACE_HEIGHT: int = 29
 const COLUMN_BORDER: int = 1
@@ -117,6 +122,14 @@ static func surface_color(seed: int, material: int, world_position: Vector3i) ->
 			base_stone = base_stone.lerp(Color("879087"), strata_strength * 0.16)
 			base_stone = base_stone.lerp(Color("555b58"), surface.z * 0.30)
 			return base_stone.lightened(maxf(0.0, micro_tint * 0.32)).darkened(maxf(0.0, -micro_tint * 0.32))
+		ZINC_ORE:
+			return Color("9aa6a2")
+		COPPER_ORE:
+			return Color("b76845")
+		IRON_ORE:
+			return Color("9a6f58")
+		GOLD_ORE:
+			return Color("d2a438")
 		_:
 			return Color("8c7e69")
 
@@ -137,6 +150,14 @@ static func fast_surface_color(seed: int, material: int, world_position: Vector3
 		STONE:
 			var strata: float = fposmod(float(world_position.y) + micro * 2.0, 5.0) / 5.0
 			color = Color("5d6865").lerp(Color("7c8580"), elevation * 0.36 + absf(strata - 0.5) * 0.12)
+		ZINC_ORE:
+			color = Color("9aa6a2")
+		COPPER_ORE:
+			color = Color("b76845")
+		IRON_ORE:
+			color = Color("9a6f58")
+		GOLD_ORE:
+			color = Color("d2a438")
 		_:
 			color = Color("8c7e69")
 	return color.lightened(maxf(0.0, tint)).darkened(maxf(0.0, -tint))
@@ -276,6 +297,8 @@ static func material_at(seed: int, world_position: Vector3i, column: Vector2i) -
 		return material
 	if CaveDensity.should_carve(seed, world_position, column.x):
 		return VoxelChunk.AIR
+	if material == STONE:
+		return OreField.material_for_stone(seed, world_position, column.x)
 	return material
 
 

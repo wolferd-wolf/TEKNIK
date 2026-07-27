@@ -3,10 +3,15 @@ use crate::EditMap;
 #[path = "../terrain_base.rs"]
 mod base;
 mod cave_density;
+mod ore_field;
 
 pub use base::{
     fast_surface_color, AIR, GRASS, PADDED_SIZE, PADDED_VOLUME, SIZE, STONE, VOLUME,
 };
+pub const ZINC_ORE: u8 = 5;
+pub const COPPER_ORE: u8 = 6;
+pub const IRON_ORE: u8 = 7;
+pub const GOLD_ORE: u8 = 8;
 use base::Column;
 
 #[inline]
@@ -22,8 +27,14 @@ fn padded_index(x: usize, y: usize, z: usize) -> usize {
 #[inline]
 fn generated_material(seed: i64, world: (i32, i32, i32), column: Column) -> u8 {
     let material = base::material_from_column(world.1, column);
-    if material != AIR && cave_density::should_carve(seed, world, column.height) {
-        AIR
+    if material == AIR {
+        return AIR;
+    }
+    if cave_density::should_carve(seed, world, column.height) {
+        return AIR;
+    }
+    if material == STONE {
+        ore_field::material_for_stone(seed, world, column.height)
     } else {
         material
     }
@@ -67,6 +78,8 @@ pub fn generate_chunk(
                 );
                 if cave_density::should_carve(seed, world, surface_height) {
                     voxels[index] = AIR;
+                } else if voxels[index] == STONE {
+                    voxels[index] = ore_field::material_for_stone(seed, world, surface_height);
                 }
             }
         }
@@ -234,7 +247,7 @@ mod tests {
     }
 
     #[test]
-    fn padded_side_samples_match_neighbor_caves() {
+    fn padded_side_samples_match_neighbor_caves_and_ores() {
         let edits = EditMap::new();
         let (center, _) = generate_chunk(73_421, (0, 0, 0), &edits);
         let (right, _) = generate_chunk(73_421, (1, 0, 0), &edits);

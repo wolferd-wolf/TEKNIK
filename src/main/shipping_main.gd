@@ -213,6 +213,9 @@ func _build_initial_chunk(coordinate: Vector3i) -> void:
 	))
 	terrain.set_meta("native_backend", true)
 	terrain.set_meta("native_core_version", _native_core_version)
+	# Preserve the compact material stream until the biome/texture pass recolors
+	# the newly created mesh. It is removed immediately after that pass.
+	terrain.set_meta("packed_faces", report.get("packed_faces", PackedInt32Array()))
 	add_child(terrain)
 	_terrain_nodes[coordinate] = terrain
 	_chunk_stream.mark_loaded(coordinate)
