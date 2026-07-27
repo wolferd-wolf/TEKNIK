@@ -1,6 +1,7 @@
 extends SceneTree
 
 const TerrainGenerator = preload("res://src/world/voxel_terrain_generator.gd")
+const TerrainTextureMaterial = preload("res://src/world/terrain_texture_material.gd")
 const OreField = preload("res://src/world/ore_field.gd")
 const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
 const GreedyMesher = preload("res://src/world/greedy_mesher.gd")
@@ -13,14 +14,16 @@ var _failures: int = 0
 func _init() -> void:
 	_test_texture_assets()
 	_test_material_encoding_and_shared_shader()
+	_test_filtering_contracts()
 	_test_ore_distribution_and_depth_rules()
 	_test_ore_drops_without_hotbar_expansion()
 	if _failures == 0:
 		print(
-			"TERRAIN_TEXTURE_ORE_TESTS_PASS atlas=256x128",
-			" logical_texels=16x16",
-			" variants=4",
-			" materials=8",
+			"TERRAIN_TEXTURE_ORE_TESTS_PASS texture_array_layers=9",
+			" layer_size=128",
+			" source=OpenGameArt-CC0",
+			" mipmaps=runtime",
+			" distance_fade=24-88",
 			" grass_faces=top_side_soil_bottom",
 			" ore_drops=concentrates",
 			" hotbar_slots=", ItemRegistry.placeable_items().size()
@@ -32,13 +35,27 @@ func _init() -> void:
 
 
 func _test_texture_assets() -> void:
-	var atlas := load("res://assets/textures/terrain_atlas.png") as Texture2D
-	_expect(atlas != null, "terrain atlas loads")
-	if atlas != null:
-		_expect(atlas.get_width() == 256, "atlas width is eight 32-pixel tiles")
-		_expect(atlas.get_height() == 128, "atlas height is four 32-pixel rows")
-	var shader := load("res://assets/textures/terrain_atlas.gdshader") as Shader
-	_expect(shader != null, "terrain atlas shader loads")
+	_expect(TerrainTextureMaterial.LAYER_PATHS.size() == 9, "terrain array declares nine layers")
+	for path: String in TerrainTextureMaterial.LAYER_PATHS:
+		var texture := load(path) as Texture2D
+		_expect(texture != null, "terrain layer loads: %s" % path)
+		if texture != null:
+			_expect(texture.get_width() == 128, "terrain layer width is 128: %s" % path)
+			_expect(texture.get_height() == 128, "terrain layer height is 128: %s" % path)
+	var manifest := FileAccess.open("res://assets/textures/terrain_layers/manifest.json", FileAccess.READ)
+	_expect(manifest != null, "terrain layer provenance manifest exists")
+	if manifest != null:
+		var manifest_text: String = manifest.get_as_text()
+		_expect("OpenGameArt" in manifest_text, "manifest records internet source")
+		_expect("CC0-1.0" in manifest_text, "manifest records CC0 license")
+	var shader := load("res://assets/textures/terrain_texture_array.gdshader") as Shader
+	_expect(shader != null, "terrain texture-array shader loads")
+	if shader != null:
+		_expect("sampler2DArray" in shader.code, "shader uses separate texture-array layers")
+		_expect("filter_nearest_mipmap_anisotropic" in shader.code, "shader uses anisotropic mip filtering")
+		_expect("CAMERA_POSITION_WORLD" in shader.code, "shader fades detail by camera distance")
+		_expect("local_uv.y = 1.0 - local_uv.y" in shader.code, "side faces put grass at physical top")
+		_expect("block_hash" not in shader.code, "per-block random variants are removed")
 
 
 func _test_material_encoding_and_shared_shader() -> void:
@@ -76,13 +93,29 @@ func _test_material_encoding_and_shared_shader() -> void:
 		var shader_material := mesh.surface_get_material(0) as ShaderMaterial
 		_expect(shader_material != null, "terrain surface uses shared shader material")
 		if shader_material != null:
-			var atlas_parameter: Variant = shader_material.get_shader_parameter("terrain_atlas")
-			var atlas_grid_parameter: Variant = shader_material.get_shader_parameter("atlas_grid")
-			_expect(atlas_parameter != null, "shader receives atlas texture")
-			_expect(
-				atlas_grid_parameter == Vector2(8.0, 4.0),
-				"shader uses the 8x4 atlas layout"
-			)
+			var layer_parameter: Variant = shader_material.get_shader_parameter("terrain_layers")
+			_expect(layer_parameter is Texture2DArray, "shader receives Texture2DArray")
+			if layer_parameter is Texture2DArray:
+				var layer_array := layer_parameter as Texture2DArray
+				_expect(layer_array.get_layers() == 9, "texture array contains nine independent layers")
+				_expect(layer_array.get_width() == 128, "texture array width is 128")
+				_expect(layer_array.get_height() == 128, "texture array height is 128")
+				_expect(layer_array.has_mipmaps(), "texture array has independent mip chains")
+
+
+func _test_filtering_contracts() -> void:
+	_expect(
+		int(ProjectSettings.get_setting("rendering/textures/default_filters/anisotropic_filtering_level", -1)) == 2,
+		"mobile anisotropic filtering is fixed at 4x"
+	)
+	_expect(
+		is_equal_approx(float(ProjectSettings.get_setting("rendering/textures/default_filters/texture_mipmap_bias", 99.0)), 0.0),
+		"mipmap bias stays neutral to avoid grain"
+	)
+	_expect(
+		not bool(ProjectSettings.get_setting("rendering/textures/default_filters/use_nearest_mipmap_filter", true)),
+		"mipmap levels blend instead of popping"
+	)
 
 
 func _test_ore_distribution_and_depth_rules() -> void:

@@ -1,7 +1,7 @@
-# Focused Phase 1 + original terrain texture pipeline. It preserves the verified
-# cave foundation, validates ores, atlas rendering, items, save data and mobile UI,
-# then publishes one ARM64 APK.
-name: TEKNIK Textured Ore APK
+# Focused Phase 1 + CC0 texture-array pipeline. It preserves the verified cave
+# foundation, validates independent mip chains, distance filtering, ores, items,
+# save data and mobile UI, then publishes one ARM64 APK.
+name: TEKNIK CC0 Texture Array APK
 
 on:
   push:
@@ -15,7 +15,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: teknik-textured-ore-${{ github.ref }}
+  group: teknik-cc0-texture-array-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -41,7 +41,20 @@ jobs:
       - name: Install focused build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential clang lld scons git curl unzip xvfb libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
+          sudo apt-get install -y -qq build-essential clang lld scons git curl unzip xvfb python3-pil libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
+
+      - name: Build or verify CC0 terrain texture layers
+        run: |
+          set -o pipefail
+          python3 tools/build_cc0_terrain_layers.py |& tee /tmp/teknik-texture-build.log
+          python3 tools/build_cc0_terrain_layers.py --verify |& tee -a /tmp/teknik-texture-build.log
+          if [ -n "$(git status --porcelain -- assets/textures/terrain_layers)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add assets/textures/terrain_layers
+            git commit -m "Generate CC0 terrain texture layers [skip ci]"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
 
       - name: Install Godot and export templates
         run: |
@@ -70,7 +83,7 @@ jobs:
             native/godot-cpp/gen
             native/godot-cpp/obj
             native/godot-cpp/.sconsign.dblite
-          key: teknik-textured-ore-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/rust/Cargo.toml', 'native/rust/src/**', 'native/cpp/**', 'native/SConstruct') }}
+          key: teknik-cc0-texture-array-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/rust/Cargo.toml', 'native/rust/src/**', 'native/cpp/**', 'native/SConstruct', 'tools/build_cc0_terrain_layers.py', 'assets/textures/terrain_layers/**') }}
 
       - name: Build Linux native bridge
         run: |
@@ -103,7 +116,7 @@ jobs:
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4
         with:
-          name: TEKNIK-Texture-Failure-Logs-${{ github.sha }}
+          name: TEKNIK-TextureArray-Failure-Logs-${{ github.sha }}
           if-no-files-found: error
           retention-days: 7
           path: /tmp/teknik-*.log
@@ -149,10 +162,10 @@ jobs:
           godot --headless --path . --export-debug "Android ARM64" build/TEKNIK-arm64-debug.apk
           test -s build/TEKNIK-arm64-debug.apk
 
-      - name: Publish textured ore phone APK
+      - name: Publish CC0 texture-array phone APK
         uses: actions/upload-artifact@v4
         with:
-          name: TEKNIK-Textured-Ores-Android-ARM64-${{ github.sha }}
+          name: TEKNIK-CC0-TextureArray-Android-ARM64-${{ github.sha }}
           if-no-files-found: error
           retention-days: 30
           path: build/TEKNIK-arm64-debug.apk
@@ -182,7 +195,7 @@ jobs:
             --arg actor "$GITHUB_ACTOR" --arg result "$BUILD_RESULT" \
             '{schema:1,generated_at_utc:$created_at,run:{id:($run_id|tonumber),attempt:($run_attempt|tonumber),url:$run_url,repository:$repository,workflow:$workflow,event:$event,ref:$ref,branch_or_tag:$ref_name,commit_sha:$sha,actor:$actor,overall_result:$result},required_jobs:{phase_one_arm64:$result}}' > /tmp/latest.json
           {
-            echo "# TEKNIK Textured Ore APK Run"
+            echo "# TEKNIK CC0 Texture Array APK Run"
             echo
             echo "- **Result:** **$BUILD_RESULT**"
             echo "- **Run:** [$GITHUB_RUN_ID]($RUN_URL)"
@@ -202,6 +215,6 @@ jobs:
           cp /tmp/latest.md latest.md
           git add latest.json latest.md
           if ! git diff --cached --quiet; then
-            git commit -m "Record textured ore run ${GITHUB_RUN_ID} [skip ci]"
+            git commit -m "Record CC0 texture-array run ${GITHUB_RUN_ID} [skip ci]"
             git push origin HEAD:ci-reports
           fi
