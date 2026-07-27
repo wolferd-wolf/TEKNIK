@@ -14,10 +14,17 @@ CC0 permits use, modification, redistribution and commercial distribution withou
 an attribution requirement. This document remains in the repository as provenance.
 No Minecraft artwork or resource-pack files are included.
 
+The generator pins the exact downloaded source bytes and stops rather than silently
+building from a changed remote file:
+
+- grass SHA-256: `8bf522a2ee3953c205620d1de13faaa1e12e2811d7afb25225f531db700f1c2f`
+- dirt SHA-256: `8267f53518e6f47f33639bef5e8de86eb9a46830019f7c8371357e8aeb330993`
+- stone SHA-256: `a2f1876a25c2084cedaf47f7a3ce080095412149431f10b420d1145a581e4aa1`
+
 ## Derived layers
 
-`tools/build_cc0_terrain_layers.py` downloads the three CC0 source images on the
-first CI build and produces nine deterministic 128x128 layers:
+`tools/build_cc0_terrain_layers.py` downloads the three pinned CC0 source images
+when regeneration is required and produces nine deterministic 128x128 layers:
 
 1. grass top;
 2. grass side;
