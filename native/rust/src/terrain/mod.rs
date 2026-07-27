@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::EditMap;
 
 #[path = "../terrain_base.rs"]
@@ -14,6 +16,8 @@ pub const IRON_ORE: u8 = 7;
 pub const GOLD_ORE: u8 = 8;
 use base::Column;
 
+type CaveMaskCache = HashMap<(i32, i32, i32), Vec<u8>>;
+
 #[inline]
 fn voxel_index(x: usize, y: usize, z: usize) -> usize {
     x + SIZE * (z + SIZE * y)
@@ -24,22 +28,6 @@ fn padded_index(x: usize, y: usize, z: usize) -> usize {
     x + PADDED_SIZE * (z + PADDED_SIZE * y)
 }
 
-#[inline]
-fn generated_material(seed: i64, world: (i32, i32, i32), column: Column) -> u8 {
-    let material = base::material_from_column(world.1, column);
-    if material == AIR {
-        return AIR;
-    }
-    if cave_density::should_carve(seed, world, column.height) {
-        return AIR;
-    }
-    if material == STONE {
-        ore_field::material_for_stone(seed, world, column.height)
-    } else {
-        material
-    }
-}
-
 pub fn generate_chunk(
     seed: i64,
     coordinate: (i32, i32, i32),
@@ -47,6 +35,7 @@ pub fn generate_chunk(
 ) -> (Vec<u8>, u32) {
     let empty_edits = EditMap::new();
     let (mut voxels, _) = base::generate_chunk(seed, coordinate, &empty_edits);
+    let cave_mask = cave_density::build_chunk_mask(seed, coordinate);
     let world_origin = (
         coordinate.0 * SIZE as i32,
         coordinate.1 * SIZE as i32,
@@ -76,7 +65,7 @@ pub fn generate_chunk(
                     world_origin.1 + y as i32,
                     world_origin.2 + z as i32,
                 );
-                if cave_density::should_carve(seed, world, surface_height) {
+                if cave_density::mask_carves(&cave_mask, index, world.1, surface_height) {
                     voxels[index] = AIR;
                 } else if voxels[index] == STONE {
                     voxels[index] = ore_field::material_for_stone(seed, world, surface_height);
@@ -124,6 +113,7 @@ fn sample_world_voxel(
     world: (i32, i32, i32),
     current_y: i32,
     edits: &EditMap,
+    cave_masks: &mut CaveMaskCache,
 ) -> u8 {
     if world.1 < current_y * SIZE as i32 {
         return STONE;
@@ -137,8 +127,19 @@ fn sample_world_voxel(
     let local_x = world.0 - chunk_x * SIZE as i32;
     let local_y = world.1 - current_y * SIZE as i32;
     let local_z = world.2 - chunk_z * SIZE as i32;
-    let column = base::sample_column(seed, world.0, world.2);
-    let generated = generated_material(seed, world, column);
+    let index = voxel_index(local_x as usize, local_y as usize, local_z as usize);
+    let column: Column = base::sample_column(seed, world.0, world.2);
+    let mut generated = base::material_from_column(world.1, column);
+    if generated != AIR {
+        let cave_mask = cave_masks
+            .entry(coordinate)
+            .or_insert_with(|| cave_density::build_chunk_mask(seed, coordinate));
+        if cave_density::mask_carves(cave_mask, index, world.1, column.height) {
+            generated = AIR;
+        } else if generated == STONE {
+            generated = ore_field::material_for_stone(seed, world, column.height);
+        }
+    }
     edit_override(
         edits,
         coordinate,
@@ -156,6 +157,7 @@ pub fn build_padded(
     edits: &EditMap,
 ) -> (Vec<u8>, u32) {
     let mut padded = vec![AIR; PADDED_VOLUME];
+    let mut cave_masks = CaveMaskCache::new();
     for y in 0..SIZE {
         for z in 0..SIZE {
             let chunk_row = SIZE * (z + SIZE * y);
@@ -177,6 +179,7 @@ pub fn build_padded(
                 (world_origin.0 - 1, world_origin.1 + y as i32, world_origin.2 + z as i32),
                 coordinate.1,
                 edits,
+                &mut cave_masks,
             );
             padded[padded_index(SIZE + 1, y + 1, z + 1)] = sample_world_voxel(
                 seed,
@@ -187,6 +190,7 @@ pub fn build_padded(
                 ),
                 coordinate.1,
                 edits,
+                &mut cave_masks,
             );
         }
     }
@@ -203,6 +207,7 @@ pub fn build_padded(
                 (world_origin.0 + x as i32, world_origin.1 + y as i32, world_origin.2 - 1),
                 coordinate.1,
                 edits,
+                &mut cave_masks,
             );
             padded[padded_index(x + 1, y + 1, SIZE + 1)] = sample_world_voxel(
                 seed,
@@ -213,6 +218,7 @@ pub fn build_padded(
                 ),
                 coordinate.1,
                 edits,
+                &mut cave_masks,
             );
         }
     }
