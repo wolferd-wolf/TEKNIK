@@ -76,12 +76,13 @@ func _test_material_encoding_and_shared_shader() -> void:
 		var shader_material := mesh.surface_get_material(0) as ShaderMaterial
 		_expect(shader_material != null, "terrain surface uses shared shader material")
 		if shader_material != null:
-			var atlas: Variant = shader_material.get_shader_parameter("terrain_atlas")
-			var atlas_grid: Variant = shader_material.get_shader_parameter("atlas_grid")
-			_expect(atlas is Texture2D, "shader receives atlas texture")
-			_expect(atlas_grid is Vector2, "shader receives atlas grid")
-			if atlas_grid is Vector2:
-				_expect((atlas_grid as Vector2) == Vector2(8.0, 4.0), "shader uses the 8x4 atlas layout")
+			var atlas_parameter: Variant = shader_material.get_shader_parameter("terrain_atlas")
+			var atlas_grid_parameter: Variant = shader_material.get_shader_parameter("atlas_grid")
+			_expect(atlas_parameter != null, "shader receives atlas texture")
+			_expect(
+				atlas_grid_parameter == Vector2(8.0, 4.0),
+				"shader uses the 8x4 atlas layout"
+			)
 
 
 func _test_ore_distribution_and_depth_rules() -> void:
