@@ -4,8 +4,10 @@ use crate::EditMap;
 mod base;
 mod cave_density;
 
-pub use base::{fast_surface_color, AIR, PADDED_SIZE, SIZE, STONE, VOLUME};
-use base::{Column, PADDED_VOLUME};
+pub use base::{
+    fast_surface_color, AIR, GRASS, PADDED_SIZE, PADDED_VOLUME, SIZE, STONE, VOLUME,
+};
+use base::Column;
 
 #[inline]
 fn voxel_index(x: usize, y: usize, z: usize) -> usize {
