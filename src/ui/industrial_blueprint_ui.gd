@@ -1,13 +1,14 @@
 class_name TeknikIndustrialBlueprintUI
 extends Node
 
-# A presentation controller attached to the active gameplay scene. It reuses the
-# existing inventory, recipe and machine systems instead of creating a second UI
-# or duplicating gameplay state.
+# Presentation controller attached to the active gameplay scene. It reuses the
+# existing inventory, recipe and machine systems instead of duplicating state.
 const WINDOW_POSITION := Vector2(24.0, 78.0)
 const WINDOW_SIZE := Vector2(872.0, 560.0)
 const PAGE_SIZE := Vector2(820.0, 390.0)
-const WORKBENCH_TYPE: StringName = &"workbench"
+const INVENTORY_TITLE := "TEKNIK FIELD TERMINAL // INVENTORY"
+const CRAFTING_TITLE := "FIELD CRAFTING // PORTABLE BLUEPRINTS"
+const WORKBENCH_TITLE := "STONE WORKBENCH // ENGINEERING BLUEPRINTS"
 
 const INK := Color(0.025, 0.047, 0.065, 0.98)
 const PLATE := Color(0.055, 0.094, 0.122, 0.98)
@@ -31,9 +32,10 @@ var _inventory_open_button: Button
 var _settings_button: Button
 var _open_crafting_button: Button
 var _back_to_inventory_button: Button
+var _workspace_title: Label
 var _installed: bool = false
 var _crafting_visible: bool = false
-var _recipe_child_count: int = -1
+var _recipe_generation_signature: String = ""
 
 
 func _ready() -> void:
@@ -44,9 +46,12 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	if not _installed or _recipe_list == null:
 		return
-	var child_count: int = _recipe_list.get_child_count()
-	if child_count != _recipe_child_count:
-		_recipe_child_count = child_count
+	var signature_parts := PackedStringArray()
+	for child: Node in _recipe_list.get_children():
+		signature_parts.append(str(child.get_instance_id()))
+	var signature: String = ",".join(signature_parts)
+	if signature != _recipe_generation_signature:
+		_recipe_generation_signature = signature
 		_style_recipe_list()
 
 
@@ -102,11 +107,11 @@ func _configure_workspace() -> void:
 	if content == null:
 		return
 	content.add_theme_constant_override("separation", 8)
-	var title := content.get_child(0) as Label if content.get_child_count() > 0 else null
-	if title != null:
-		title.text = "TEKNIK FIELD TERMINAL // INVENTORY"
-		title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-		title.add_theme_font_size_override("font_size", 23)
+	_workspace_title = content.get_child(0) as Label if content.get_child_count() > 0 else null
+	if _workspace_title != null:
+		_workspace_title.text = INVENTORY_TITLE
+		_workspace_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		_workspace_title.add_theme_font_size_override("font_size", 23)
 	var close_button := content.get_node_or_null("CloseInventory") as Button
 	if close_button != null:
 		close_button.text = "CLOSE TERMINAL"
@@ -153,7 +158,9 @@ func _configure_inventory_page() -> void:
 			row.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 			row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			row.add_theme_font_size_override("font_size", 16)
-			row.add_theme_stylebox_override("normal", _panel_style(PLATE_LIGHT, BLUEPRINT, 1, 6, 8.0))
+			row.add_theme_color_override("font_color", PAPER)
+			row.add_theme_color_override("font_outline_color", INK)
+			row.add_theme_constant_override("outline_size", 3)
 
 	_open_crafting_button = Button.new()
 	_open_crafting_button.name = "OpenCraftingBlueprints"
@@ -277,6 +284,8 @@ func _sync_inventory_open() -> void:
 
 func show_inventory() -> void:
 	_crafting_visible = false
+	if _workspace_title != null:
+		_workspace_title.text = INVENTORY_TITLE
 	if _items_panel != null:
 		_items_panel.visible = true
 	if _crafting_panel != null:
@@ -285,6 +294,8 @@ func show_inventory() -> void:
 
 func show_crafting() -> void:
 	_crafting_visible = true
+	if _workspace_title != null:
+		_workspace_title.text = CRAFTING_TITLE
 	if _inventory_window != null and not _inventory_window.visible:
 		_inventory_window.visible = true
 		if _world.has_method("_set_modal_controls"):
@@ -302,10 +313,8 @@ func show_crafting() -> void:
 
 func open_workbench() -> void:
 	show_crafting()
-	var content := _inventory_window.get_child(0) as VBoxContainer if _inventory_window != null else null
-	var title := content.get_child(0) as Label if content != null and content.get_child_count() > 0 else null
-	if title != null:
-		title.text = "STONE WORKBENCH // ENGINEERING BLUEPRINTS"
+	if _workspace_title != null:
+		_workspace_title.text = WORKBENCH_TITLE
 
 
 func is_crafting_page_visible() -> bool:
@@ -350,7 +359,9 @@ func _apply_theme_recursive(root: Node) -> void:
 			progress.add_theme_stylebox_override("background", _panel_style(INK, BLUEPRINT, 1, 2, 1.0))
 		var scroll_bar := child as ScrollBar
 		if scroll_bar != null:
-			scroll_bar.custom_minimum_size.x = 18.0
+			var minimum_size: Vector2 = scroll_bar.custom_minimum_size
+			minimum_size.x = 18.0
+			scroll_bar.custom_minimum_size = minimum_size
 			scroll_bar.add_theme_stylebox_override("scroll", _panel_style(INK, BLUEPRINT, 1, 2, 1.0))
 			scroll_bar.add_theme_stylebox_override("grabber", _panel_style(BRASS, BRASS_BRIGHT, 1, 2, 1.0))
 		_apply_theme_recursive(child)
@@ -421,7 +432,7 @@ func _validate_after_layout() -> void:
 		"QA_INDUSTRIAL_UI_PASS inventory_scroll=", true,
 		" crafting_scroll=", true,
 		" crafting_button=", true,
-		" workbench_page=", true,
+		" workbench_route_available=", has_method("open_workbench"),
 		" voxel_item_grid=", true,
 		" rect=", rect
 	)
