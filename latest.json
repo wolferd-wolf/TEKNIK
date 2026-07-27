@@ -1,20 +1,20 @@
 {
   "schema": 1,
-  "generated_at_utc": "2026-07-27T17:22:04Z",
+  "generated_at_utc": "2026-07-27T17:22:57Z",
   "run": {
-    "id": 30288864356,
+    "id": 30288927780,
     "attempt": 1,
-    "url": "https://github.com/wolferd-wolf/TEKNIK/actions/runs/30288864356",
+    "url": "https://github.com/wolferd-wolf/TEKNIK/actions/runs/30288927780",
     "repository": "wolferd-wolf/TEKNIK",
     "workflow": "TEKNIK CC0 Texture Array APK",
     "event": "push",
     "ref": "refs/heads/agent/devilsworkshop-texture-pack",
     "branch_or_tag": "agent/devilsworkshop-texture-pack",
-    "commit_sha": "2f3320f2b3d6157ebe4c6696a0ff5a82a9cde512",
+    "commit_sha": "bde8cbc35f4f316c7eed978e60880777c12c3d51",
     "actor": "wolferd-wolf",
-    "overall_result": "failure"
+    "overall_result": "cancelled"
   },
   "required_jobs": {
-    "phase_one_arm64": "failure"
+    "phase_one_arm64": "cancelled"
   }
 }
