@@ -3,7 +3,7 @@ extends RefCounted
 
 const TERRAIN_SHADER: Shader = preload("res://assets/textures/terrain_texture_array.gdshader")
 const LAYER_SIZE: int = 128
-const LAYER_PATHS: PackedStringArray = PackedStringArray([
+const LAYER_PATHS: Array[String] = [
 	"res://assets/textures/terrain_layers/grass_top.png",
 	"res://assets/textures/terrain_layers/grass_side.png",
 	"res://assets/textures/terrain_layers/dirt.png",
@@ -13,7 +13,7 @@ const LAYER_PATHS: PackedStringArray = PackedStringArray([
 	"res://assets/textures/terrain_layers/copper_ore.png",
 	"res://assets/textures/terrain_layers/iron_ore.png",
 	"res://assets/textures/terrain_layers/gold_ore.png",
-])
+]
 
 static var _shared_material: ShaderMaterial
 static var _terrain_layers: Texture2DArray
