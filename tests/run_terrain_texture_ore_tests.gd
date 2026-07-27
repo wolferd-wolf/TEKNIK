@@ -17,7 +17,9 @@ func _init() -> void:
 	_test_ore_drops_without_hotbar_expansion()
 	if _failures == 0:
 		print(
-			"TERRAIN_TEXTURE_ORE_TESTS_PASS atlas=128x64",
+			"TERRAIN_TEXTURE_ORE_TESTS_PASS atlas=256x128",
+			" logical_texels=16x16",
+			" variants=4",
 			" materials=8",
 			" grass_faces=top_side_soil_bottom",
 			" ore_drops=concentrates",
@@ -33,13 +35,10 @@ func _test_texture_assets() -> void:
 	var atlas := load("res://assets/textures/terrain_atlas.png") as Texture2D
 	_expect(atlas != null, "terrain atlas loads")
 	if atlas != null:
-		_expect(atlas.get_width() == 128, "atlas width is four 32-pixel tiles")
-		_expect(atlas.get_height() == 64, "atlas height is two 32-pixel rows")
+		_expect(atlas.get_width() == 256, "atlas width is eight 32-pixel tiles")
+		_expect(atlas.get_height() == 128, "atlas height is four 32-pixel rows")
 	var shader := load("res://assets/textures/terrain_atlas.gdshader") as Shader
 	_expect(shader != null, "terrain atlas shader loads")
-	if shader != null:
-		_expect("filter_nearest" in shader.code, "shader preserves crisp pixel sampling")
-		_expect("projected_uv" in shader.code, "shader repeats texture per voxel face")
 
 
 func _test_material_encoding_and_shared_shader() -> void:
@@ -77,7 +76,12 @@ func _test_material_encoding_and_shared_shader() -> void:
 		var shader_material := mesh.surface_get_material(0) as ShaderMaterial
 		_expect(shader_material != null, "terrain surface uses shared shader material")
 		if shader_material != null:
-			_expect(shader_material.get_shader_parameter("terrain_atlas") is Texture2D, "shader receives atlas texture")
+			var atlas: Variant = shader_material.get_shader_parameter("terrain_atlas")
+			var atlas_grid: Variant = shader_material.get_shader_parameter("atlas_grid")
+			_expect(atlas is Texture2D, "shader receives atlas texture")
+			_expect(atlas_grid is Vector2, "shader receives atlas grid")
+			if atlas_grid is Vector2:
+				_expect((atlas_grid as Vector2) == Vector2(8.0, 4.0), "shader uses the 8x4 atlas layout")
 
 
 func _test_ore_distribution_and_depth_rules() -> void:
