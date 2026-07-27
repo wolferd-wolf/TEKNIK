@@ -1,20 +1,20 @@
 {
   "schema": 1,
-  "generated_at_utc": "2026-07-27T10:36:16Z",
+  "generated_at_utc": "2026-07-27T11:49:48Z",
   "run": {
-    "id": 30257692747,
+    "id": 30263194540,
     "attempt": 1,
-    "url": "https://github.com/wolferd-wolf/TEKNIK/actions/runs/30257692747",
+    "url": "https://github.com/wolferd-wolf/TEKNIK/actions/runs/30263194540",
     "repository": "wolferd-wolf/TEKNIK",
     "workflow": "TEKNIK Textured Ore APK",
     "event": "push",
-    "ref": "refs/heads/agent/bootstrap-foundation",
-    "branch_or_tag": "agent/bootstrap-foundation",
-    "commit_sha": "ae66dc10cddb3b76251a5833bf225eca66afd5eb",
+    "ref": "refs/heads/agent/terrain-texel-scale-v2",
+    "branch_or_tag": "agent/terrain-texel-scale-v2",
+    "commit_sha": "bb38a5e509954e72385ad565886dc4328432a1e4",
     "actor": "wolferd-wolf",
-    "overall_result": "success"
+    "overall_result": "cancelled"
   },
   "required_jobs": {
-    "phase_one_arm64": "success"
+    "phase_one_arm64": "cancelled"
   }
 }

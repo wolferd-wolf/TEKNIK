@@ -1,6 +1,6 @@
 # TEKNIK Textured Ore APK Run
 
-- **Result:** **success**
-- **Run:** [30257692747](https://github.com/wolferd-wolf/TEKNIK/actions/runs/30257692747)
-- **Commit:** `ae66dc10cddb3b76251a5833bf225eca66afd5eb`
-- **Generated:** 2026-07-27T10:36:16Z
+- **Result:** **cancelled**
+- **Run:** [30263194540](https://github.com/wolferd-wolf/TEKNIK/actions/runs/30263194540)
+- **Commit:** `bb38a5e509954e72385ad565886dc4328432a1e4`
+- **Generated:** 2026-07-27T11:49:48Z
