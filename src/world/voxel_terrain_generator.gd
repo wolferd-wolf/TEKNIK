@@ -4,6 +4,7 @@ class_name TeknikVoxelTerrainGenerator
 const WorldSeed = preload("res://src/world/world_seed.gd")
 const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
 const TerrainDomainWarp = preload("res://src/world/terrain_domain_warp.gd")
+const CaveDensity = preload("res://src/world/cave_density.gd")
 
 const STONE: int = 1
 const SOIL: int = 2
@@ -183,12 +184,17 @@ static func generate_chunk(seed: int, chunk_coordinate: Vector3i) -> TeknikVoxel
 				escarpments[grid_index],
 				river_gaps[grid_index]
 			)
+			var column := Vector2i(height, top_material)
 			var highest_solid_local_y: int = mini(VoxelChunk.SIZE - 1, height - world_origin.y)
 			if highest_solid_local_y < 0:
 				continue
 			for y: int in range(highest_solid_local_y + 1):
-				var world_y: int = world_origin.y + y
-				var material: int = _material_at_height(world_y, height, top_material)
+				var world_position := Vector3i(
+					world_origin.x + x,
+					world_origin.y + y,
+					world_origin.z + z
+				)
+				var material: int = material_at(seed, world_position, column)
 				if material != VoxelChunk.AIR:
 					chunk.voxels[VoxelChunk.index_of(Vector3i(x, y, z))] = material
 	chunk.revision = 1
@@ -264,6 +270,15 @@ static func material_from_column(world_y: int, column: Vector2i) -> int:
 	return _material_at_height(world_y, column.x, column.y)
 
 
+static func material_at(seed: int, world_position: Vector3i, column: Vector2i) -> int:
+	var material: int = material_from_column(world_position.y, column)
+	if material == VoxelChunk.AIR:
+		return material
+	if CaveDensity.should_carve(seed, world_position, column.x):
+		return VoxelChunk.AIR
+	return material
+
+
 static func _surface_material_for_height(seed: int, world_x: int, world_z: int, height: int) -> int:
 	var river_gap: float = river_distance(seed, world_x, world_z)
 	if height <= WATER_LEVEL + 1 or (river_gap < 10.5 and height <= WATER_LEVEL + 3):
@@ -293,7 +308,7 @@ static func voxel_at(seed: int, world_position: Vector3i) -> int:
 	if world_position.y < 0:
 		return STONE
 	var column: Vector2i = sample_column(seed, world_position.x, world_position.z)
-	return material_from_column(world_position.y, column)
+	return material_at(seed, world_position, column)
 
 
 static func _material_at_height(world_y: int, height: int, top_material: int) -> int:
