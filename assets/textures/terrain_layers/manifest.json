@@ -1,5 +1,5 @@
 {
-  "generator_version": 3,
+  "generator_version": 4,
   "layer_order": [
     "grass_top",
     "grass_side",
@@ -42,16 +42,19 @@
     "dirt": {
       "license": "CC0-1.0",
       "page": "https://opengameart.org/content/cartoon-outdoor-tileable-textures",
+      "sha256": "8267f53518e6f47f33639bef5e8de86eb9a46830019f7c8371357e8aeb330993",
       "url": "https://opengameart.org/sites/default/files/dirt_18.png"
     },
     "grass": {
       "license": "CC0-1.0",
       "page": "https://opengameart.org/content/cartoon-outdoor-tileable-textures",
+      "sha256": "8bf522a2ee3953c205620d1de13faaa1e12e2811d7afb25225f531db700f1c2f",
       "url": "https://opengameart.org/sites/default/files/grass_62.png"
     },
     "stone": {
       "license": "CC0-1.0",
       "page": "https://opengameart.org/content/cartoon-outdoor-tileable-textures",
+      "sha256": "a2f1876a25c2084cedaf47f7a3ce080095412149431f10b420d1145a581e4aa1",
       "url": "https://opengameart.org/sites/default/files/stone_16.png"
     }
   }
