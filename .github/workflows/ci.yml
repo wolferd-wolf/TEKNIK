@@ -84,20 +84,29 @@ jobs:
       - name: Import project and validate terrain, Phase 1 and save contracts
         run: |
           set -o pipefail
-          godot --headless --path . --editor --quit
+          godot --headless --path . --editor --quit |& tee /tmp/teknik-import.log
           test -s .godot/global_script_class_cache.cfg
-          timeout 180s godot --headless --path . --script res://tests/run_cave_generation_tests.gd | tee /tmp/teknik-cave-parity.log
+          timeout 180s godot --headless --path . --script res://tests/run_cave_generation_tests.gd |& tee /tmp/teknik-cave-parity.log
           grep -q "CAVE_GENERATION_TESTS_PASS" /tmp/teknik-cave-parity.log
-          timeout 120s godot --headless --path . --script res://tests/run_terrain_texture_ore_tests.gd | tee /tmp/teknik-texture-ore.log
+          timeout 120s godot --headless --path . --script res://tests/run_terrain_texture_ore_tests.gd |& tee /tmp/teknik-texture-ore.log
           grep -q "TERRAIN_TEXTURE_ORE_TESTS_PASS" /tmp/teknik-texture-ore.log
-          timeout 120s godot --headless --path . --script res://tests/run_phase_one_item_tests.gd | tee /tmp/teknik-phase-one.log
+          timeout 120s godot --headless --path . --script res://tests/run_phase_one_item_tests.gd |& tee /tmp/teknik-phase-one.log
           grep -q "PHASE_ONE_ITEM_TESTS_PASS" /tmp/teknik-phase-one.log
-          timeout 120s godot --headless --path . --script res://tests/run_survival_inventory_tests.gd | tee /tmp/teknik-inventory.log
+          timeout 120s godot --headless --path . --script res://tests/run_survival_inventory_tests.gd |& tee /tmp/teknik-inventory.log
           grep -q "SURVIVAL_INVENTORY_TEST_RESULT PASS" /tmp/teknik-inventory.log
-          timeout 120s godot --headless --path . --script res://tests/run_engineering_progression_tests.gd | tee /tmp/teknik-progression.log
+          timeout 120s godot --headless --path . --script res://tests/run_engineering_progression_tests.gd |& tee /tmp/teknik-progression.log
           grep -q "ENGINEERING_PROGRESSION_TEST_RESULT PASS" /tmp/teknik-progression.log
-          timeout 120s godot --headless --path . --script res://tests/run_kinetic_machine_tests.gd | tee /tmp/teknik-kinetic.log
+          timeout 120s godot --headless --path . --script res://tests/run_kinetic_machine_tests.gd |& tee /tmp/teknik-kinetic.log
           grep -q "KINETIC_MACHINE_TEST_RESULT PASS" /tmp/teknik-kinetic.log
+
+      - name: Publish focused failure logs
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: TEKNIK-Texture-Failure-Logs-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 7
+          path: /tmp/teknik-*.log
 
       - name: Validate 36-row mobile inventory and workbench touch scrolling
         run: |
