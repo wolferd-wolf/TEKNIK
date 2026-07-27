@@ -135,4 +135,5 @@ static func _smooth_fixed(remainder: int, cell_size: int) -> int:
 
 
 static func _lerp_fixed(from: int, to: int, weight: int) -> int:
-	return from + floori(float((to - from) * weight) / float(FIXED_SCALE))
+	# int() truncates toward zero, matching Rust's signed integer division.
+	return from + int(float((to - from) * weight) / float(FIXED_SCALE))
