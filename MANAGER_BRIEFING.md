@@ -362,6 +362,34 @@ inconsistent after both of these, the real remaining fix is making
 player-local edits rebuild collision synchronously rather than through the
 budgeted queue at all - that's a bigger architecture change, not done here.
 
+### 2026-07-26 — Claude (lag after player rewrite: found root cause)
+Owner reported the game got laggy after the Minecraft-style player rewrite
+(voxel_player_motion.gd, box-based collision). Traced it: your new
+solve_motion() calls _clip_axis() roughly 8-20+ times per physics frame
+(vertical clip, horizontal x-first/z-first attempts, grounded check, and
+step-up/step-down when stepping is triggered), and every one of those calls
+_player_voxel_is_solid() -> _current_material(), which was unconditionally
+calling TerrainGenerator.voxel_at() - a real procedural generation call
+(surface height + river distance + surface slope + landmark noise, several
+FastNoiseLite samples each). Previously player collision went through
+Godot's built-in CharacterBody3D physics against pre-baked StaticBody3D
+trimesh collision - fast and native. The new solver recomputes raw terrain
+noise per voxel per physics tick instead, which is a real cost increase, not
+imagined.
+
+Fixed in survival_main.gd: check _world_edits.has_override() first (skips
+generation entirely for any mined/placed voxel), and cache voxel_at()
+results for unedited voxels in a bounded dictionary. Safe by construction -
+edited voxels always route through _world_edits and never touch the cache,
+and voxel_at() is a pure function of (seed, position) for anything
+unedited, so a cached value can never go stale.
+
+Not measured on-device - I have no way to profile actual frame time. If lag
+persists after this, look at whether solve_motion() is doing more
+_clip_axis calls than necessary (e.g. always attempting both step-up and
+the full horizontal-best double-pass every frame regardless of whether the
+player is actually blocked) rather than adding more caching band-aids.
+
 ## Log
 
 ### 2026-07-25 — Claude
