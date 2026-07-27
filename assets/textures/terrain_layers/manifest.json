@@ -14,22 +14,28 @@
   "layer_size": 128,
   "output_sha256": {
     "copper_ore": "c9e72f806c8d7447bc522891d3a8154d1eff765255c4837c3064fa293c3a500d",
-    "dirt": "f06ba41abeaf29edcb54e638297fa9aac32afe3fd0444a37fb18eb18dc0123c3",
+    "dirt": "5ecb26d24facd0b3f8913fd2aeab6222ab2e8dd8c731618d2339b803d94c2e57",
     "gold_ore": "96091b91a1024682a79ebe7a1592e29f1b6a10dfd7d045f1b531fcdba8590751",
-    "grass_side": "f2e7448bf9592bffdf4a895e924b47175f97c80595e6fbc5c02627c322e4ab26",
-    "grass_top": "ea5835a0b31f34749ccd6f00af9c11da660abb3c961203993a65272b634e4245",
+    "grass_side": "910d8c48e7025fcf3a250ea43f290ec0b6fa145c59e98a5c5103d4b1a05d0121",
+    "grass_top": "0fe1d7f67efe5478b265aa0b58b7ca4c38c5b1496d65e0455a65381260d5ba43",
     "iron_ore": "e0ab47a5cfe35f4e7185b4a6ed70ca9ef6fe0b010792b570000b3f806124763a",
     "sand": "dcae575551d38cab40917ceee680869634e143025c742c1c8f191bd94c90d65b",
-    "stone": "8540e786f89084026cd4339e5cd04c58632e3eda615f87de299ef11a5dc5d55e",
+    "stone": "afc140627b654e3f6143f8ad5db0f9f6f21646a4a0da2320838971f82ddab9c8",
     "zinc_ore": "f033e855751a3f27e0442684abc11eba0ede4ff0d9267a1d8d206c4af575f963"
   },
   "processing": {
     "distance_fade_in_shader": true,
     "grass_side_top_band": true,
     "per_block_variants": 0,
-    "source_blur_before_downsample": true
+    "source_blur_before_downsample": false
   },
   "schema": 1,
+  "active_texture_pack": {
+    "name": "Essential Isometric 3D Block Pack v2.0",
+    "author": "Ajay Karat | Devil's Work.shop",
+    "license": "Commercial game asset license; modification and distribution permitted",
+    "adapted_layers": ["grass_top", "grass_side", "dirt", "stone"]
+  },
   "source_author": "profpatonildo",
   "source_license": "CC0-1.0",
   "source_pack": "Cartoon Outdoor Tileable Textures",
