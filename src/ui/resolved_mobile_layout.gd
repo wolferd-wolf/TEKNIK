@@ -59,7 +59,9 @@ func _contain_settings_content() -> void:
 	scroll.follow_focus = true
 	_settings_panel.add_child(scroll)
 	scroll.add_child(content)
-	content.custom_minimum_size.x = SETTINGS_SCROLL_SIZE.x - 20.0
+	var content_minimum: Vector2 = content.custom_minimum_size
+	content_minimum.x = SETTINGS_SCROLL_SIZE.x - 20.0
+	content.custom_minimum_size = content_minimum
 
 	_settings_panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	_settings_panel.grow_horizontal = Control.GROW_DIRECTION_END
