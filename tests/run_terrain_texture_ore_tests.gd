@@ -74,10 +74,10 @@ func _test_material_encoding_and_shared_shader() -> void:
 	var mesh: ArrayMesh = GreedyMesher.mesh_from_arrays(arrays)
 	_expect(mesh.get_surface_count() == 1, "terrain remains one draw surface")
 	if mesh.get_surface_count() == 1:
-		var material := mesh.surface_get_material(0) as ShaderMaterial
-		_expect(material != null, "terrain surface uses shared shader material")
-		if material != null:
-			_expect(material.get_shader_parameter("terrain_atlas") is Texture2D, "shader receives atlas texture")
+		var shader_material := mesh.surface_get_material(0) as ShaderMaterial
+		_expect(shader_material != null, "terrain surface uses shared shader material")
+		if shader_material != null:
+			_expect(shader_material.get_shader_parameter("terrain_atlas") is Texture2D, "shader receives atlas texture")
 
 
 func _test_ore_distribution_and_depth_rules() -> void:
@@ -97,7 +97,8 @@ func _test_ore_distribution_and_depth_rules() -> void:
 				)
 				if counts.has(material):
 					counts[material] = int(counts[material]) + 1
-	for material: int in counts.keys():
+	for material_value: Variant in counts.keys():
+		var material: int = int(material_value)
 		_expect(int(counts[material]) > 0, "ore material %d appears deterministically" % material)
 	_expect(OreField.material_for_stone(73421, Vector3i(4, 1, 4), 29) == TerrainGenerator.STONE, "bedrock floor is protected")
 	_expect(OreField.material_for_stone(73421, Vector3i(4, 26, 4), 29) == TerrainGenerator.STONE, "ores stay below maximum depth")
@@ -111,8 +112,9 @@ func _test_ore_drops_without_hotbar_expansion() -> void:
 		ItemRegistry.IRON_ORE: ItemRegistry.ITEM_IRON_CONCENTRATE,
 		ItemRegistry.GOLD_ORE: ItemRegistry.ITEM_GOLD_CONCENTRATE,
 	}
-	for material: int in mappings.keys():
-		var expected := StringName(mappings[material])
+	for material_value: Variant in mappings.keys():
+		var material: int = int(material_value)
+		var expected: StringName = StringName(str(mappings[material]))
 		_expect(ItemRegistry.item_for_material(material) == expected, "ore maps to existing concentrate")
 		_expect(ItemRegistry.material_for_item(expected) == ItemRegistry.AIR, "concentrate is not voxel-placeable")
 	_expect(ItemRegistry.registered_items().size() == 36, "ore integration does not grow the item catalog")

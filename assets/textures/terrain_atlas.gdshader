@@ -20,9 +20,10 @@ vec3 material_reference(float material_id, vec3 normal_value) {
 		return vec3(0.376, 0.271, 0.212);
 	}
 	if (material_id < 3.5) {
-		return normal_value.y > 0.5
-			? vec3(0.302, 0.459, 0.263)
-			: vec3(0.376, 0.271, 0.212);
+		if (normal_value.y > 0.5) {
+			return vec3(0.302, 0.459, 0.263);
+		}
+		return vec3(0.376, 0.271, 0.212);
 	}
 	if (material_id < 5.5) {
 		return vec3(0.604, 0.651, 0.635);
@@ -78,24 +79,24 @@ vec2 projected_uv(vec3 position_value, vec3 normal_value) {
 void fragment() {
 	float material_id = floor(COLOR.a * 255.0 + 0.5);
 	vec3 normal_value = normalize(terrain_local_normal);
+	bool use_existing_color = material_id < 0.5
+		|| (material_id > 3.5 && material_id < 4.5)
+		|| material_id > 8.5;
 
-	// Sand and any future untextured material retain the existing biome color.
-	if (material_id < 0.5 || (material_id > 3.5 && material_id < 4.5) || material_id > 8.5) {
+	if (use_existing_color) {
+		// Sand and any future untextured material retain the existing biome color.
 		ALBEDO = COLOR.rgb;
 		ROUGHNESS = 0.95;
-		METALLIC = 0.0;
-		return;
+	} else {
+		float tile = atlas_tile(material_id, normal_value);
+		vec2 tile_coordinate = vec2(mod(tile, atlas_grid.x), floor(tile / atlas_grid.x));
+		vec2 local_uv = fract(projected_uv(terrain_local_position, normal_value) + vec2(0.0001));
+		vec2 atlas_uv = (tile_coordinate + local_uv) / atlas_grid;
+		vec3 texture_color = texture(terrain_atlas, atlas_uv).rgb;
+		vec3 reference = max(material_reference(material_id, normal_value), vec3(0.08));
+		vec3 biome_and_face_tint = clamp(COLOR.rgb / reference, vec3(0.58), vec3(1.42));
+		ALBEDO = texture_color * biome_and_face_tint;
+		ROUGHNESS = material_id >= 5.0 ? 0.88 : 0.96;
 	}
-
-	float tile = atlas_tile(material_id, normal_value);
-	vec2 tile_coordinate = vec2(mod(tile, atlas_grid.x), floor(tile / atlas_grid.x));
-	vec2 local_uv = fract(projected_uv(terrain_local_position, normal_value) + vec2(0.0001));
-	vec2 atlas_uv = (tile_coordinate + local_uv) / atlas_grid;
-	vec3 texture_color = texture(terrain_atlas, atlas_uv).rgb;
-	vec3 reference = max(material_reference(material_id, normal_value), vec3(0.08));
-	vec3 biome_and_face_tint = clamp(COLOR.rgb / reference, vec3(0.58), vec3(1.42));
-
-	ALBEDO = texture_color * biome_and_face_tint;
-	ROUGHNESS = material_id >= 5.0 ? 0.88 : 0.96;
 	METALLIC = 0.0;
 }
