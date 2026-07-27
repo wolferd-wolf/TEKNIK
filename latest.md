@@ -1,6 +1,6 @@
 # TEKNIK Focused UI APK Run
 
-- **Result:** **cancelled**
-- **Run:** [30243064949](https://github.com/wolferd-wolf/TEKNIK/actions/runs/30243064949)
-- **Commit:** `54cd0c062e9f7eae4dc11b12b4af056cf0bfe5e3`
-- **Generated:** 2026-07-27T06:33:22Z
+- **Result:** **failure**
+- **Run:** [30243105030](https://github.com/wolferd-wolf/TEKNIK/actions/runs/30243105030)
+- **Commit:** `758d9c4778dc82820fd152e286d97957ccc708a6`
+- **Generated:** 2026-07-27T06:34:18Z
