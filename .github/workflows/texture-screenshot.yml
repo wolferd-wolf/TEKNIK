@@ -1,0 +1,69 @@
+name: TEKNIK Texture Screenshot
+
+on:
+  push:
+    branches:
+      - agent/devilsworkshop-texture-pack
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screenshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      GODOT_RELEASE: "4.7.1-stable"
+      GODOT_CPP_REF: "ba0edfed90512ec64aba51d4295a3e7e30112f86"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install screenshot dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential clang lld scons git curl unzip xvfb imagemagick libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
+          curl --fail --silent --show-error --location --retry 3 "https://github.com/godotengine/godot/releases/download/${GODOT_RELEASE}/Godot_v${GODOT_RELEASE}_linux.x86_64.zip" -o /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          sudo install -m 0755 "/tmp/godot/Godot_v${GODOT_RELEASE}_linux.x86_64" /usr/local/bin/godot
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Linux native bridge
+        run: |
+          cargo build --manifest-path native/rust/Cargo.toml --release
+          rm -rf native/godot-cpp
+          git init -q native/godot-cpp
+          git -C native/godot-cpp remote add origin https://github.com/godotengine/godot-cpp.git
+          git -C native/godot-cpp fetch -q --depth 1 origin "$GODOT_CPP_REF"
+          git -C native/godot-cpp checkout -q --detach FETCH_HEAD
+          mkdir -p /tmp/godot-api
+          (cd /tmp/godot-api && godot --headless --dump-extension-api)
+          cp /tmp/godot-api/extension_api.json extension_api.json
+          (cd native && scons -j2 platform=linux arch=x86_64 target=template_debug custom_api_file="$GITHUB_WORKSPACE/extension_api.json" rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/release")
+
+      - name: Capture terrain screenshot
+        run: |
+          set -Eeuo pipefail
+          mkdir -p build/screenshots
+          Xvfb :99 -screen 0 1280x720x24 > /tmp/xvfb.log 2>&1 &
+          XVFB_PID=$!
+          export DISPLAY=:99
+          sleep 2
+          godot --path . --rendering-method gl_compatibility --audio-driver Dummy > /tmp/teknik-screenshot.log 2>&1 &
+          GAME_PID=$!
+          sleep 22
+          import -window root build/screenshots/terrain-texture-preview.png
+          kill "$GAME_PID" || true
+          kill "$XVFB_PID" || true
+          test -s build/screenshots/terrain-texture-preview.png
+
+      - name: Upload screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: TEKNIK-Terrain-Texture-Screenshot-${{ github.sha }}
+          path: build/screenshots/terrain-texture-preview.png
+          if-no-files-found: error
+          retention-days: 14
