@@ -390,6 +390,42 @@ _clip_axis calls than necessary (e.g. always attempting both step-up and
 the full horizontal-best double-pass every frame regardless of whether the
 player is actually blocked) rather than adding more caching band-aids.
 
+## Forward-looking — chunk streaming throughput for future vehicles (2026-07-26)
+
+Owner is concerned that once vehicles exist and travel fast, chunk streaming
+won't keep up. No vehicle exists yet, so don't tune anything against a
+guessed speed number - build the measurement first.
+
+**What's already good, don't rebuild it:** chunk generation goes through the
+native Rust/C++ path (`NativeChunkBackend`) on a real background `Thread`
+per worker when available. `movement_streaming_main.gd` already computes a
+velocity-scaled lookahead (`lookahead_position += velocity * LOOKAHEAD_SECONDS`,
+4 seconds, `playable_main.gd`), so streaming priority already shifts ahead of
+travel direction, scaled by actual speed - not something built only for
+walking pace.
+
+**The concrete gap:** `STREAM_LOADS_PER_FRAME: int = 1` in `budgeted_main.gd`
+is a flat dispatch cap regardless of speed or urgency, and `CHUNK_RADIUS`
+doesn't widen when moving fast. Neither is verified against a real number
+because nothing in the game currently moves fast enough to test it.
+
+**Do this first, before touching the streaming code:** write a QA director
+(same pattern as `mining_demo_director.gd` / `gameplay_capture_director.gd`)
+that scripts the player moving at a high velocity - well above normal
+walking speed, comparable to what a vehicle might eventually reach - and
+records how far the loaded-terrain edge falls behind the player's actual
+position over time. That turns this into a number instead of a guess.
+
+**Once that number exists**, the two changes worth making are: (1) scale
+`STREAM_LOADS_PER_FRAME` with current speed instead of a flat constant, (2)
+bias `CHUNK_RADIUS` to widen specifically ahead of travel direction when
+moving fast rather than uniformly in all directions - no need for a wide
+bubble behind a fast-moving vehicle, only ahead of it.
+
+Don't implement vehicle-speed tuning without the measurement above existing
+first. Guessing constants for a system with no vehicle to test against yet
+is exactly the kind of thing that produces silent, unverified "fixes."
+
 ## Log
 
 ### 2026-07-25 — Claude
