@@ -19,22 +19,25 @@ from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps, ImageStat
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = ROOT / "assets" / "textures" / "terrain_layers"
 MANIFEST_PATH = OUTPUT_DIR / "manifest.json"
-GENERATOR_VERSION = 3
+GENERATOR_VERSION = 4
 LAYER_SIZE = 128
 
 SOURCES = {
     "grass": {
         "url": "https://opengameart.org/sites/default/files/grass_62.png",
+        "sha256": "8bf522a2ee3953c205620d1de13faaa1e12e2811d7afb25225f531db700f1c2f",
         "license": "CC0-1.0",
         "page": "https://opengameart.org/content/cartoon-outdoor-tileable-textures",
     },
     "dirt": {
         "url": "https://opengameart.org/sites/default/files/dirt_18.png",
+        "sha256": "8267f53518e6f47f33639bef5e8de86eb9a46830019f7c8371357e8aeb330993",
         "license": "CC0-1.0",
         "page": "https://opengameart.org/content/cartoon-outdoor-tileable-textures",
     },
     "stone": {
         "url": "https://opengameart.org/sites/default/files/stone_16.png",
+        "sha256": "a2f1876a25c2084cedaf47f7a3ce080095412149431f10b420d1145a581e4aa1",
         "license": "CC0-1.0",
         "page": "https://opengameart.org/content/cartoon-outdoor-tileable-textures",
     },
@@ -51,6 +54,10 @@ LAYER_ORDER = [
     "iron_ore",
     "gold_ore",
 ]
+
+
+def sha256_bytes(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
 
 
 def sha256(path: Path) -> str:
@@ -74,6 +81,9 @@ def outputs_current() -> bool:
         return False
     if manifest.get("layer_order") != LAYER_ORDER:
         return False
+    expected_sources = {name: definition["sha256"] for name, definition in SOURCES.items()}
+    if manifest.get("source_sha256") != expected_sources:
+        return False
     for name in LAYER_ORDER:
         path = OUTPUT_DIR / f"{name}.png"
         if not path.exists():
@@ -96,6 +106,12 @@ def download_source(name: str, definition: dict[str, str], destination: Path) ->
     )
     with urllib.request.urlopen(request, timeout=45) as response:  # noqa: S310 - pinned HTTPS source
         payload = response.read()
+    actual_hash = sha256_bytes(payload)
+    expected_hash = definition["sha256"]
+    if actual_hash != expected_hash:
+        raise RuntimeError(
+            f"{name} source hash changed: {actual_hash} != pinned {expected_hash}"
+        )
     if not payload.startswith(b"\x89PNG\r\n\x1a\n"):
         raise RuntimeError(f"{name} source is not a PNG")
     target.write_bytes(payload)
@@ -204,7 +220,7 @@ def make_ore(stone: Image.Image, seed: int, dark: str, bright: str) -> Image.Ima
 
 def build(refresh: bool) -> None:
     if not refresh and outputs_current():
-        print("TERRAIN_LAYER_BUILD_REUSED layers=9 size=128")
+        print("TERRAIN_LAYER_BUILD_REUSED layers=9 size=128 sources=pinned")
         return
 
     source_dir = Path("/tmp/teknik-cc0-terrain-sources")
@@ -259,18 +275,18 @@ def build(refresh: bool) -> None:
         },
     }
     MANIFEST_PATH.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print("TERRAIN_LAYER_BUILD_PASS layers=9 size=128 source=OpenGameArt-CC0")
+    print("TERRAIN_LAYER_BUILD_PASS layers=9 size=128 source=OpenGameArt-CC0 pinned=true")
 
 
 def verify() -> None:
     if not outputs_current():
-        raise RuntimeError("terrain layer outputs are missing or stale")
+        raise RuntimeError("terrain layer outputs are missing, stale or use unpinned sources")
     manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     for name, expected in manifest["output_sha256"].items():
         actual = sha256(OUTPUT_DIR / f"{name}.png")
         if actual != expected:
             raise RuntimeError(f"hash mismatch for {name}: {actual} != {expected}")
-    print("TERRAIN_LAYER_VERIFY_PASS layers=9 size=128")
+    print("TERRAIN_LAYER_VERIFY_PASS layers=9 size=128 sources=pinned")
 
 
 def main() -> int:
