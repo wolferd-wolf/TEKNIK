@@ -7,6 +7,12 @@ This revision corrects the miniature, noisy appearance produced by the previous
 as a visual readability reference. No Minecraft artwork, resource-pack files or
 protected assets are included.
 
+The 2026-07-27 physical gameplay capture showed the concrete failure: rotated
+side UVs turned the horizontal grass fringe into bright vertical strips, while
+single-pixel noise made each one-metre block read like a much smaller object.
+This revision addresses those two causes directly rather than changing world
+geometry or camera FOV.
+
 ## Sources reviewed
 
 - Kenney Voxel Pack: a CC0 voxel-art reference with consistent tile language and
