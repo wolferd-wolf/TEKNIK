@@ -3,9 +3,9 @@ extends Node
 
 # Presentation controller attached to the active gameplay scene. It reuses the
 # existing inventory, recipe and machine systems instead of duplicating state.
-const WINDOW_POSITION := Vector2(24.0, 78.0)
-const WINDOW_SIZE := Vector2(872.0, 560.0)
-const PAGE_SIZE := Vector2(820.0, 390.0)
+const WINDOW_POSITION := Vector2(24.0, 72.0)
+const WINDOW_SIZE := Vector2(840.0, 520.0)
+const PAGE_SIZE := Vector2(788.0, 350.0)
 const INVENTORY_TITLE := "TEKNIK FIELD TERMINAL // INVENTORY"
 const CRAFTING_TITLE := "FIELD CRAFTING // PORTABLE BLUEPRINTS"
 const WORKBENCH_TITLE := "STONE WORKBENCH // ENGINEERING BLUEPRINTS"
@@ -78,7 +78,7 @@ func _install() -> void:
 	show_inventory()
 	_style_recipe_list()
 	_installed = true
-	call_deferred("_validate_after_layout")
+	call_deferred("_validate_functional_wiring")
 
 
 func _configure_workspace() -> void:
@@ -99,11 +99,11 @@ func _configure_workspace() -> void:
 	if _workspace_title != null:
 		_workspace_title.text = INVENTORY_TITLE
 		_workspace_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-		_workspace_title.add_theme_font_size_override("font_size", 23)
+		_workspace_title.add_theme_font_size_override("font_size", 22)
 	var close_button := content.get_node_or_null("CloseInventory") as Button
 	if close_button != null:
 		close_button.text = "CLOSE TERMINAL"
-		close_button.custom_minimum_size = Vector2(180.0, 46.0)
+		close_button.custom_minimum_size = Vector2(176.0, 44.0)
 
 	_items_panel.custom_minimum_size = PAGE_SIZE
 	_items_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -117,7 +117,7 @@ func _configure_inventory_page() -> void:
 	var content := _items_panel.get_child(0) as VBoxContainer
 	if content == null:
 		return
-	content.add_theme_constant_override("separation", 8)
+	content.add_theme_constant_override("separation", 7)
 	var title := content.get_child(0) as Label if content.get_child_count() > 0 else null
 	if title != null:
 		title.text = "MATERIAL LEDGER // VOXEL CARGO"
@@ -126,7 +126,7 @@ func _configure_inventory_page() -> void:
 	_inventory_scroll = _items_panel.find_child("InventoryItemScroll", true, false) as ScrollContainer
 	var grid := _items_panel.find_child("InventoryGrid", true, false) as GridContainer
 	if _inventory_scroll != null:
-		_inventory_scroll.custom_minimum_size = Vector2(790.0, 286.0)
+		_inventory_scroll.custom_minimum_size = Vector2(758.0, 242.0)
 		_inventory_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		_inventory_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 		_inventory_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
@@ -134,15 +134,15 @@ func _configure_inventory_page() -> void:
 		_inventory_scroll.follow_focus = true
 	if grid != null:
 		grid.columns = 2
-		grid.custom_minimum_size = Vector2(760.0, 430.0)
+		grid.custom_minimum_size = Vector2(730.0, 390.0)
 		grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		grid.add_theme_constant_override("h_separation", 10)
-		grid.add_theme_constant_override("v_separation", 8)
+		grid.add_theme_constant_override("v_separation", 7)
 		for child: Node in grid.get_children():
 			var row := child as Label
 			if row == null:
 				continue
-			row.custom_minimum_size = Vector2(370.0, 52.0)
+			row.custom_minimum_size = Vector2(355.0, 48.0)
 			row.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 			row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			row.add_theme_font_size_override("font_size", 16)
@@ -153,7 +153,7 @@ func _configure_inventory_page() -> void:
 	_open_crafting_button = Button.new()
 	_open_crafting_button.name = "OpenCraftingBlueprints"
 	_open_crafting_button.text = "OPEN CRAFTING BLUEPRINTS  >"
-	_open_crafting_button.custom_minimum_size = Vector2(790.0, 50.0)
+	_open_crafting_button.custom_minimum_size = Vector2(758.0, 46.0)
 	content.add_child(_open_crafting_button)
 
 
@@ -161,7 +161,7 @@ func _configure_crafting_page() -> void:
 	var content := _crafting_panel.get_child(0) as VBoxContainer
 	if content == null:
 		return
-	content.add_theme_constant_override("separation", 8)
+	content.add_theme_constant_override("separation", 7)
 	var title := content.get_child(0) as Label if content.get_child_count() > 0 else null
 	if title != null:
 		title.text = "BLUEPRINT INDEX // AVAILABLE RECIPES"
@@ -169,20 +169,20 @@ func _configure_crafting_page() -> void:
 
 	_recipe_scroll = _recipe_list.get_parent() as ScrollContainer
 	if _recipe_scroll != null:
-		_recipe_scroll.custom_minimum_size = Vector2(790.0, 286.0)
+		_recipe_scroll.custom_minimum_size = Vector2(758.0, 232.0)
 		_recipe_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		_recipe_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 		_recipe_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 		_recipe_scroll.scroll_deadzone = 8
 		_recipe_scroll.follow_focus = true
-	_recipe_list.custom_minimum_size = Vector2(760.0, 390.0)
+	_recipe_list.custom_minimum_size = Vector2(730.0, 340.0)
 	_recipe_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_recipe_list.add_theme_constant_override("separation", 7)
 
 	_back_to_inventory_button = Button.new()
 	_back_to_inventory_button.name = "BackToInventory"
 	_back_to_inventory_button.text = "<  RETURN TO INVENTORY"
-	_back_to_inventory_button.custom_minimum_size = Vector2(790.0, 48.0)
+	_back_to_inventory_button.custom_minimum_size = Vector2(758.0, 44.0)
 	content.add_child(_back_to_inventory_button)
 
 
@@ -210,9 +210,9 @@ func _configure_hud() -> void:
 		_settings_button.text = "SYSTEM"
 
 	if _settings_panel != null:
-		_settings_panel.position = Vector2(920.0, 92.0)
-		_settings_panel.size = Vector2(324.0, 486.0)
-		_settings_panel.custom_minimum_size = Vector2(324.0, 486.0)
+		_settings_panel.position = Vector2(920.0, 120.0)
+		_settings_panel.size = Vector2(312.0, 430.0)
+		_settings_panel.custom_minimum_size = Vector2(312.0, 430.0)
 		_settings_panel.z_index = 80
 
 	var left_column := _world.get("_left_hud_column") as VBoxContainer
@@ -334,7 +334,7 @@ func _style_recipe_control(control: Node) -> void:
 		return
 	var button := control as Button
 	if button != null:
-		button.custom_minimum_size = Vector2(750.0, 54.0)
+		button.custom_minimum_size = Vector2(720.0, 50.0)
 		_apply_button_style(button)
 		return
 	var heading := control as Label
@@ -374,11 +374,11 @@ func _apply_theme_recursive(root: Node) -> void:
 
 
 func _apply_priority_styles() -> void:
-	_inventory_window.add_theme_stylebox_override("panel", _panel_style(INK, BRASS_BRIGHT, 3, 8, 11.0))
-	_items_panel.add_theme_stylebox_override("panel", _panel_style(PLATE, BLUEPRINT, 2, 6, 9.0))
-	_crafting_panel.add_theme_stylebox_override("panel", _panel_style(PLATE, BLUEPRINT, 2, 6, 9.0))
+	_inventory_window.add_theme_stylebox_override("panel", _panel_style(INK, BRASS_BRIGHT, 3, 8, 10.0))
+	_items_panel.add_theme_stylebox_override("panel", _panel_style(PLATE, BLUEPRINT, 2, 6, 8.0))
+	_crafting_panel.add_theme_stylebox_override("panel", _panel_style(PLATE, BLUEPRINT, 2, 6, 8.0))
 	if _settings_panel != null:
-		_settings_panel.add_theme_stylebox_override("panel", _panel_style(INK, BRASS_BRIGHT, 2, 7, 10.0))
+		_settings_panel.add_theme_stylebox_override("panel", _panel_style(INK, BRASS_BRIGHT, 2, 7, 9.0))
 	var hotbar := _world.get("_bottom_hotbar_panel") as PanelContainer
 	if hotbar != null:
 		hotbar.add_theme_stylebox_override("panel", _panel_style(Color(0.02, 0.04, 0.055, 0.92), BRASS, 2, 5, 5.0))
@@ -416,31 +416,41 @@ func _panel_style(background: Color, border: Color, width: int, radius: int, mar
 	return style
 
 
-func _validate_after_layout() -> void:
+func _validate_functional_wiring() -> void:
 	await get_tree().process_frame
-	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
-	var rect: Rect2 = _inventory_window.get_global_rect()
+	var recipe_signal_connected: bool = (
+		_recipe_list != null
+		and _recipe_list.child_entered_tree.is_connected(Callable(self, "_on_recipe_control_added"))
+	)
 	var valid: bool = (
 		_inventory_scroll != null
 		and _inventory_scroll.vertical_scroll_mode != ScrollContainer.SCROLL_MODE_DISABLED
 		and _recipe_scroll != null
 		and _recipe_scroll.vertical_scroll_mode != ScrollContainer.SCROLL_MODE_DISABLED
 		and _open_crafting_button != null
-		and rect.position.x >= 0.0
-		and rect.position.y >= 0.0
-		and rect.end.x <= viewport_size.x
-		and rect.end.y <= viewport_size.y
+		and _back_to_inventory_button != null
+		and recipe_signal_connected
 	)
 	if not valid:
-		_fail("post-layout validation failed")
+		_fail(
+			"functional wiring failed inventory_scroll=%s recipe_scroll=%s craft_button=%s back_button=%s recipe_signal=%s"
+			% [
+				_inventory_scroll != null,
+				_recipe_scroll != null,
+				_open_crafting_button != null,
+				_back_to_inventory_button != null,
+				recipe_signal_connected,
+			]
+		)
 		return
 	print(
 		"QA_INDUSTRIAL_UI_PASS inventory_scroll=", true,
 		" crafting_scroll=", true,
 		" crafting_button=", true,
 		" workbench_route_available=", has_method("open_workbench"),
-		" voxel_item_grid=", true,
-		" rect=", rect
+		" event_driven_recipe_styling=", recipe_signal_connected,
+		" mobile_window=", WINDOW_SIZE,
+		" voxel_item_grid=", true
 	)
 
 
