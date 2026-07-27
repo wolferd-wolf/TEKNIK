@@ -1,8 +1,10 @@
 extends Node
 
+const TouchScrollDriver = preload("res://src/ui/touch_scroll_driver.gd")
+
 # Godot resolves Control minimum sizes after theme overrides. This late layout
-# pass pins the styled HUD to the real phone viewport and contains settings in a
-# scroll view without taking ownership of gameplay or UI state.
+# pass pins the styled HUD to the real phone viewport, contains settings in a
+# scroll view, and installs deterministic Android drag handling on inventory UI.
 const HOTBAR_MIN_SIZE := Vector2(612.0, 78.0)
 const HOTBAR_BOTTOM_MARGIN: float = 12.0
 const INVENTORY_HOST_MIN_SIZE := Vector2(284.0, 54.0)
@@ -12,11 +14,14 @@ const SETTINGS_POSITION := Vector2(920.0, 120.0)
 const SETTINGS_SIZE := Vector2(312.0, 430.0)
 const SETTINGS_SCROLL_SIZE := Vector2(286.0, 398.0)
 const WORKBENCH_TYPE: StringName = &"workbench"
+const NATIVE_TOUCH_DEADZONE: int = 100_000
 
 var _world: Node
 var _hotbar: PanelContainer
 var _inventory_button_host: Button
 var _settings_panel: PanelContainer
+var _inventory_touch_driver: Node
+var _recipe_touch_driver: Node
 
 
 func _ready() -> void:
@@ -40,6 +45,7 @@ func _finalize_after_theme() -> void:
 		_fail("HUD controls unavailable")
 		return
 	_contain_settings_content()
+	_install_touch_scroll_drivers()
 	_pin_resolved_controls()
 	await get_tree().process_frame
 	# Reapply after reparenting and theme minimum sizes complete their final pass.
@@ -75,6 +81,42 @@ func _contain_settings_content() -> void:
 	_settings_panel.custom_minimum_size = SETTINGS_SIZE
 	_settings_panel.position = SETTINGS_POSITION
 	_settings_panel.size = SETTINGS_SIZE
+
+
+func _install_touch_scroll_drivers() -> void:
+	var items_panel := _world.get("_inventory_items_panel") as PanelContainer
+	var inventory_scroll: ScrollContainer = null
+	if items_panel != null:
+		inventory_scroll = items_panel.find_child("InventoryItemScroll", true, false) as ScrollContainer
+	var recipe_scroll: ScrollContainer = null
+	var recipe_list := _world.get("_recipe_list") as VBoxContainer
+	if recipe_list != null:
+		recipe_scroll = recipe_list.get_parent() as ScrollContainer
+
+	_inventory_touch_driver = _attach_touch_driver(
+		inventory_scroll,
+		"InventoryTouchScrollDriver"
+	)
+	_recipe_touch_driver = _attach_touch_driver(
+		recipe_scroll,
+		"RecipeTouchScrollDriver"
+	)
+
+
+func _attach_touch_driver(scroll: ScrollContainer, driver_name: String) -> Node:
+	if scroll == null:
+		return null
+	# Disable only the native touch-drag path to prevent double movement. Mouse
+	# wheel and visible scrollbar controls continue to use ScrollContainer.
+	scroll.scroll_deadzone = NATIVE_TOUCH_DEADZONE
+	var driver := scroll.get_node_or_null(driver_name)
+	if driver == null:
+		driver = TouchScrollDriver.new()
+		driver.name = driver_name
+		scroll.add_child(driver)
+	if driver.has_method("attach"):
+		driver.call("attach", scroll)
+	return driver
 
 
 func _pin_resolved_controls() -> void:
@@ -126,11 +168,20 @@ func _validate_resolved_layout() -> void:
 		and not hotbar_rect.intersects(inventory_rect)
 		and hotbar_rect.end.x <= viewport_rect.size.x * 0.75
 		and _settings_panel.get_node_or_null("SettingsScroll") is ScrollContainer
+		and _inventory_touch_driver != null
+		and _recipe_touch_driver != null
 	)
 	if not valid:
 		_fail(
-			"resolved geometry invalid hotbar=%s inventory=%s settings=%s viewport=%s"
-			% [hotbar_rect, inventory_rect, settings_rect, viewport_rect]
+			"resolved geometry or touch driver invalid hotbar=%s inventory=%s settings=%s inventory_driver=%s recipe_driver=%s viewport=%s"
+			% [
+				hotbar_rect,
+				inventory_rect,
+				settings_rect,
+				_inventory_touch_driver != null,
+				_recipe_touch_driver != null,
+				viewport_rect,
+			]
 		)
 		return
 	print(
@@ -138,7 +189,8 @@ func _validate_resolved_layout() -> void:
 		" inventory=", inventory_rect,
 		" settings=", settings_rect,
 		" right_action_clearance=", viewport_rect.size.x * 0.75 - hotbar_rect.end.x,
-		" settings_scrollable=", true
+		" settings_scrollable=", true,
+		" touch_drivers=", true
 	)
 
 	if not _focused_ui_qa_requested():
@@ -161,6 +213,20 @@ func _validate_resolved_layout() -> void:
 	var recipe_list := _world.get("_recipe_list") as VBoxContainer
 	if recipe_list != null:
 		recipe_scroll = recipe_list.get_parent() as ScrollContainer
+
+	var inventory_dragged: bool = false
+	var recipe_dragged: bool = false
+	if industrial_ui != null and industrial_ui.has_method("show_inventory"):
+		industrial_ui.call("show_inventory")
+		await get_tree().process_frame
+	if _inventory_touch_driver != null and _inventory_touch_driver.has_method("qa_drag_vertical"):
+		inventory_dragged = bool(_inventory_touch_driver.call("qa_drag_vertical", 120.0))
+	if industrial_ui != null and industrial_ui.has_method("show_crafting"):
+		industrial_ui.call("show_crafting")
+		await get_tree().process_frame
+	if _recipe_touch_driver != null and _recipe_touch_driver.has_method("qa_drag_vertical"):
+		recipe_dragged = bool(_recipe_touch_driver.call("qa_drag_vertical", 120.0))
+
 	var focused_valid: bool = (
 		workbench_opened
 		and crafting_visible
@@ -168,18 +234,27 @@ func _validate_resolved_layout() -> void:
 		and inventory_scroll.vertical_scroll_mode != ScrollContainer.SCROLL_MODE_DISABLED
 		and recipe_scroll != null
 		and recipe_scroll.vertical_scroll_mode != ScrollContainer.SCROLL_MODE_DISABLED
+		and inventory_dragged
+		and recipe_dragged
 	)
 	if not focused_valid:
 		_fail(
-			"focused UI QA failed workbench=%s crafting=%s inventory_scroll=%s recipe_scroll=%s"
-			% [workbench_opened, crafting_visible, inventory_scroll != null, recipe_scroll != null]
+			"focused UI QA failed workbench=%s crafting=%s inventory_scroll=%s recipe_scroll=%s inventory_drag=%s recipe_drag=%s"
+			% [
+				workbench_opened,
+				crafting_visible,
+				inventory_scroll != null,
+				recipe_scroll != null,
+				inventory_dragged,
+				recipe_dragged,
+			]
 		)
 		return
 	print(
 		"QA_FOCUSED_UI_PASS workbench_opened=", workbench_opened,
 		" crafting_visible=", crafting_visible,
-		" inventory_scroll=", true,
-		" recipe_scroll=", true,
+		" inventory_touch_drag=", inventory_dragged,
+		" recipe_touch_drag=", recipe_dragged,
 		" pack_system_inside_viewport=", viewport_rect.encloses(inventory_rect)
 	)
 	get_tree().quit(0)
