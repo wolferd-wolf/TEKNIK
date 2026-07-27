@@ -1,20 +1,20 @@
 {
   "schema": 1,
-  "generated_at_utc": "2026-07-27T14:28:14Z",
+  "generated_at_utc": "2026-07-27T14:35:44Z",
   "run": {
-    "id": 30275189862,
+    "id": 30275217793,
     "attempt": 1,
-    "url": "https://github.com/wolferd-wolf/TEKNIK/actions/runs/30275189862",
+    "url": "https://github.com/wolferd-wolf/TEKNIK/actions/runs/30275217793",
     "repository": "wolferd-wolf/TEKNIK",
     "workflow": "TEKNIK CC0 Texture Array APK",
     "event": "push",
     "ref": "refs/heads/agent/cc0-texture-array-distance-fade",
     "branch_or_tag": "agent/cc0-texture-array-distance-fade",
-    "commit_sha": "f0c91b2ae76abfe112e19b4a009f10d5d283bc15",
+    "commit_sha": "b0f91fdcb7a5eee42c274d059a456e6ae56e36d4",
     "actor": "wolferd-wolf",
-    "overall_result": "cancelled"
+    "overall_result": "failure"
   },
   "required_jobs": {
-    "phase_one_arm64": "cancelled"
+    "phase_one_arm64": "failure"
   }
 }
