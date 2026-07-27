@@ -78,6 +78,14 @@ jobs:
           (cd native && scons -j2 platform=linux arch=x86_64 target=template_debug custom_api_file="$GITHUB_WORKSPACE/extension_api.json" rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/release")
           test -s native/bin/libteknik_native.linux.template_debug.x86_64.so
 
+      - name: Register Godot script classes
+        run: |
+          godot --headless --path . --editor --quit
+          test -s .godot/global_script_class_cache.cfg
+          grep -q 'TeknikTouchSlider' .godot/global_script_class_cache.cfg
+          grep -q 'TeknikMiningDemoDirector' .godot/global_script_class_cache.cfg
+          grep -q 'TeknikSurvivalVitals' .godot/global_script_class_cache.cfg
+
       - name: Validate only HUD, scrolling, and workbench UI
         run: |
           set -o pipefail
