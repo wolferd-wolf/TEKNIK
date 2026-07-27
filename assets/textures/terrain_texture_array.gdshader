@@ -91,6 +91,15 @@ vec2 projected_uv(vec3 position_value, vec3 normal_value) {
 	return position_value.xy;
 }
 
+vec3 suppress_micro_tint(vec3 tint) {
+	// Both the legacy and native mesh paths historically baked small pseudo-random
+	// vertex brightness changes into COLOR. Preserve real biome differences, but
+	// dead-zone those tiny deviations so they cannot become distant checker noise.
+	vec3 deviation = tint - vec3(1.0);
+	vec3 keep = smoothstep(vec3(0.08), vec3(0.20), abs(deviation));
+	return vec3(1.0) + deviation * keep;
+}
+
 void fragment() {
 	float material_id = floor(COLOR.a * 255.0 + 0.5);
 	vec3 normal_value = normalize(terrain_local_normal);
@@ -112,8 +121,10 @@ void fragment() {
 		vec3 texture_color = texture(terrain_layers, vec3(local_uv, layer)).rgb;
 		vec3 reference = max(material_reference(material_id, normal_value), vec3(0.08));
 		vec3 biome_tint = clamp(COLOR.rgb / reference, vec3(0.72), vec3(1.28));
-		vec3 textured_color = texture_color * biome_tint;
-		vec3 stable_distance_color = reference * biome_tint;
+		vec3 macro_biome_tint = suppress_micro_tint(biome_tint);
+		vec3 textured_color = texture_color * macro_biome_tint;
+		vec3 stable_distance_tint = mix(vec3(1.0), macro_biome_tint, 0.62);
+		vec3 stable_distance_color = reference * stable_distance_tint;
 
 		float camera_distance = distance(terrain_world_position, CAMERA_POSITION_WORLD);
 		float distance_fade = smoothstep(detail_fade_start, detail_fade_end, camera_distance);
