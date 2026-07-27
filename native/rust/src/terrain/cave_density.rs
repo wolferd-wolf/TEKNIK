@@ -18,14 +18,19 @@ pub fn should_carve(seed: i64, world: (i32, i32, i32), surface_height: i32) -> b
     let band_b = TUNNEL_BAND_B.min(6_500 + safety * 800);
     let stretched_y = world.1 * 2;
     let field_a = sample_noise_3d(seed + 3_001, world.0, stretched_y, world.2, 18);
-    let field_b = sample_noise_3d(
-        seed + 3_019,
-        world.0 + 7,
-        stretched_y - 5,
-        world.2 - 11,
-        23,
-    );
-    if (field_a - NOISE_MID).abs() < band_a && (field_b - NOISE_MID).abs() < band_b {
+    let tunnel = if (field_a - NOISE_MID).abs() < band_a {
+        let field_b = sample_noise_3d(
+            seed + 3_019,
+            world.0 + 7,
+            stretched_y - 5,
+            world.2 - 11,
+            23,
+        );
+        (field_b - NOISE_MID).abs() < band_b
+    } else {
+        false
+    };
+    if tunnel {
         return true;
     }
 

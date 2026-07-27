@@ -30,17 +30,16 @@ static func should_carve(seed: int, world_position: Vector3i, surface_height: in
 		world_position.z,
 		18
 	)
-	var field_b: int = sample_noise_3d(
-		seed + 3019,
-		world_position.x + 7,
-		stretched_y - 5,
-		world_position.z - 11,
-		23
-	)
-	var tunnel: bool = (
-		absi(field_a - NOISE_MID) < band_a
-		and absi(field_b - NOISE_MID) < band_b
-	)
+	var tunnel: bool = false
+	if absi(field_a - NOISE_MID) < band_a:
+		var field_b: int = sample_noise_3d(
+			seed + 3019,
+			world_position.x + 7,
+			stretched_y - 5,
+			world_position.z - 11,
+			23
+		)
+		tunnel = absi(field_b - NOISE_MID) < band_b
 	if tunnel:
 		return true
 
