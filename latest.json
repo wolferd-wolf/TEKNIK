@@ -1,16 +1,16 @@
 {
   "schema": 1,
-  "generated_at_utc": "2026-07-27T07:44:12Z",
+  "generated_at_utc": "2026-07-27T09:17:34Z",
   "run": {
-    "id": 30246366323,
+    "id": 30252271592,
     "attempt": 1,
-    "url": "https://github.com/wolferd-wolf/TEKNIK/actions/runs/30246366323",
+    "url": "https://github.com/wolferd-wolf/TEKNIK/actions/runs/30252271592",
     "repository": "wolferd-wolf/TEKNIK",
-    "workflow": "TEKNIK Phase 1 Engineering APK",
+    "workflow": "TEKNIK Textured Ore APK",
     "event": "push",
     "ref": "refs/heads/agent/bootstrap-foundation",
     "branch_or_tag": "agent/bootstrap-foundation",
-    "commit_sha": "a050dcf3d24dfb61f9e573ac56184f0effad28a5",
+    "commit_sha": "982a5b4bb310dfbf1bfe3ac1cf06d20c4f24f515",
     "actor": "wolferd-wolf",
     "overall_result": "success"
   },
