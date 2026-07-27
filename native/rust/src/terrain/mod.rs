@@ -4,10 +4,8 @@ use crate::EditMap;
 mod base;
 mod cave_density;
 
-pub use base::{
-    fast_surface_color, material_from_column, sample_column, surface_height, Column, AIR, GRASS,
-    MAX_SURFACE_HEIGHT, PADDED_SIZE, PADDED_VOLUME, SAND, SIZE, SOIL, STONE, VOLUME, WATER_LEVEL,
-};
+pub use base::{fast_surface_color, AIR, PADDED_SIZE, SIZE, STONE, VOLUME};
+use base::{Column, PADDED_VOLUME};
 
 #[inline]
 fn voxel_index(x: usize, y: usize, z: usize) -> usize {
@@ -221,8 +219,8 @@ mod tests {
                 let surface = column.height;
                 for y in 0..SIZE {
                     let index = voxel_index(x, y, z);
-                    let underground = y as i32 <= surface;
-                    if underground && (y <= 1 || surface - y as i32 < 4) {
+                    let underground = (y as i32) <= surface;
+                    if underground && (y <= 1 || surface - (y as i32) < 4) {
                         assert_ne!(voxels[index], AIR);
                     } else if underground && voxels[index] == AIR {
                         caves += 1;
