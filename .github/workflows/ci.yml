@@ -1,5 +1,5 @@
 # Focused Phase 1 engineering pipeline. It preserves the verified cave foundation,
-# validates the complete item/recipe/save catalog, then publishes the ARM64 APK.
+# validates the complete item/recipe/save catalog and mobile UI, then publishes ARM64.
 name: TEKNIK Phase 1 Engineering APK
 
 on:
@@ -40,7 +40,7 @@ jobs:
       - name: Install focused build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential clang lld scons git curl unzip libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
+          sudo apt-get install -y -qq build-essential clang lld scons git curl unzip xvfb libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
 
       - name: Install Godot and export templates
         run: |
@@ -80,7 +80,7 @@ jobs:
           (cd native && scons -j2 platform=linux arch=x86_64 target=template_debug custom_api_file="$GITHUB_WORKSPACE/extension_api.json" rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/release")
           test -s native/bin/libteknik_native.linux.template_debug.x86_64.so
 
-      - name: Import project and validate caves plus Phase 1
+      - name: Import project and validate Phase 1 contracts
         run: |
           set -o pipefail
           godot --headless --path . --editor --quit
@@ -91,6 +91,17 @@ jobs:
           grep -q "PHASE_ONE_ITEM_TESTS_PASS" /tmp/teknik-phase-one.log
           timeout 120s godot --headless --path . --script res://tests/run_survival_inventory_tests.gd | tee /tmp/teknik-inventory.log
           grep -q "SURVIVAL_INVENTORY_TEST_RESULT PASS" /tmp/teknik-inventory.log
+          timeout 120s godot --headless --path . --script res://tests/run_engineering_progression_tests.gd | tee /tmp/teknik-progression.log
+          grep -q "ENGINEERING_PROGRESSION_TEST_RESULT PASS" /tmp/teknik-progression.log
+          timeout 120s godot --headless --path . --script res://tests/run_kinetic_machine_tests.gd | tee /tmp/teknik-kinetic.log
+          grep -q "KINETIC_MACHINE_TEST_RESULT PASS" /tmp/teknik-kinetic.log
+
+      - name: Validate 36-row mobile inventory and workbench touch scrolling
+        run: |
+          set -o pipefail
+          timeout 150s xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy -- --qa-ui-layout | tee /tmp/teknik-phase-one-ui.log
+          grep -q "QA_RESOLVED_MOBILE_LAYOUT_PASS" /tmp/teknik-phase-one-ui.log
+          grep -q "QA_FOCUSED_UI_PASS" /tmp/teknik-phase-one-ui.log
 
       - name: Install Java 17
         uses: actions/setup-java@v4
@@ -151,18 +162,12 @@ jobs:
           CREATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           jq -n \
-            --arg created_at "$CREATED_AT" \
-            --arg run_id "$GITHUB_RUN_ID" \
-            --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
-            --arg run_url "$RUN_URL" \
-            --arg repository "$GITHUB_REPOSITORY" \
-            --arg workflow "$GITHUB_WORKFLOW" \
-            --arg event "$GITHUB_EVENT_NAME" \
-            --arg ref "$GITHUB_REF" \
-            --arg ref_name "$GITHUB_REF_NAME" \
-            --arg sha "$GITHUB_SHA" \
-            --arg actor "$GITHUB_ACTOR" \
-            --arg result "$BUILD_RESULT" \
+            --arg created_at "$CREATED_AT" --arg run_id "$GITHUB_RUN_ID" \
+            --arg run_attempt "$GITHUB_RUN_ATTEMPT" --arg run_url "$RUN_URL" \
+            --arg repository "$GITHUB_REPOSITORY" --arg workflow "$GITHUB_WORKFLOW" \
+            --arg event "$GITHUB_EVENT_NAME" --arg ref "$GITHUB_REF" \
+            --arg ref_name "$GITHUB_REF_NAME" --arg sha "$GITHUB_SHA" \
+            --arg actor "$GITHUB_ACTOR" --arg result "$BUILD_RESULT" \
             '{schema:1,generated_at_utc:$created_at,run:{id:($run_id|tonumber),attempt:($run_attempt|tonumber),url:$run_url,repository:$repository,workflow:$workflow,event:$event,ref:$ref,branch_or_tag:$ref_name,commit_sha:$sha,actor:$actor,overall_result:$result},required_jobs:{phase_one_arm64:$result}}' > /tmp/latest.json
           {
             echo "# TEKNIK Phase 1 Engineering APK Run"
