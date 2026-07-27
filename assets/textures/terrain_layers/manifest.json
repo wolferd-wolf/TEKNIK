@@ -1,0 +1,58 @@
+{
+  "generator_version": 3,
+  "layer_order": [
+    "grass_top",
+    "grass_side",
+    "dirt",
+    "stone",
+    "sand",
+    "zinc_ore",
+    "copper_ore",
+    "iron_ore",
+    "gold_ore"
+  ],
+  "layer_size": 128,
+  "output_sha256": {
+    "copper_ore": "c9e72f806c8d7447bc522891d3a8154d1eff765255c4837c3064fa293c3a500d",
+    "dirt": "f06ba41abeaf29edcb54e638297fa9aac32afe3fd0444a37fb18eb18dc0123c3",
+    "gold_ore": "96091b91a1024682a79ebe7a1592e29f1b6a10dfd7d045f1b531fcdba8590751",
+    "grass_side": "f2e7448bf9592bffdf4a895e924b47175f97c80595e6fbc5c02627c322e4ab26",
+    "grass_top": "ea5835a0b31f34749ccd6f00af9c11da660abb3c961203993a65272b634e4245",
+    "iron_ore": "e0ab47a5cfe35f4e7185b4a6ed70ca9ef6fe0b010792b570000b3f806124763a",
+    "sand": "dcae575551d38cab40917ceee680869634e143025c742c1c8f191bd94c90d65b",
+    "stone": "8540e786f89084026cd4339e5cd04c58632e3eda615f87de299ef11a5dc5d55e",
+    "zinc_ore": "f033e855751a3f27e0442684abc11eba0ede4ff0d9267a1d8d206c4af575f963"
+  },
+  "processing": {
+    "distance_fade_in_shader": true,
+    "grass_side_top_band": true,
+    "per_block_variants": 0,
+    "source_blur_before_downsample": true
+  },
+  "schema": 1,
+  "source_author": "profpatonildo",
+  "source_license": "CC0-1.0",
+  "source_pack": "Cartoon Outdoor Tileable Textures",
+  "source_sha256": {
+    "dirt": "8267f53518e6f47f33639bef5e8de86eb9a46830019f7c8371357e8aeb330993",
+    "grass": "8bf522a2ee3953c205620d1de13faaa1e12e2811d7afb25225f531db700f1c2f",
+    "stone": "a2f1876a25c2084cedaf47f7a3ce080095412149431f10b420d1145a581e4aa1"
+  },
+  "sources": {
+    "dirt": {
+      "license": "CC0-1.0",
+      "page": "https://opengameart.org/content/cartoon-outdoor-tileable-textures",
+      "url": "https://opengameart.org/sites/default/files/dirt_18.png"
+    },
+    "grass": {
+      "license": "CC0-1.0",
+      "page": "https://opengameart.org/content/cartoon-outdoor-tileable-textures",
+      "url": "https://opengameart.org/sites/default/files/grass_62.png"
+    },
+    "stone": {
+      "license": "CC0-1.0",
+      "page": "https://opengameart.org/content/cartoon-outdoor-tileable-textures",
+      "url": "https://opengameart.org/sites/default/files/stone_16.png"
+    }
+  }
+}
