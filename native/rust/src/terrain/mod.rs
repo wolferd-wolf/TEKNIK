@@ -217,22 +217,14 @@ mod tests {
         let mut caves = 0_usize;
         for z in 0..SIZE {
             for x in 0..SIZE {
-                let mut surface = -1_i32;
-                for y in (0..SIZE).rev() {
-                    if base::material_from_column(
-                        y as i32,
-                        base::sample_column(73_421, x as i32, z as i32),
-                    ) != AIR
-                    {
-                        surface = y as i32;
-                        break;
-                    }
-                }
+                let column = base::sample_column(73_421, x as i32, z as i32);
+                let surface = column.height;
                 for y in 0..SIZE {
                     let index = voxel_index(x, y, z);
-                    if y <= 1 || (surface >= 0 && surface - y as i32 < 4) {
+                    let underground = y as i32 <= surface;
+                    if underground && (y <= 1 || surface - y as i32 < 4) {
                         assert_ne!(voxels[index], AIR);
-                    } else if voxels[index] == AIR && y as i32 <= surface {
+                    } else if underground && voxels[index] == AIR {
                         caves += 1;
                     }
                 }
