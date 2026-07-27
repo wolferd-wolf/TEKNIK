@@ -21,8 +21,9 @@ func _init() -> void:
 		print(
 			"TERRAIN_TEXTURE_ORE_TESTS_PASS texture_array_layers=9",
 			" layer_size=128",
-			" source=OpenGameArt-CC0",
+			" source=OpenGameArt-CC0-pinned",
 			" mipmaps=runtime",
+			" anisotropy=4x",
 			" distance_fade=24-88",
 			" grass_faces=top_side_soil_bottom",
 			" ore_drops=concentrates",
@@ -48,6 +49,9 @@ func _test_texture_assets() -> void:
 		var manifest_text: String = manifest.get_as_text()
 		_expect("OpenGameArt" in manifest_text, "manifest records internet source")
 		_expect("CC0-1.0" in manifest_text, "manifest records CC0 license")
+		_expect("8bf522a2ee3953c205620d1de13faaa1e12e2811d7afb25225f531db700f1c2f" in manifest_text, "manifest pins grass source")
+		_expect("8267f53518e6f47f33639bef5e8de86eb9a46830019f7c8371357e8aeb330993" in manifest_text, "manifest pins dirt source")
+		_expect("a2f1876a25c2084cedaf47f7a3ce080095412149431f10b420d1145a581e4aa1" in manifest_text, "manifest pins stone source")
 	var shader := load("res://assets/textures/terrain_texture_array.gdshader") as Shader
 	_expect(shader != null, "terrain texture-array shader loads")
 	if shader != null:
@@ -105,7 +109,7 @@ func _test_material_encoding_and_shared_shader() -> void:
 
 func _test_filtering_contracts() -> void:
 	_expect(
-		int(ProjectSettings.get_setting("rendering/textures/default_filters/anisotropic_filtering_level", -1)) == 2,
+		int(ProjectSettings.get_setting("rendering/textures/default_filters/anisotropic_filtering_level", -1)) == 4,
 		"mobile anisotropic filtering is fixed at 4x"
 	)
 	_expect(
