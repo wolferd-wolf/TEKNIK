@@ -426,6 +426,58 @@ Don't implement vehicle-speed tuning without the measurement above existing
 first. Guessing constants for a system with no vehicle to test against yet
 is exactly the kind of thing that produces silent, unverified "fixes."
 
+## Current assignment — replace dense cave-density evaluation with worm-based carving (2026-07-27)
+
+Owner reported the cave lag optimization (see log below, tunnel short-circuit
+fix) helped but didn't resolve it. Researched real open-source references
+before recommending anything - see findings, then the actual task.
+
+**What I checked:** CaveGenerator, Caveworm, and the CurseForge "Cave
+Generator" mod are Minecraft-specific Java plugins/mods built against
+Minecraft's own Forge/Bukkit world-gen APIs. Not portable into this project -
+different engine, different language, no code to import directly. The
+algorithm *idea* is what's useful, not the code.
+
+**The actual finding:** Caveworm doesn't test every voxel against a density
+field. It walks a path ("worm") through the world and clears a sphere around
+each waypoint, using noise only to vary the sphere's radius. Cost is
+proportional to worm count x worm length, not to total world volume. Our
+current system (`cave_density.gd` / `cave_density.rs`) does the opposite -
+`should_carve()` asks "is this voxel a cave?" independently for every single
+solid voxel during chunk generation (32x32x32 per chunk). I already removed
+the one clearly-redundant computation in that function (see log), but the
+chamber/room check still runs unconditionally for nearly every solid voxel
+past the initial depth gate - that's an unavoidable floor on how cheap dense
+per-voxel evaluation can get. This is a cost-model problem, not a
+missing-optimization problem.
+
+**Task: switch to worm/path-based carving instead of continuing to trim the
+dense density-field approach.**
+
+- Generate a bounded number of worm paths per world region deterministically
+  from the world seed (same determinism requirement the current system
+  already has - keep it, don't lose it).
+- For each worm, walk it through 3D space (a random walk or noise-guided
+  path, your call on exact shape) and mark voxels within a noise-varied
+  radius of each waypoint as air - this is the core Caveworm technique.
+- This needs to stay chunk-boundary-safe: a worm can cross chunk boundaries,
+  so a chunk's generation needs to know about worm segments that pass near
+  it even if the worm's origin is in a different chunk. Look at how the
+  existing terrain generator already handles chunk-boundary consistency
+  (surface_slope samples neighbor columns) for the pattern to follow.
+- Keep parity between GDScript and Rust implementations and the existing
+  parity test structure (`tests/run_cave_generation_tests.gd` and the Rust
+  cave tests) - determinism and cross-language matching are hard
+  requirements here, not nice-to-haves.
+- This changes what caves actually look like (worm-carved reads differently
+  than dense-noise carved). That's a real visual/design change, not just a
+  performance one - confirm the shape reads acceptably before treating this
+  as done, not just "it's faster now."
+
+**Don't do this silently alongside other work** - this is a generation
+algorithm replacement, flag it clearly as its own change, not bundled into
+something else.
+
 ## Log
 
 ### 2026-07-25 — Claude
