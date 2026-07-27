@@ -35,24 +35,11 @@ var _back_to_inventory_button: Button
 var _workspace_title: Label
 var _installed: bool = false
 var _crafting_visible: bool = false
-var _recipe_generation_signature: String = ""
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	call_deferred("_install")
-
-
-func _process(_delta: float) -> void:
-	if not _installed or _recipe_list == null:
-		return
-	var signature_parts := PackedStringArray()
-	for child: Node in _recipe_list.get_children():
-		signature_parts.append(str(child.get_instance_id()))
-	var signature: String = ",".join(signature_parts)
-	if signature != _recipe_generation_signature:
-		_recipe_generation_signature = signature
-		_style_recipe_list()
 
 
 func _install() -> void:
@@ -86,9 +73,10 @@ func _install() -> void:
 	_configure_crafting_page()
 	_configure_hud()
 	_connect_actions()
-	_apply_theme_recursive(_world)
+	_apply_all_ui_theme()
 	_apply_priority_styles()
 	show_inventory()
+	_style_recipe_list()
 	_installed = true
 	call_deferred("_validate_after_layout")
 
@@ -267,6 +255,12 @@ func _connect_actions() -> void:
 		_inventory_open_button.pressed.connect(_after_inventory_toggle)
 	if _settings_button != null:
 		_settings_button.pressed.connect(_after_settings_toggle)
+	if _recipe_list != null:
+		_recipe_list.child_entered_tree.connect(_on_recipe_control_added)
+
+
+func _on_recipe_control_added(control: Node) -> void:
+	call_deferred("_style_recipe_control", control)
 
 
 func _after_inventory_toggle() -> void:
@@ -332,15 +326,27 @@ func _style_recipe_list() -> void:
 	if _recipe_list == null:
 		return
 	for child: Node in _recipe_list.get_children():
-		var button := child as Button
-		if button != null:
-			button.custom_minimum_size = Vector2(750.0, 54.0)
-			_apply_button_style(button)
-			continue
-		var heading := child as Label
-		if heading != null:
-			heading.add_theme_color_override("font_color", BRASS_BRIGHT)
-			heading.add_theme_font_size_override("font_size", 14)
+		_style_recipe_control(child)
+
+
+func _style_recipe_control(control: Node) -> void:
+	if not is_instance_valid(control):
+		return
+	var button := control as Button
+	if button != null:
+		button.custom_minimum_size = Vector2(750.0, 54.0)
+		_apply_button_style(button)
+		return
+	var heading := control as Label
+	if heading != null:
+		heading.add_theme_color_override("font_color", BRASS_BRIGHT)
+		heading.add_theme_font_size_override("font_size", 14)
+
+
+func _apply_all_ui_theme() -> void:
+	for child: Node in _world.get_children():
+		if child is CanvasLayer or child is Control:
+			_apply_theme_recursive(child)
 
 
 func _apply_theme_recursive(root: Node) -> void:
