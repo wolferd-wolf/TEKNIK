@@ -35,6 +35,7 @@ var _back_to_inventory_button: Button
 var _workspace_title: Label
 var _installed: bool = false
 var _crafting_visible: bool = false
+var _recipe_style_refresh_pending: bool = false
 
 
 func _ready() -> void:
@@ -192,7 +193,7 @@ func _configure_hud() -> void:
 		hotbar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 		hotbar.grow_horizontal = Control.GROW_DIRECTION_BOTH
 		hotbar.grow_vertical = Control.GROW_DIRECTION_BEGIN
-		hotbar.position = Vector2(-306.0, -90.0)
+		hotbar.position = Vector2(-306.0, -102.0)
 		hotbar.size = Vector2(612.0, 78.0)
 		hotbar.custom_minimum_size = Vector2(612.0, 78.0)
 		hotbar.z_index = 20
@@ -259,8 +260,16 @@ func _connect_actions() -> void:
 		_recipe_list.child_entered_tree.connect(_on_recipe_control_added)
 
 
-func _on_recipe_control_added(control: Node) -> void:
-	call_deferred("_style_recipe_control", control)
+func _on_recipe_control_added(_control: Node) -> void:
+	if _recipe_style_refresh_pending:
+		return
+	_recipe_style_refresh_pending = true
+	call_deferred("_refresh_recipe_styles")
+
+
+func _refresh_recipe_styles() -> void:
+	_recipe_style_refresh_pending = false
+	_style_recipe_list()
 
 
 func _after_inventory_toggle() -> void:
