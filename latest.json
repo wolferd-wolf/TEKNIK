@@ -1,16 +1,16 @@
 {
   "schema": 1,
-  "generated_at_utc": "2026-07-27T06:41:15Z",
+  "generated_at_utc": "2026-07-27T06:44:11Z",
   "run": {
-    "id": 30243521833,
+    "id": 30243681097,
     "attempt": 1,
-    "url": "https://github.com/wolferd-wolf/TEKNIK/actions/runs/30243521833",
+    "url": "https://github.com/wolferd-wolf/TEKNIK/actions/runs/30243681097",
     "repository": "wolferd-wolf/TEKNIK",
     "workflow": "TEKNIK Cave Foundation APK",
     "event": "push",
     "ref": "refs/heads/agent/bootstrap-foundation",
     "branch_or_tag": "agent/bootstrap-foundation",
-    "commit_sha": "36daa306cbd7602d072b6eaa80bd496c3588fd07",
+    "commit_sha": "632a73d9acd3c60195563091561f66b9ef63facc",
     "actor": "wolferd-wolf",
     "overall_result": "failure"
   },
