@@ -1,7 +1,10 @@
 [gd_scene load_steps=3 format=3]
 
 ; kinetic_capture_shipping_main.gd remains the active production and QA tip.
-; The UI controller is a child presentation layer, not another gameplay main.
+; Its inherited production stack reaches kinetic_machine_main.gd, survival,
+; multi-LOD terrain, incremental collision, movement streaming, and biome
+; visuals. The UI controller below is a child presentation layer, not another
+; gameplay main or a replacement for that inheritance chain.
 [ext_resource type="Script" path="res://src/main/kinetic_capture_shipping_main.gd" id="1_main"]
 [ext_resource type="Script" path="res://src/ui/industrial_blueprint_ui.gd" id="2_ui"]
 
