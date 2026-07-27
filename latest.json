@@ -1,16 +1,16 @@
 {
   "schema": 1,
-  "generated_at_utc": "2026-07-27T06:34:18Z",
+  "generated_at_utc": "2026-07-27T06:35:28Z",
   "run": {
-    "id": 30243105030,
+    "id": 30243173380,
     "attempt": 1,
-    "url": "https://github.com/wolferd-wolf/TEKNIK/actions/runs/30243105030",
+    "url": "https://github.com/wolferd-wolf/TEKNIK/actions/runs/30243173380",
     "repository": "wolferd-wolf/TEKNIK",
     "workflow": "TEKNIK Focused UI APK",
     "event": "push",
     "ref": "refs/heads/agent/bootstrap-foundation",
     "branch_or_tag": "agent/bootstrap-foundation",
-    "commit_sha": "758d9c4778dc82820fd152e286d97957ccc708a6",
+    "commit_sha": "0bdd02949e739c3e77a8d924feca3c17491986cc",
     "actor": "wolferd-wolf",
     "overall_result": "failure"
   },
