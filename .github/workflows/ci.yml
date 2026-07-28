@@ -135,10 +135,58 @@ jobs:
       - name: Publish terrain screenshot
         uses: actions/upload-artifact@v4
         with:
-          name: TEKNIK-Station-UI-Create-Recipes-Screenshot-${{ github.sha }}
+          name: TEKNIK-Station-UI-Create-Recipes-Terrain-${{ github.sha }}
           if-no-files-found: error
           retention-days: 14
           path: build/screenshots/terrain-texture-preview.png
+
+      - name: Validate and capture four mobile UIs
+        run: |
+          set -o pipefail
+          timeout 180s xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy -- --qa-ui-layout |& tee /tmp/teknik-station-ui.log
+          grep -q "QA_SEPARATE_STATION_UI_PASS" /tmp/teknik-station-ui.log
+          grep -q "QA_RESOLVED_MOBILE_LAYOUT_PASS" /tmp/teknik-station-ui.log
+          grep -q "QA_FOCUSED_UI_PASS" /tmp/teknik-station-ui.log
+          test "$(grep -c 'QA_STATION_UI_SCREENSHOT_PASS' /tmp/teknik-station-ui.log)" -eq 4
+          for path in \
+            build/screenshots/inventory-ui.png \
+            build/screenshots/portable-crafting-ui.png \
+            build/screenshots/crafting-table-ui.png \
+            build/screenshots/furnace-ui.png; do
+            test -s "$path"
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          from PIL import Image, ImageStat
+
+          paths = [
+              Path("build/screenshots/inventory-ui.png"),
+              Path("build/screenshots/portable-crafting-ui.png"),
+              Path("build/screenshots/crafting-table-ui.png"),
+              Path("build/screenshots/furnace-ui.png"),
+          ]
+          for path in paths:
+              with Image.open(path) as image:
+                  image.load()
+                  if image.size != (1280, 720):
+                      raise SystemExit(f"{path}: unexpected size {image.size}")
+                  maximum_stddev = max(ImageStat.Stat(image.convert("RGB")).stddev)
+                  print(f"STATION_UI_VISUAL_CHECK path={path} size={image.size} max_stddev={maximum_stddev:.3f}")
+                  if maximum_stddev < 12.0:
+                      raise SystemExit(f"{path}: screenshot is blank or nearly uniform")
+          PY
+
+      - name: Publish four station UI screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: TEKNIK-Station-UI-Screenshots-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            build/screenshots/inventory-ui.png
+            build/screenshots/portable-crafting-ui.png
+            build/screenshots/crafting-table-ui.png
+            build/screenshots/furnace-ui.png
 
       - name: Publish focused failure logs
         if: ${{ failure() }}
@@ -148,14 +196,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
           path: /tmp/teknik-*.log
-
-      - name: Validate four mobile UIs and touch scrolling
-        run: |
-          set -o pipefail
-          timeout 180s xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy -- --qa-ui-layout |& tee /tmp/teknik-station-ui.log
-          grep -q "QA_SEPARATE_STATION_UI_PASS" /tmp/teknik-station-ui.log
-          grep -q "QA_RESOLVED_MOBILE_LAYOUT_PASS" /tmp/teknik-station-ui.log
-          grep -q "QA_FOCUSED_UI_PASS" /tmp/teknik-station-ui.log
 
       - name: Install Java 17
         uses: actions/setup-java@v4
