@@ -26,19 +26,24 @@ func _test_gated_progression_chain() -> void:
 		RecipeBook.available_recipes(progression) == [
 			RecipeBook.RECIPE_STONE_GEAR,
 			RecipeBook.RECIPE_WORKBENCH,
+			RecipeBook.RECIPE_FURNACE,
 			RecipeBook.RECIPE_PLANT_FIBER,
 		],
-		"only hand recipes are initially visible"
+		"hand crafting initially exposes the bench, furnace and primitive recipes"
 	)
 	_expect(not RecipeBook.can_craft(inventory, RecipeBook.RECIPE_CRUSHED_STONE, progression), "processing is progression-gated")
 	_expect(not RecipeBook.can_craft(inventory, RecipeBook.RECIPE_ANDESITE_ALLOY, progression), "andesite engineering starts locked")
 	_expect(not RecipeBook.can_craft(inventory, RecipeBook.RECIPE_BRASS_INGOT, progression), "brass engineering starts locked")
 	_expect(not RecipeBook.can_craft(inventory, RecipeBook.RECIPE_STONE_CRUSHER, progression), "crusher is kinetic-progression-gated")
 
+	inventory.add(ItemRegistry.ITEM_WOOD, 4)
+	_expect(RecipeBook.craft(inventory, RecipeBook.RECIPE_WORKBENCH, progression), "crafting bench crafts from mined wood")
+	_expect(progression.is_unlocked(ProgressionState.UNLOCK_WORKBENCH), "crafting bench unlock is granted")
+
+	inventory.clear()
 	inventory.add(ItemRegistry.ITEM_STONE, 8)
-	inventory.add(ItemRegistry.ITEM_STONE_GEAR, 1)
-	_expect(RecipeBook.craft(inventory, RecipeBook.RECIPE_WORKBENCH, progression), "workbench crafts")
-	_expect(progression.is_unlocked(ProgressionState.UNLOCK_WORKBENCH), "workbench unlock is granted")
+	_expect(RecipeBook.craft(inventory, RecipeBook.RECIPE_FURNACE, progression), "furnace crafts from stone")
+	_expect(inventory.count(ItemRegistry.ITEM_FURNACE) == 1, "furnace is available before engineering progression")
 
 	inventory.clear()
 	inventory.add(ItemRegistry.ITEM_STONE, 2)
