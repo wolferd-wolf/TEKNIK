@@ -2,9 +2,11 @@ class_name TeknikStackInventory
 extends RefCounted
 
 const ItemRegistry = preload("res://src/survival/item_registry.gd")
-const SCHEMA: int = 2
+const SCHEMA: int = 3
+const PREVIOUS_SCHEMA: int = 2
 const LEGACY_SCHEMA: int = 1
-const SLOT_COUNT: int = 36
+const SLOT_COUNT: int = 40
+const PREVIOUS_SLOT_COUNT: int = 36
 const LEGACY_SLOT_COUNT: int = 12
 
 var _slots: Array[Dictionary] = []
@@ -89,6 +91,8 @@ func decode(payload: Dictionary) -> bool:
 	match schema:
 		LEGACY_SCHEMA:
 			expected_slots = LEGACY_SLOT_COUNT
+		PREVIOUS_SCHEMA:
+			expected_slots = PREVIOUS_SLOT_COUNT
 		SCHEMA:
 			expected_slots = SLOT_COUNT
 		_:
