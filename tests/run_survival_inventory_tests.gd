@@ -26,26 +26,17 @@ func _test_registry() -> void:
 		_expect(item_id != &"", "terrain material maps to an item")
 		_expect(ItemRegistry.material_for_item(item_id) == material, "item mapping round-trips")
 	_expect(ItemRegistry.item_for_material(ItemRegistry.AIR) == &"", "air never becomes an item")
-	var expected_voxels: Array[StringName] = [
-		ItemRegistry.ITEM_STONE,
-		ItemRegistry.ITEM_SOIL,
-		ItemRegistry.ITEM_GRASS,
-		ItemRegistry.ITEM_SAND,
-	]
-	var expected_objects: Array[StringName] = [
-		ItemRegistry.ITEM_WORKBENCH,
-		ItemRegistry.ITEM_STONE_SHAFT,
-		ItemRegistry.ITEM_HAND_CRANK,
-		ItemRegistry.ITEM_STONE_CRUSHER,
-	]
+	var expected_voxels: Array[StringName] = [ItemRegistry.ITEM_STONE, ItemRegistry.ITEM_SOIL, ItemRegistry.ITEM_GRASS, ItemRegistry.ITEM_SAND]
+	var expected_objects: Array[StringName] = [ItemRegistry.ITEM_WORKBENCH, ItemRegistry.ITEM_FURNACE, ItemRegistry.ITEM_STONE_SHAFT, ItemRegistry.ITEM_HAND_CRANK, ItemRegistry.ITEM_STONE_CRUSHER]
 	var expected_placeables: Array[StringName] = expected_voxels.duplicate()
 	expected_placeables.append_array(expected_objects)
 	_expect(ItemRegistry.voxel_placeable_items() == expected_voxels, "voxel hotbar order is deterministic")
-	_expect(ItemRegistry.object_placeable_items() == expected_objects, "engineering hotbar order is deterministic")
+	_expect(ItemRegistry.object_placeable_items() == expected_objects, "station and engineering hotbar order is deterministic")
 	_expect(ItemRegistry.placeable_items() == expected_placeables, "combined hotbar order is deterministic")
 	for item_id: StringName in expected_objects:
-		_expect(ItemRegistry.is_object_placeable(item_id), "engineering item is object-placeable")
-		_expect(ItemRegistry.material_for_item(item_id) == ItemRegistry.AIR, "engineering object stays outside the voxel material path")
+		_expect(ItemRegistry.is_object_placeable(item_id), "station item is object-placeable")
+		_expect(ItemRegistry.material_for_item(item_id) == ItemRegistry.AIR, "object stays outside the voxel material path")
+	_expect(not ItemRegistry.is_placeable(ItemRegistry.ITEM_WOOD), "wood is a crafting ingredient rather than a voxel")
 	_expect(not ItemRegistry.is_placeable(ItemRegistry.ITEM_STONE_GEAR), "ingredient-only gear stays out of the hotbar")
 
 
@@ -65,6 +56,7 @@ func _test_capacity_and_codec() -> void:
 	for item_id: StringName in ItemRegistry.registered_items():
 		var amount: int = mini(ItemRegistry.max_stack(item_id), 8)
 		_expect(inventory.add(item_id, amount) == 0, "registered item fills a bounded test stack")
+	_expect(inventory.slots().size() == 40, "inventory has room for the foundation catalog")
 	var encoded: Dictionary = inventory.encode()
 	var restored: TeknikStackInventory = StackInventory.new()
 	_expect(restored.decode(encoded), "inventory save payload decodes")
@@ -78,18 +70,18 @@ func _test_hotbar_selection() -> void:
 	var inventory: TeknikStackInventory = StackInventory.new()
 	inventory.add(ItemRegistry.ITEM_SOIL, 3)
 	inventory.add(ItemRegistry.ITEM_GRASS, 2)
-	inventory.add(ItemRegistry.ITEM_STONE_CRUSHER, 1)
+	inventory.add(ItemRegistry.ITEM_FURNACE, 1)
 	var state := HotbarSelectionState.new()
 	_expect(state.choose_available(Callable(inventory, "count")) == ItemRegistry.ITEM_SOIL, "empty default selection falls back to the first available placeable")
-	_expect(state.select(ItemRegistry.ITEM_STONE_CRUSHER), "engineering object can be selected in the hotbar")
-	_expect(not state.select(ItemRegistry.ITEM_STONE_GEAR), "ingredient-only item cannot enter the hotbar")
+	_expect(state.select(ItemRegistry.ITEM_FURNACE), "furnace can be selected in the hotbar")
+	_expect(not state.select(ItemRegistry.ITEM_WOOD), "wood cannot enter the placement hotbar")
 	var encoded: Dictionary = state.encode()
 	var restored := HotbarSelectionState.new()
-	_expect(restored.decode(encoded), "engineering hotbar selection save decodes")
-	_expect(restored.selected_item == ItemRegistry.ITEM_STONE_CRUSHER, "engineering hotbar selection survives reload")
-	inventory.remove(ItemRegistry.ITEM_STONE_CRUSHER, 1)
+	_expect(restored.decode(encoded), "station hotbar selection save decodes")
+	_expect(restored.selected_item == ItemRegistry.ITEM_FURNACE, "furnace selection survives reload")
+	inventory.remove(ItemRegistry.ITEM_FURNACE, 1)
 	_expect(restored.choose_available(Callable(inventory, "count")) == ItemRegistry.ITEM_SOIL, "depleted selected stack switches to an available placeable")
-	var invalid := {"schema": HotbarSelectionState.SCHEMA, "selected_item": str(ItemRegistry.ITEM_STONE_GEAR)}
+	var invalid := {"schema": HotbarSelectionState.SCHEMA, "selected_item": str(ItemRegistry.ITEM_WOOD)}
 	_expect(not restored.decode(invalid), "invalid non-placeable hotbar save is rejected")
 
 
