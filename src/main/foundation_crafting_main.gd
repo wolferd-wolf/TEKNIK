@@ -1,7 +1,6 @@
 extends "res://src/main/kinetic_capture_shipping_main.gd"
 
 const FoundationItemRegistry = preload("res://src/survival/item_registry.gd")
-const FoundationStackInventory = preload("res://src/survival/stack_inventory.gd")
 const FurnaceRecipeBook = preload("res://src/survival/furnace_recipe_book.gd")
 const TreeHarvestState = preload("res://src/world/tree_harvest_state.gd")
 
@@ -44,6 +43,8 @@ func _notification(what: int) -> void:
 	super._notification(what)
 
 
+# The adapted grass-side image is already authored with its green band at the top.
+# Texture orientation is handled in the shader; ecology geometry remains unchanged.
 func _ecology_mesh_for_group(group: Dictionary) -> Mesh:
 	_ecology_group_being_committed = str(group.get("name", ""))
 	return super._ecology_mesh_for_group(group)
@@ -248,6 +249,8 @@ func _harvest_active_tree() -> bool:
 
 func _can_place_engineering_item(voxel: Vector3i, item_id: StringName) -> bool:
 	if item_id != FoundationItemRegistry.ITEM_FURNACE:
+		if _furnace_at_position(voxel):
+			return false
 		return super._can_place_engineering_item(voxel, item_id)
 	if _inventory.count(item_id) <= 0:
 		return false
@@ -266,6 +269,8 @@ func _place_engineering_item(
 	consume_item: bool
 ) -> bool:
 	if item_id != FoundationItemRegistry.ITEM_FURNACE:
+		if _furnace_at_position(voxel):
+			return false
 		return super._place_engineering_item(voxel, item_id, consume_item)
 	if not _can_place_engineering_item(voxel, item_id):
 		return false
