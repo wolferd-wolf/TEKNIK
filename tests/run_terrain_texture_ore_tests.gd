@@ -27,6 +27,7 @@ func _init() -> void:
 			" distance_fade=24-88",
 			" grass_side_orientation=authored_top",
 			" ore_drops=concentrates",
+			" registered_items=", ItemRegistry.registered_items().size(),
 			" hotbar_slots=", ItemRegistry.placeable_items().size()
 		)
 		quit(0)
@@ -129,8 +130,8 @@ func _test_ore_drops_without_hotbar_expansion() -> void:
 		var expected: StringName = StringName(str(mappings[material]))
 		_expect(ItemRegistry.item_for_material(material) == expected, "ore maps to existing concentrate")
 		_expect(ItemRegistry.material_for_item(expected) == ItemRegistry.AIR, "concentrate is not voxel-placeable")
-	_expect(ItemRegistry.registered_items().size() == 38, "wood and furnace extend the catalog")
-	_expect(ItemRegistry.placeable_items().size() == 9, "furnace extends the stable hotbar by one station")
+	_expect(ItemRegistry.registered_items().size() == 57, "Create dependencies extend the item catalog without new terrain voxels")
+	_expect(ItemRegistry.placeable_items().size() == 9, "dependency items do not expand the placement hotbar")
 
 
 func _expect(condition: bool, message: String) -> void:
