@@ -2,9 +2,8 @@ class_name TeknikMiningController
 extends RefCounted
 
 # One authoritative state machine owns the entire mining interaction. A block is
-# never removed on button-down: the held input must fill its material-specific
-# duration, and completion waits for the rebuilt terrain mesh before another
-# target may begin.
+# never removed on button-down: held input must fill its material-specific
+# duration, and terrain completion waits for the visible mesh commit.
 enum Phase {
 	IDLE,
 	TARGETED,
@@ -16,6 +15,8 @@ const STONE_SECONDS: float = 1.45
 const SOIL_SECONDS: float = 0.58
 const GRASS_SECONDS: float = 0.62
 const SAND_SECONDS: float = 0.48
+const TREE_SECONDS: float = 2.20
+const TREE_MATERIAL_ID: int = 9
 const MIN_DURATION_SECONDS: float = 0.05
 
 var _phase: int = Phase.IDLE
@@ -37,6 +38,8 @@ static func duration_for_material(material: int) -> float:
 			return GRASS_SECONDS
 		4:
 			return SAND_SECONDS
+		TREE_MATERIAL_ID:
+			return TREE_SECONDS
 		_:
 			return 1.0
 

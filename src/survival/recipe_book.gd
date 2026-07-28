@@ -7,6 +7,7 @@ const ProgressionState = preload("res://src/survival/progression_state.gd")
 
 const RECIPE_STONE_GEAR: StringName = &"stone_gear"
 const RECIPE_WORKBENCH: StringName = &"workbench"
+const RECIPE_FURNACE: StringName = &"furnace"
 const RECIPE_PLANT_FIBER: StringName = &"plant_fiber"
 const RECIPE_CRUSHED_STONE: StringName = &"crushed_stone"
 const RECIPE_ZINC_CONCENTRATE: StringName = &"zinc_concentrate"
@@ -41,7 +42,7 @@ const RECIPE_STONE_CRUSHER: StringName = &"stone_crusher"
 
 static func registered_recipes() -> Array[StringName]:
 	return [
-		RECIPE_STONE_GEAR, RECIPE_WORKBENCH, RECIPE_PLANT_FIBER,
+		RECIPE_STONE_GEAR, RECIPE_WORKBENCH, RECIPE_FURNACE, RECIPE_PLANT_FIBER,
 		RECIPE_CRUSHED_STONE, RECIPE_ZINC_CONCENTRATE, RECIPE_COPPER_CONCENTRATE,
 		RECIPE_IRON_CONCENTRATE, RECIPE_GOLD_CONCENTRATE,
 		RECIPE_ZINC_INGOT, RECIPE_COPPER_INGOT, RECIPE_IRON_INGOT,
@@ -61,7 +62,9 @@ static func recipe(recipe_id: StringName) -> Dictionary:
 		RECIPE_STONE_GEAR:
 			return _definition(recipe_id, "Stone Gear", "Primitive Components", {ItemRegistry.ITEM_STONE: 4}, ItemRegistry.ITEM_STONE_GEAR, 1, ProgressionState.UNLOCK_HAND_CRAFTING)
 		RECIPE_WORKBENCH:
-			return _definition(recipe_id, "Stone Workbench", "Stations", {ItemRegistry.ITEM_STONE: 8, ItemRegistry.ITEM_STONE_GEAR: 1}, ItemRegistry.ITEM_WORKBENCH, 1, ProgressionState.UNLOCK_HAND_CRAFTING, ProgressionState.UNLOCK_WORKBENCH)
+			return _definition(recipe_id, "Crafting Bench", "Stations", {ItemRegistry.ITEM_WOOD: 4}, ItemRegistry.ITEM_WORKBENCH, 1, ProgressionState.UNLOCK_HAND_CRAFTING, ProgressionState.UNLOCK_WORKBENCH)
+		RECIPE_FURNACE:
+			return _definition(recipe_id, "Furnace", "Stations", {ItemRegistry.ITEM_STONE: 8}, ItemRegistry.ITEM_FURNACE, 1, ProgressionState.UNLOCK_HAND_CRAFTING)
 		RECIPE_PLANT_FIBER:
 			return _definition(recipe_id, "Separate Plant Fiber", "Primitive Materials", {ItemRegistry.ITEM_GRASS: 1}, ItemRegistry.ITEM_PLANT_FIBER, 4, ProgressionState.UNLOCK_HAND_CRAFTING)
 		RECIPE_CRUSHED_STONE:

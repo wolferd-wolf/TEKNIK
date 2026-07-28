@@ -19,34 +19,36 @@ void vertex() {
 }
 
 vec3 material_reference(float material_id, vec3 normal_value) {
+	// References match the adapted Devil's Work.shop face averages. The distance
+	// fade therefore removes shimmer without changing the pack's authored palette.
 	if (material_id < 1.5) {
-		return vec3(0.396, 0.424, 0.416);
+		return vec3(0.475, 0.475, 0.450);
 	}
 	if (material_id < 2.5) {
-		return vec3(0.388, 0.282, 0.169);
+		return vec3(0.640, 0.378, 0.205);
 	}
 	if (material_id < 3.5) {
 		if (normal_value.y > 0.5) {
-			return vec3(0.290, 0.439, 0.227);
+			return vec3(0.522, 0.840, 0.231);
 		}
 		if (normal_value.y < -0.5) {
-			return vec3(0.388, 0.282, 0.169);
+			return vec3(0.640, 0.378, 0.205);
 		}
-		return vec3(0.355, 0.315, 0.168);
+		return vec3(0.664, 0.483, 0.238);
 	}
 	if (material_id < 4.5) {
-		return vec3(0.704, 0.625, 0.410);
+		return vec3(0.696, 0.610, 0.394);
 	}
 	if (material_id < 5.5) {
-		return vec3(0.604, 0.651, 0.635);
+		return vec3(0.469, 0.474, 0.450);
 	}
 	if (material_id < 6.5) {
-		return vec3(0.718, 0.408, 0.271);
+		return vec3(0.478, 0.472, 0.444);
 	}
 	if (material_id < 7.5) {
-		return vec3(0.604, 0.435, 0.345);
+		return vec3(0.478, 0.474, 0.447);
 	}
-	return vec3(0.824, 0.643, 0.220);
+	return vec3(0.481, 0.477, 0.442);
 }
 
 float texture_layer(float material_id, vec3 normal_value) {
@@ -109,12 +111,9 @@ void fragment() {
 		ALBEDO = COLOR.rgb;
 		ROUGHNESS = 0.97;
 	} else {
+		// The adapted grass-side layer is already authored top-to-bottom. Keep
+		// projected V unchanged so its green band stays on the physical top edge.
 		vec2 local_uv = fract(projected_uv(terrain_world_position, normal_value) + vec2(0.0001));
-		if (abs(normal_value.y) < 0.5) {
-			// World Y increases upward, while image V=0 is the authored top edge.
-			// Inverting V keeps the grass band on the physical top of every side face.
-			local_uv.y = 1.0 - local_uv.y;
-		}
 		local_uv = clamp(local_uv, vec2(LAYER_TEXEL_INSET), vec2(1.0 - LAYER_TEXEL_INSET));
 
 		float layer = texture_layer(material_id, normal_value);

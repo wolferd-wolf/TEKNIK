@@ -21,11 +21,11 @@ func _init() -> void:
 		print(
 			"TERRAIN_TEXTURE_ORE_TESTS_PASS texture_array_layers=9",
 			" layer_size=128",
-			" source=OpenGameArt-CC0-pinned",
+			" source=DevilsWorkshop-adapted",
 			" mipmaps=runtime",
 			" anisotropy=4x",
 			" distance_fade=24-88",
-			" grass_faces=top_side_soil_bottom",
+			" grass_side_orientation=authored_top",
 			" ore_drops=concentrates",
 			" hotbar_slots=", ItemRegistry.placeable_items().size()
 		)
@@ -47,33 +47,26 @@ func _test_texture_assets() -> void:
 	_expect(manifest != null, "terrain layer provenance manifest exists")
 	if manifest != null:
 		var manifest_text: String = manifest.get_as_text()
-		_expect("opengameart.org" in manifest_text, "manifest records internet source")
-		_expect("CC0-1.0" in manifest_text, "manifest records CC0 license")
-		_expect("8bf522a2ee3953c205620d1de13faaa1e12e2811d7afb25225f531db700f1c2f" in manifest_text, "manifest pins grass source")
-		_expect("8267f53518e6f47f33639bef5e8de86eb9a46830019f7c8371357e8aeb330993" in manifest_text, "manifest pins dirt source")
-		_expect("a2f1876a25c2084cedaf47f7a3ce080095412149431f10b420d1145a581e4aa1" in manifest_text, "manifest pins stone source")
+		_expect("Essential Isometric 3D Block Pack v2.0" in manifest_text, "manifest records active texture pack")
+		_expect("Devil's Work.shop" in manifest_text, "manifest records pack author")
+		_expect("without a shader V flip" in manifest_text, "manifest records corrected grass orientation")
 	var shader := load("res://assets/textures/terrain_texture_array.gdshader") as Shader
 	_expect(shader != null, "terrain texture-array shader loads")
 	if shader != null:
 		_expect("sampler2DArray" in shader.code, "shader uses separate texture-array layers")
 		_expect("filter_nearest_mipmap_anisotropic" in shader.code, "shader uses anisotropic mip filtering")
 		_expect("CAMERA_POSITION_WORLD" in shader.code, "shader fades detail by camera distance")
-		_expect("local_uv.y = 1.0 - local_uv.y" in shader.code, "side faces put grass at physical top")
+		var active_v_flip: bool = false
+		for line: String in shader.code.split("\n"):
+			if line.strip_edges() == "local_uv.y = 1.0 - local_uv.y;":
+				active_v_flip = true
+		_expect(not active_v_flip, "side faces preserve the authored grass-top orientation")
 		_expect("block_hash" not in shader.code, "per-block random variants are removed")
 
 
 func _test_material_encoding_and_shared_shader() -> void:
 	var chunk := VoxelChunk.new()
-	var materials: Array[int] = [
-		TerrainGenerator.STONE,
-		TerrainGenerator.SOIL,
-		TerrainGenerator.GRASS,
-		TerrainGenerator.SAND,
-		TerrainGenerator.ZINC_ORE,
-		TerrainGenerator.COPPER_ORE,
-		TerrainGenerator.IRON_ORE,
-		TerrainGenerator.GOLD_ORE,
-	]
+	var materials: Array[int] = [TerrainGenerator.STONE, TerrainGenerator.SOIL, TerrainGenerator.GRASS, TerrainGenerator.SAND, TerrainGenerator.ZINC_ORE, TerrainGenerator.COPPER_ORE, TerrainGenerator.IRON_ORE, TerrainGenerator.GOLD_ORE]
 	for index: int in range(materials.size()):
 		chunk.set_voxel(Vector3i(index * 3, 4, 4), materials[index])
 	var report: Dictionary = GreedyMesher.build_arrays(chunk)
@@ -108,35 +101,17 @@ func _test_material_encoding_and_shared_shader() -> void:
 
 
 func _test_filtering_contracts() -> void:
-	_expect(
-		int(ProjectSettings.get_setting("rendering/textures/default_filters/anisotropic_filtering_level", -1)) == 4,
-		"mobile anisotropic filtering is fixed at 4x"
-	)
-	_expect(
-		is_equal_approx(float(ProjectSettings.get_setting("rendering/textures/default_filters/texture_mipmap_bias", 99.0)), 0.0),
-		"mipmap bias stays neutral to avoid grain"
-	)
-	_expect(
-		not bool(ProjectSettings.get_setting("rendering/textures/default_filters/use_nearest_mipmap_filter", true)),
-		"mipmap levels blend instead of popping"
-	)
+	_expect(int(ProjectSettings.get_setting("rendering/textures/default_filters/anisotropic_filtering_level", -1)) == 4, "mobile anisotropic filtering is fixed at 4x")
+	_expect(is_equal_approx(float(ProjectSettings.get_setting("rendering/textures/default_filters/texture_mipmap_bias", 99.0)), 0.0), "mipmap bias stays neutral to avoid grain")
+	_expect(not bool(ProjectSettings.get_setting("rendering/textures/default_filters/use_nearest_mipmap_filter", true)), "mipmap levels blend instead of popping")
 
 
 func _test_ore_distribution_and_depth_rules() -> void:
-	var counts: Dictionary = {
-		TerrainGenerator.ZINC_ORE: 0,
-		TerrainGenerator.COPPER_ORE: 0,
-		TerrainGenerator.IRON_ORE: 0,
-		TerrainGenerator.GOLD_ORE: 0,
-	}
+	var counts: Dictionary = {TerrainGenerator.ZINC_ORE: 0, TerrainGenerator.COPPER_ORE: 0, TerrainGenerator.IRON_ORE: 0, TerrainGenerator.GOLD_ORE: 0}
 	for world_z: int in range(-64, 65):
 		for world_x: int in range(-64, 65):
 			for world_y: int in range(2, 25):
-				var material: int = OreField.material_for_stone(
-					73421,
-					Vector3i(world_x, world_y, world_z),
-					29
-				)
+				var material: int = OreField.material_for_stone(73421, Vector3i(world_x, world_y, world_z), 29)
 				if counts.has(material):
 					counts[material] = int(counts[material]) + 1
 	for material_value: Variant in counts.keys():
@@ -148,19 +123,14 @@ func _test_ore_distribution_and_depth_rules() -> void:
 
 
 func _test_ore_drops_without_hotbar_expansion() -> void:
-	var mappings: Dictionary = {
-		ItemRegistry.ZINC_ORE: ItemRegistry.ITEM_ZINC_CONCENTRATE,
-		ItemRegistry.COPPER_ORE: ItemRegistry.ITEM_COPPER_CONCENTRATE,
-		ItemRegistry.IRON_ORE: ItemRegistry.ITEM_IRON_CONCENTRATE,
-		ItemRegistry.GOLD_ORE: ItemRegistry.ITEM_GOLD_CONCENTRATE,
-	}
+	var mappings: Dictionary = {ItemRegistry.ZINC_ORE: ItemRegistry.ITEM_ZINC_CONCENTRATE, ItemRegistry.COPPER_ORE: ItemRegistry.ITEM_COPPER_CONCENTRATE, ItemRegistry.IRON_ORE: ItemRegistry.ITEM_IRON_CONCENTRATE, ItemRegistry.GOLD_ORE: ItemRegistry.ITEM_GOLD_CONCENTRATE}
 	for material_value: Variant in mappings.keys():
 		var material: int = int(material_value)
 		var expected: StringName = StringName(str(mappings[material]))
 		_expect(ItemRegistry.item_for_material(material) == expected, "ore maps to existing concentrate")
 		_expect(ItemRegistry.material_for_item(expected) == ItemRegistry.AIR, "concentrate is not voxel-placeable")
-	_expect(ItemRegistry.registered_items().size() == 36, "ore integration does not grow the item catalog")
-	_expect(ItemRegistry.placeable_items().size() == 8, "ore integration preserves the stable hotbar")
+	_expect(ItemRegistry.registered_items().size() == 38, "wood and furnace extend the catalog")
+	_expect(ItemRegistry.placeable_items().size() == 9, "furnace extends the stable hotbar by one station")
 
 
 func _expect(condition: bool, message: String) -> void:
