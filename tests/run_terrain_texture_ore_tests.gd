@@ -21,7 +21,7 @@ func _init() -> void:
 		print(
 			"TERRAIN_TEXTURE_ORE_TESTS_PASS texture_array_layers=9",
 			" layer_size=128",
-			" source=OpenGameArt-CC0-pinned",
+			" source=DevilsWorkshop-Essential-Isometric-v2",
 			" mipmaps=runtime",
 			" anisotropy=4x",
 			" distance_fade=24-88",
@@ -47,11 +47,12 @@ func _test_texture_assets() -> void:
 	_expect(manifest != null, "terrain layer provenance manifest exists")
 	if manifest != null:
 		var manifest_text: String = manifest.get_as_text()
-		_expect("opengameart.org" in manifest_text, "manifest records internet source")
-		_expect("CC0-1.0" in manifest_text, "manifest records CC0 license")
-		_expect("8bf522a2ee3953c205620d1de13faaa1e12e2811d7afb25225f531db700f1c2f" in manifest_text, "manifest pins grass source")
-		_expect("8267f53518e6f47f33639bef5e8de86eb9a46830019f7c8371357e8aeb330993" in manifest_text, "manifest pins dirt source")
-		_expect("a2f1876a25c2084cedaf47f7a3ce080095412149431f10b420d1145a581e4aa1" in manifest_text, "manifest pins stone source")
+		_expect("Essential Isometric 3D Block Pack v2.0" in manifest_text, "manifest records active texture pack")
+		_expect("Ajay Karat | Devil's Work.shop" in manifest_text, "manifest records texture-pack author")
+		_expect("source_archive_sha256" in manifest_text, "manifest pins uploaded source archive")
+		_expect("all_layers_from_active_pack_style" in manifest_text, "manifest records cohesive layer adaptation")
+		_expect("fc1fd0d4cd28d01ead280477ca2d0cbdacd9bf7f80a20df2a17b5e1fe367dc47" in manifest_text, "manifest pins adapted grass top")
+		_expect("99d23a84a33d76ebe237b61d8b77d15cdad9296cb595fe83ce55f70613d28810" in manifest_text, "manifest pins adapted stone")
 	var shader := load("res://assets/textures/terrain_texture_array.gdshader") as Shader
 	_expect(shader != null, "terrain texture-array shader loads")
 	if shader != null:

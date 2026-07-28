@@ -1,7 +1,7 @@
-# Focused Phase 1 + CC0 texture-array pipeline. It preserves the verified cave
-# foundation, validates independent mip chains, distance filtering, ores, items,
-# save data and mobile UI, then publishes one ARM64 APK.
-name: TEKNIK CC0 Texture Array APK
+# Focused Phase 1 + Devil's Work.shop texture-array pipeline. It verifies every
+# committed PNG by fully decoding it, renders one non-blank terrain screenshot,
+# validates gameplay contracts, then publishes one Android ARM64 APK.
+name: TEKNIK Devil's Workshop Texture APK
 
 on:
   push:
@@ -15,13 +15,13 @@ permissions:
   contents: write
 
 concurrency:
-  group: teknik-cc0-texture-array-${{ github.ref }}
+  group: teknik-devilsworkshop-texture-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   phase-one-arm64:
     runs-on: ubuntu-24.04
-    timeout-minutes: 48
+    timeout-minutes: 52
     env:
       GODOT_VERSION: "4.7.1"
       GODOT_RELEASE: "4.7.1-stable"
@@ -43,18 +43,12 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq build-essential clang lld scons git curl unzip xvfb python3-pil libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
 
-      - name: Build or verify CC0 terrain texture layers
+      - name: Fully decode and verify committed terrain layers
         run: |
           set -o pipefail
           python3 tools/build_cc0_terrain_layers.py |& tee /tmp/teknik-texture-build.log
-          python3 tools/build_cc0_terrain_layers.py --verify |& tee -a /tmp/teknik-texture-build.log
-          if [ -n "$(git status --porcelain -- assets/textures/terrain_layers)" ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add assets/textures/terrain_layers
-            git commit -m "Generate CC0 terrain texture layers [skip ci]"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
-          fi
+          grep -q "TERRAIN_LAYER_VERIFY_PASS" /tmp/teknik-texture-build.log
+          test -z "$(git status --porcelain -- assets/textures/terrain_layers)"
 
       - name: Install Godot and export templates
         run: |
@@ -83,7 +77,7 @@ jobs:
             native/godot-cpp/gen
             native/godot-cpp/obj
             native/godot-cpp/.sconsign.dblite
-          key: teknik-cc0-texture-array-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/rust/Cargo.toml', 'native/rust/src/**', 'native/cpp/**', 'native/SConstruct', 'tools/build_cc0_terrain_layers.py', 'assets/textures/terrain_layers/**') }}
+          key: teknik-devilsworkshop-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/rust/Cargo.toml', 'native/rust/src/**', 'native/cpp/**', 'native/SConstruct', 'tools/build_cc0_terrain_layers.py', 'assets/textures/terrain_layers/**') }}
 
       - name: Build Linux native bridge
         run: |
@@ -99,6 +93,8 @@ jobs:
           set -o pipefail
           godot --headless --path . --editor --quit |& tee /tmp/teknik-import.log
           test -s .godot/global_script_class_cache.cfg
+          ! grep -q "ERR_FILE_CORRUPT" /tmp/teknik-import.log
+          ! grep -q "Error importing.*terrain_layers" /tmp/teknik-import.log
           timeout 180s godot --headless --path . --script res://tests/run_cave_generation_tests.gd |& tee /tmp/teknik-cave-parity.log
           grep -q "CAVE_GENERATION_TESTS_PASS" /tmp/teknik-cave-parity.log
           timeout 120s godot --headless --path . --script res://tests/run_terrain_texture_ore_tests.gd |& tee /tmp/teknik-texture-ore.log
@@ -112,12 +108,41 @@ jobs:
           timeout 120s godot --headless --path . --script res://tests/run_kinetic_machine_tests.gd |& tee /tmp/teknik-kinetic.log
           grep -q "KINETIC_MACHINE_TEST_RESULT PASS" /tmp/teknik-kinetic.log
 
+      - name: Capture actual terrain screenshot
+        run: |
+          set -o pipefail
+          mkdir -p build/screenshots
+          timeout 180s xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy --script res://tests/capture_terrain_texture_preview.gd |& tee /tmp/teknik-screenshot.log
+          grep -q "TERRAIN_SCREENSHOT_PASS" /tmp/teknik-screenshot.log
+          test -s build/screenshots/terrain-texture-preview.png
+          python3 - <<'PY'
+          from PIL import Image, ImageStat
+          path = "build/screenshots/terrain-texture-preview.png"
+          with Image.open(path) as image:
+              image.load()
+              if image.size != (1280, 720):
+                  raise SystemExit(f"unexpected screenshot size: {image.size}")
+              stat = ImageStat.Stat(image.convert("RGB"))
+              maximum_stddev = max(stat.stddev)
+              print(f"SCREENSHOT_VISUAL_CHECK size={image.size} max_stddev={maximum_stddev:.3f}")
+              if maximum_stddev < 12.0:
+                  raise SystemExit("terrain screenshot is blank or nearly uniform")
+          PY
+
+      - name: Publish terrain screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: TEKNIK-DevilsWorkshop-Terrain-Screenshot-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: build/screenshots/terrain-texture-preview.png
+
       - name: Publish focused failure logs
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4
         with:
-          name: TEKNIK-TextureArray-Failure-Logs-${{ github.sha }}
-          if-no-files-found: error
+          name: TEKNIK-DevilsWorkshop-Failure-Logs-${{ github.sha }}
+          if-no-files-found: warn
           retention-days: 7
           path: /tmp/teknik-*.log
 
@@ -162,10 +187,10 @@ jobs:
           godot --headless --path . --export-debug "Android ARM64" build/TEKNIK-arm64-debug.apk
           test -s build/TEKNIK-arm64-debug.apk
 
-      - name: Publish CC0 texture-array phone APK
+      - name: Publish Devil's Workshop texture phone APK
         uses: actions/upload-artifact@v4
         with:
-          name: TEKNIK-CC0-TextureArray-Android-ARM64-${{ github.sha }}
+          name: TEKNIK-DevilsWorkshop-Android-ARM64-${{ github.sha }}
           if-no-files-found: error
           retention-days: 30
           path: build/TEKNIK-arm64-debug.apk
@@ -195,7 +220,7 @@ jobs:
             --arg actor "$GITHUB_ACTOR" --arg result "$BUILD_RESULT" \
             '{schema:1,generated_at_utc:$created_at,run:{id:($run_id|tonumber),attempt:($run_attempt|tonumber),url:$run_url,repository:$repository,workflow:$workflow,event:$event,ref:$ref,branch_or_tag:$ref_name,commit_sha:$sha,actor:$actor,overall_result:$result},required_jobs:{phase_one_arm64:$result}}' > /tmp/latest.json
           {
-            echo "# TEKNIK CC0 Texture Array APK Run"
+            echo "# TEKNIK Devil's Workshop Texture APK Run"
             echo
             echo "- **Result:** **$BUILD_RESULT**"
             echo "- **Run:** [$GITHUB_RUN_ID]($RUN_URL)"
@@ -215,6 +240,6 @@ jobs:
           cp /tmp/latest.md latest.md
           git add latest.json latest.md
           if ! git diff --cached --quiet; then
-            git commit -m "Record CC0 texture-array run ${GITHUB_RUN_ID} [skip ci]"
+            git commit -m "Record Devil's Workshop texture run ${GITHUB_RUN_ID} [skip ci]"
             git push origin HEAD:ci-reports
           fi
