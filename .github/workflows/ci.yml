@@ -1,7 +1,7 @@
-# Focused Phase 1 + Devil's Work.shop texture-array pipeline. It verifies every
-# committed PNG by fully decoding it, renders one non-blank terrain screenshot,
-# validates gameplay contracts, then publishes one Android ARM64 APK.
-name: TEKNIK Devil's Workshop Texture APK
+# TEKNIK world-foundation pipeline. It fully decodes the terrain layers, verifies
+# grass orientation, mineable trees, wood crafting, the crafting bench, furnace,
+# gameplay contracts, one rendered screenshot and one Android ARM64 APK.
+name: TEKNIK Foundation Crafting APK
 
 on:
   push:
@@ -15,13 +15,13 @@ permissions:
   contents: write
 
 concurrency:
-  group: teknik-devilsworkshop-texture-${{ github.ref }}
+  group: teknik-foundation-crafting-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   phase-one-arm64:
     runs-on: ubuntu-24.04
-    timeout-minutes: 52
+    timeout-minutes: 55
     env:
       GODOT_VERSION: "4.7.1"
       GODOT_RELEASE: "4.7.1-stable"
@@ -77,7 +77,7 @@ jobs:
             native/godot-cpp/gen
             native/godot-cpp/obj
             native/godot-cpp/.sconsign.dblite
-          key: teknik-devilsworkshop-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/rust/Cargo.toml', 'native/rust/src/**', 'native/cpp/**', 'native/SConstruct', 'tools/build_cc0_terrain_layers.py', 'assets/textures/terrain_layers/**') }}
+          key: teknik-foundation-crafting-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/rust/Cargo.toml', 'native/rust/src/**', 'native/cpp/**', 'native/SConstruct', 'tools/build_cc0_terrain_layers.py', 'assets/textures/terrain_layers/**') }}
 
       - name: Build Linux native bridge
         run: |
@@ -88,7 +88,7 @@ jobs:
           (cd native && scons -j2 platform=linux arch=x86_64 target=template_debug custom_api_file="$GITHUB_WORKSPACE/extension_api.json" rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/release")
           test -s native/bin/libteknik_native.linux.template_debug.x86_64.so
 
-      - name: Import project and validate terrain, Phase 1 and save contracts
+      - name: Import project and validate terrain, crafting and save contracts
         run: |
           set -o pipefail
           godot --headless --path . --editor --quit |& tee /tmp/teknik-import.log
@@ -99,6 +99,8 @@ jobs:
           grep -q "CAVE_GENERATION_TESTS_PASS" /tmp/teknik-cave-parity.log
           timeout 120s godot --headless --path . --script res://tests/run_terrain_texture_ore_tests.gd |& tee /tmp/teknik-texture-ore.log
           grep -q "TERRAIN_TEXTURE_ORE_TESTS_PASS" /tmp/teknik-texture-ore.log
+          timeout 120s godot --headless --path . --script res://tests/run_foundation_crafting_tests.gd |& tee /tmp/teknik-foundation-crafting.log
+          grep -q "FOUNDATION_CRAFTING_TESTS_PASS" /tmp/teknik-foundation-crafting.log
           timeout 120s godot --headless --path . --script res://tests/run_phase_one_item_tests.gd |& tee /tmp/teknik-phase-one.log
           grep -q "PHASE_ONE_ITEM_TESTS_PASS" /tmp/teknik-phase-one.log
           timeout 120s godot --headless --path . --script res://tests/run_survival_inventory_tests.gd |& tee /tmp/teknik-inventory.log
@@ -132,7 +134,7 @@ jobs:
       - name: Publish terrain screenshot
         uses: actions/upload-artifact@v4
         with:
-          name: TEKNIK-DevilsWorkshop-Terrain-Screenshot-${{ github.sha }}
+          name: TEKNIK-Foundation-Crafting-Terrain-Screenshot-${{ github.sha }}
           if-no-files-found: error
           retention-days: 14
           path: build/screenshots/terrain-texture-preview.png
@@ -141,12 +143,12 @@ jobs:
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4
         with:
-          name: TEKNIK-DevilsWorkshop-Failure-Logs-${{ github.sha }}
+          name: TEKNIK-Foundation-Crafting-Failure-Logs-${{ github.sha }}
           if-no-files-found: warn
           retention-days: 7
           path: /tmp/teknik-*.log
 
-      - name: Validate 36-row mobile inventory and workbench touch scrolling
+      - name: Validate 40-row mobile inventory and crafting touch scrolling
         run: |
           set -o pipefail
           timeout 150s xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy -- --qa-ui-layout | tee /tmp/teknik-phase-one-ui.log
@@ -187,10 +189,10 @@ jobs:
           godot --headless --path . --export-debug "Android ARM64" build/TEKNIK-arm64-debug.apk
           test -s build/TEKNIK-arm64-debug.apk
 
-      - name: Publish Devil's Workshop texture phone APK
+      - name: Publish foundation crafting phone APK
         uses: actions/upload-artifact@v4
         with:
-          name: TEKNIK-DevilsWorkshop-Android-ARM64-${{ github.sha }}
+          name: TEKNIK-Foundation-Crafting-Android-ARM64-${{ github.sha }}
           if-no-files-found: error
           retention-days: 30
           path: build/TEKNIK-arm64-debug.apk
@@ -220,7 +222,7 @@ jobs:
             --arg actor "$GITHUB_ACTOR" --arg result "$BUILD_RESULT" \
             '{schema:1,generated_at_utc:$created_at,run:{id:($run_id|tonumber),attempt:($run_attempt|tonumber),url:$run_url,repository:$repository,workflow:$workflow,event:$event,ref:$ref,branch_or_tag:$ref_name,commit_sha:$sha,actor:$actor,overall_result:$result},required_jobs:{phase_one_arm64:$result}}' > /tmp/latest.json
           {
-            echo "# TEKNIK Devil's Workshop Texture APK Run"
+            echo "# TEKNIK Foundation Crafting APK Run"
             echo
             echo "- **Result:** **$BUILD_RESULT**"
             echo "- **Run:** [$GITHUB_RUN_ID]($RUN_URL)"
@@ -240,6 +242,6 @@ jobs:
           cp /tmp/latest.md latest.md
           git add latest.json latest.md
           if ! git diff --cached --quiet; then
-            git commit -m "Record Devil's Workshop texture run ${GITHUB_RUN_ID} [skip ci]"
+            git commit -m "Record foundation crafting run ${GITHUB_RUN_ID} [skip ci]"
             git push origin HEAD:ci-reports
           fi
