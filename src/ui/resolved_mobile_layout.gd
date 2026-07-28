@@ -17,6 +17,7 @@ const SETTINGS_SCROLL_SIZE := Vector2(286.0, 398.0)
 const WORKBENCH_TYPE: StringName = &"workbench"
 const FURNACE_TYPE: StringName = &"furnace"
 const NATIVE_TOUCH_DEADZONE: int = 100_000
+const UI_SCREENSHOT_DIRECTORY: String = "res://build/screenshots"
 
 var _world: Node
 var _industrial_ui: Node
@@ -216,21 +217,25 @@ func _validate_four_station_interfaces(viewport_rect: Rect2) -> void:
 	_industrial_ui.call("show_inventory")
 	await get_tree().process_frame
 	var inventory_visible: bool = bool(_industrial_ui.call("is_inventory_visible"))
+	var inventory_captured: bool = await _capture_ui_qa("inventory-ui")
 	var inventory_dragged: bool = _qa_drag("inventory")
 
 	_industrial_ui.call("show_crafting")
 	await get_tree().process_frame
 	var portable_visible: bool = bool(_industrial_ui.call("is_portable_crafting_visible"))
+	var portable_captured: bool = await _capture_ui_qa("portable-crafting-ui")
 	var portable_dragged: bool = _qa_drag("portable")
 
 	var workbench_opened: bool = bool(_world.call("_interact_with_machine_type", WORKBENCH_TYPE))
 	await get_tree().process_frame
 	var table_visible: bool = bool(_industrial_ui.call("is_workbench_visible"))
+	var table_captured: bool = await _capture_ui_qa("crafting-table-ui")
 	var table_dragged: bool = _qa_drag("table")
 
 	var furnace_opened: bool = bool(_world.call("_interact_with_machine_type", FURNACE_TYPE))
 	await get_tree().process_frame
 	var furnace_visible: bool = bool(_industrial_ui.call("is_furnace_visible"))
+	var furnace_captured: bool = await _capture_ui_qa("furnace-ui")
 	var furnace_dragged: bool = _qa_drag("furnace")
 
 	var valid: bool = (
@@ -244,9 +249,13 @@ func _validate_four_station_interfaces(viewport_rect: Rect2) -> void:
 		and portable_dragged
 		and table_dragged
 		and furnace_dragged
+		and inventory_captured
+		and portable_captured
+		and table_captured
+		and furnace_captured
 	)
 	if not valid:
-		_fail("four-screen QA failed inventory=%s portable=%s table=%s furnace=%s opened=%s/%s drags=%s/%s/%s/%s" % [
+		_fail("four-screen QA failed inventory=%s portable=%s table=%s furnace=%s opened=%s/%s drags=%s/%s/%s/%s captures=%s/%s/%s/%s" % [
 			inventory_visible,
 			portable_visible,
 			table_visible,
@@ -257,6 +266,10 @@ func _validate_four_station_interfaces(viewport_rect: Rect2) -> void:
 			portable_dragged,
 			table_dragged,
 			furnace_dragged,
+			inventory_captured,
+			portable_captured,
+			table_captured,
+			furnace_captured,
 		])
 		return
 	print(
@@ -265,9 +278,30 @@ func _validate_four_station_interfaces(viewport_rect: Rect2) -> void:
 		" touch_drag_portable=", portable_dragged,
 		" touch_drag_table=", table_dragged,
 		" touch_drag_furnace=", furnace_dragged,
+		" screenshots=4",
 		" host_inside_viewport=", viewport_rect.encloses(_inventory_button_host.get_global_rect())
 	)
 	get_tree().quit(0)
+
+
+func _capture_ui_qa(file_stem: String) -> bool:
+	var directory_path: String = ProjectSettings.globalize_path(UI_SCREENSHOT_DIRECTORY)
+	var directory_result: Error = DirAccess.make_dir_recursive_absolute(directory_path)
+	if directory_result != OK and directory_result != ERR_ALREADY_EXISTS:
+		push_error("UI screenshot directory failed: %s" % error_string(directory_result))
+		return false
+	await RenderingServer.frame_post_draw
+	var image: Image = get_viewport().get_texture().get_image()
+	if image == null or image.is_empty():
+		push_error("UI screenshot image was empty: %s" % file_stem)
+		return false
+	var path: String = UI_SCREENSHOT_DIRECTORY + "/" + file_stem + ".png"
+	var result: Error = image.save_png(path)
+	if result != OK:
+		push_error("UI screenshot save failed %s: %s" % [path, error_string(result)])
+		return false
+	print("QA_STATION_UI_SCREENSHOT_PASS path=", path, " size=", image.get_size())
+	return true
 
 
 func _unlock_all_for_ui_qa() -> void:
