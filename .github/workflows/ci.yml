@@ -1,7 +1,7 @@
-# TEKNIK world-foundation pipeline. It fully decodes the terrain layers, verifies
-# grass orientation, mineable trees, wood crafting, the crafting bench, furnace,
-# gameplay contracts, one rendered screenshot and one Android ARM64 APK.
-name: TEKNIK Foundation Crafting APK
+# TEKNIK station-interface and Create-recipe pipeline. It verifies terrain,
+# mineable trees, four independent mobile UIs, station-gated recipes, save
+# migrations, native bridges and one Android ARM64 APK.
+name: TEKNIK Station UI Create Recipes APK
 
 on:
   push:
@@ -15,13 +15,13 @@ permissions:
   contents: write
 
 concurrency:
-  group: teknik-foundation-crafting-${{ github.ref }}
+  group: teknik-station-ui-create-recipes-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   phase-one-arm64:
     runs-on: ubuntu-24.04
-    timeout-minutes: 55
+    timeout-minutes: 60
     env:
       GODOT_VERSION: "4.7.1"
       GODOT_RELEASE: "4.7.1-stable"
@@ -77,7 +77,7 @@ jobs:
             native/godot-cpp/gen
             native/godot-cpp/obj
             native/godot-cpp/.sconsign.dblite
-          key: teknik-foundation-crafting-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/rust/Cargo.toml', 'native/rust/src/**', 'native/cpp/**', 'native/SConstruct', 'tools/build_cc0_terrain_layers.py', 'assets/textures/terrain_layers/**') }}
+          key: teknik-station-ui-recipes-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/rust/Cargo.toml', 'native/rust/src/**', 'native/cpp/**', 'native/SConstruct', 'tools/build_cc0_terrain_layers.py', 'assets/textures/terrain_layers/**') }}
 
       - name: Build Linux native bridge
         run: |
@@ -88,11 +88,13 @@ jobs:
           (cd native && scons -j2 platform=linux arch=x86_64 target=template_debug custom_api_file="$GITHUB_WORKSPACE/extension_api.json" rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/release")
           test -s native/bin/libteknik_native.linux.template_debug.x86_64.so
 
-      - name: Import project and validate terrain, crafting and save contracts
+      - name: Import project and validate terrain, stations, recipes and saves
         run: |
           set -o pipefail
           godot --headless --path . --editor --quit |& tee /tmp/teknik-import.log
           test -s .godot/global_script_class_cache.cfg
+          ! grep -q "SCRIPT ERROR" /tmp/teknik-import.log
+          ! grep -q "Parse Error" /tmp/teknik-import.log
           ! grep -q "ERR_FILE_CORRUPT" /tmp/teknik-import.log
           ! grep -q "Error importing.*terrain_layers" /tmp/teknik-import.log
           timeout 180s godot --headless --path . --script res://tests/run_cave_generation_tests.gd |& tee /tmp/teknik-cave-parity.log
@@ -124,8 +126,7 @@ jobs:
               image.load()
               if image.size != (1280, 720):
                   raise SystemExit(f"unexpected screenshot size: {image.size}")
-              stat = ImageStat.Stat(image.convert("RGB"))
-              maximum_stddev = max(stat.stddev)
+              maximum_stddev = max(ImageStat.Stat(image.convert("RGB")).stddev)
               print(f"SCREENSHOT_VISUAL_CHECK size={image.size} max_stddev={maximum_stddev:.3f}")
               if maximum_stddev < 12.0:
                   raise SystemExit("terrain screenshot is blank or nearly uniform")
@@ -134,7 +135,7 @@ jobs:
       - name: Publish terrain screenshot
         uses: actions/upload-artifact@v4
         with:
-          name: TEKNIK-Foundation-Crafting-Terrain-Screenshot-${{ github.sha }}
+          name: TEKNIK-Station-UI-Create-Recipes-Screenshot-${{ github.sha }}
           if-no-files-found: error
           retention-days: 14
           path: build/screenshots/terrain-texture-preview.png
@@ -143,17 +144,18 @@ jobs:
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4
         with:
-          name: TEKNIK-Foundation-Crafting-Failure-Logs-${{ github.sha }}
+          name: TEKNIK-Station-UI-Create-Recipes-Failure-Logs-${{ github.sha }}
           if-no-files-found: warn
           retention-days: 7
           path: /tmp/teknik-*.log
 
-      - name: Validate 40-row mobile inventory and crafting touch scrolling
+      - name: Validate four mobile UIs and touch scrolling
         run: |
           set -o pipefail
-          timeout 150s xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy -- --qa-ui-layout | tee /tmp/teknik-phase-one-ui.log
-          grep -q "QA_RESOLVED_MOBILE_LAYOUT_PASS" /tmp/teknik-phase-one-ui.log
-          grep -q "QA_FOCUSED_UI_PASS" /tmp/teknik-phase-one-ui.log
+          timeout 180s xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy -- --qa-ui-layout |& tee /tmp/teknik-station-ui.log
+          grep -q "QA_SEPARATE_STATION_UI_PASS" /tmp/teknik-station-ui.log
+          grep -q "QA_RESOLVED_MOBILE_LAYOUT_PASS" /tmp/teknik-station-ui.log
+          grep -q "QA_FOCUSED_UI_PASS" /tmp/teknik-station-ui.log
 
       - name: Install Java 17
         uses: actions/setup-java@v4
@@ -189,10 +191,10 @@ jobs:
           godot --headless --path . --export-debug "Android ARM64" build/TEKNIK-arm64-debug.apk
           test -s build/TEKNIK-arm64-debug.apk
 
-      - name: Publish foundation crafting phone APK
+      - name: Publish station UI Create recipes APK
         uses: actions/upload-artifact@v4
         with:
-          name: TEKNIK-Foundation-Crafting-Android-ARM64-${{ github.sha }}
+          name: TEKNIK-Station-UI-Create-Recipes-Android-ARM64-${{ github.sha }}
           if-no-files-found: error
           retention-days: 30
           path: build/TEKNIK-arm64-debug.apk
@@ -222,7 +224,7 @@ jobs:
             --arg actor "$GITHUB_ACTOR" --arg result "$BUILD_RESULT" \
             '{schema:1,generated_at_utc:$created_at,run:{id:($run_id|tonumber),attempt:($run_attempt|tonumber),url:$run_url,repository:$repository,workflow:$workflow,event:$event,ref:$ref,branch_or_tag:$ref_name,commit_sha:$sha,actor:$actor,overall_result:$result},required_jobs:{phase_one_arm64:$result}}' > /tmp/latest.json
           {
-            echo "# TEKNIK Foundation Crafting APK Run"
+            echo "# TEKNIK Station UI Create Recipes APK Run"
             echo
             echo "- **Result:** **$BUILD_RESULT**"
             echo "- **Run:** [$GITHUB_RUN_ID]($RUN_URL)"
@@ -242,6 +244,6 @@ jobs:
           cp /tmp/latest.md latest.md
           git add latest.json latest.md
           if ! git diff --cached --quiet; then
-            git commit -m "Record foundation crafting run ${GITHUB_RUN_ID} [skip ci]"
+            git commit -m "Record station UI Create recipes run ${GITHUB_RUN_ID} [skip ci]"
             git push origin HEAD:ci-reports
           fi
