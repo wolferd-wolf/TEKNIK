@@ -15,15 +15,16 @@ const ITEM_STONE: StringName = &"stone"
 const ITEM_SOIL: StringName = &"soil"
 const ITEM_GRASS: StringName = &"grass"
 const ITEM_SAND: StringName = &"sand"
+const ITEM_WOOD: StringName = &"wood"
 const ITEM_STONE_GEAR: StringName = &"stone_gear"
 const ITEM_WORKBENCH: StringName = &"workbench"
+const ITEM_FURNACE: StringName = &"furnace"
 const ITEM_CRUSHED_STONE: StringName = &"crushed_stone"
 const ITEM_STONE_SHAFT: StringName = &"stone_shaft"
 const ITEM_HAND_CRANK: StringName = &"hand_crank"
 const ITEM_STONE_CRUSHER: StringName = &"stone_crusher"
 
-# Original TEKNIK feedstock. Underground ore voxels now yield these directly;
-# they remain non-placeable so the stable eight-slot hotbar does not expand.
+# Original TEKNIK feedstock. Underground ore voxels yield these directly.
 const ITEM_ZINC_CONCENTRATE: StringName = &"zinc_concentrate"
 const ITEM_COPPER_CONCENTRATE: StringName = &"copper_concentrate"
 const ITEM_IRON_CONCENTRATE: StringName = &"iron_concentrate"
@@ -33,8 +34,8 @@ const ITEM_IRON_INGOT: StringName = &"iron_ingot"
 const ITEM_GOLD_INGOT: StringName = &"gold_ingot"
 const ITEM_PLANT_FIBER: StringName = &"plant_fiber"
 
-# Phase 1 Create-inspired engineering catalog. Only the item roles and familiar
-# names are referenced; implementation, recipes, visuals and data are TEKNIK's.
+# Phase 1 Create-inspired engineering catalog. Item roles are used as design
+# references; implementation, recipes, visuals and data remain TEKNIK's.
 const ITEM_ANDESITE_ALLOY: StringName = &"andesite_alloy"
 const ITEM_ZINC_INGOT: StringName = &"zinc_ingot"
 const ITEM_BRASS_INGOT: StringName = &"brass_ingot"
@@ -57,9 +58,9 @@ const ITEM_EMPTY_BLAZE_BURNER: StringName = &"empty_blaze_burner"
 const MAX_STACK: int = 64
 
 const REGISTERED_ITEMS = [
-	ITEM_STONE, ITEM_SOIL, ITEM_GRASS, ITEM_SAND,
-	ITEM_STONE_GEAR, ITEM_WORKBENCH, ITEM_CRUSHED_STONE, ITEM_STONE_SHAFT,
-	ITEM_HAND_CRANK, ITEM_STONE_CRUSHER,
+	ITEM_STONE, ITEM_SOIL, ITEM_GRASS, ITEM_SAND, ITEM_WOOD,
+	ITEM_STONE_GEAR, ITEM_WORKBENCH, ITEM_FURNACE, ITEM_CRUSHED_STONE,
+	ITEM_STONE_SHAFT, ITEM_HAND_CRANK, ITEM_STONE_CRUSHER,
 	ITEM_ZINC_CONCENTRATE, ITEM_COPPER_CONCENTRATE, ITEM_IRON_CONCENTRATE,
 	ITEM_GOLD_CONCENTRATE, ITEM_COPPER_INGOT, ITEM_IRON_INGOT, ITEM_GOLD_INGOT,
 	ITEM_PLANT_FIBER,
@@ -85,8 +86,10 @@ const ITEM_DATA = {
 	ITEM_SOIL: ["Soil", "Blocks", "Loose earth used in survival construction.", "674735", 64],
 	ITEM_GRASS: ["Grass", "Blocks", "A living surface block and fiber source.", "4d7543", 64],
 	ITEM_SAND: ["Sand", "Blocks", "Granular silica-rich material.", "a58c5c", 64],
+	ITEM_WOOD: ["Wood", "Organic Materials", "Mineable timber used for starter stations and future machinery.", "76543b", 64],
 	ITEM_STONE_GEAR: ["Stone Gear", "Primitive Components", "A rough early gear.", "77716a", 32],
-	ITEM_WORKBENCH: ["Stone Workbench", "Stations", "Unlocks structured engineering recipes.", "67645c", 32],
+	ITEM_WORKBENCH: ["Crafting Bench", "Stations", "A wooden station for hand crafting and engineering blueprints.", "8b6745", 32],
+	ITEM_FURNACE: ["Furnace", "Stations", "A stone-fired station that converts ore concentrate into metal ingots.", "5f625f", 32],
 	ITEM_CRUSHED_STONE: ["Crushed Stone", "Primitive Materials", "Processed mineral aggregate.", "858986", 64],
 	ITEM_STONE_SHAFT: ["Stone Shaft", "Primitive Components", "An early rotational connector.", "767b78", 32],
 	ITEM_HAND_CRANK: ["Hand Crank", "Kinetic Components", "A manual rotational power source.", "957047", 32],
@@ -163,7 +166,13 @@ static func voxel_placeable_items() -> Array[StringName]:
 
 
 static func object_placeable_items() -> Array[StringName]:
-	return [ITEM_WORKBENCH, ITEM_STONE_SHAFT, ITEM_HAND_CRANK, ITEM_STONE_CRUSHER]
+	return [
+		ITEM_WORKBENCH,
+		ITEM_FURNACE,
+		ITEM_STONE_SHAFT,
+		ITEM_HAND_CRANK,
+		ITEM_STONE_CRUSHER,
+	]
 
 
 static func placeable_items() -> Array[StringName]:
