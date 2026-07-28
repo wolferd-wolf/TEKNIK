@@ -92,17 +92,17 @@ func _install_touch_scroll_drivers() -> void:
 	_register_driver("inventory", inventory_scroll, "InventoryTouchScrollDriver")
 	_register_driver(
 		"portable",
-		_industrial_ui.find_child("PortableCraftingScroll", true, false) as ScrollContainer,
+		_world.find_child("PortableCraftingScroll", true, false) as ScrollContainer,
 		"PortableCraftingTouchScrollDriver"
 	)
 	_register_driver(
 		"table",
-		_industrial_ui.find_child("CraftingTableRecipeScroll", true, false) as ScrollContainer,
+		_world.find_child("CraftingTableRecipeScroll", true, false) as ScrollContainer,
 		"CraftingTableTouchScrollDriver"
 	)
 	_register_driver(
 		"furnace",
-		_industrial_ui.find_child("FurnaceRecipeScroll", true, false) as ScrollContainer,
+		_world.find_child("FurnaceRecipeScroll", true, false) as ScrollContainer,
 		"FurnaceTouchScrollDriver"
 	)
 
