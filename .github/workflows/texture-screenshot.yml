@@ -43,22 +43,23 @@ jobs:
           (cd /tmp/godot-api && godot --headless --dump-extension-api)
           cp /tmp/godot-api/extension_api.json extension_api.json
           (cd native && scons -j2 platform=linux arch=x86_64 target=template_debug custom_api_file="$GITHUB_WORKSPACE/extension_api.json" rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/release")
+          test -s native/bin/libteknik_native.linux.template_debug.x86_64.so
 
-      - name: Capture terrain screenshot
+      - name: Capture actual terrain render
         run: |
           set -Eeuo pipefail
           mkdir -p build/screenshots
-          Xvfb :99 -screen 0 1280x720x24 > /tmp/xvfb.log 2>&1 &
-          XVFB_PID=$!
-          export DISPLAY=:99
-          sleep 2
-          godot --path . --rendering-method gl_compatibility --audio-driver Dummy > /tmp/teknik-screenshot.log 2>&1 &
-          GAME_PID=$!
-          sleep 22
-          import -window root build/screenshots/terrain-texture-preview.png
-          kill "$GAME_PID" || true
-          kill "$XVFB_PID" || true
+          xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy --script res://tests/capture_terrain_texture_preview.gd | tee /tmp/teknik-screenshot.log
+          grep -q "TERRAIN_SCREENSHOT_PASS" /tmp/teknik-screenshot.log
           test -s build/screenshots/terrain-texture-preview.png
+
+      - name: Reject blank screenshot
+        run: |
+          set -Eeuo pipefail
+          identify build/screenshots/terrain-texture-preview.png
+          STDDEV="$(convert build/screenshots/terrain-texture-preview.png -colorspace Gray -format '%[fx:standard_deviation]' info:)"
+          echo "terrain screenshot standard deviation=$STDDEV"
+          awk -v value="$STDDEV" 'BEGIN { if (value < 0.025) exit 1 }'
 
       - name: Upload screenshot
         uses: actions/upload-artifact@v4
