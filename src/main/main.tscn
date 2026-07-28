@@ -1,11 +1,10 @@
 [gd_scene load_steps=4 format=3]
 
-; kinetic_capture_shipping_main.gd remains the active production and QA tip.
-; Its inherited production stack reaches kinetic_machine_main.gd, survival,
-; multi-LOD terrain, incremental collision, movement streaming, and biome
-; visuals. The UI controllers below are child presentation/layout layers, not
-; another gameplay main or a replacement for that inheritance chain.
-[ext_resource type="Script" path="res://src/main/kinetic_capture_shipping_main.gd" id="1_main"]
+; foundation_crafting_main.gd is the active production and QA tip. It extends
+; the verified shipping stack with mineable trees, wood progression, a crafting
+; bench and a functional furnace while preserving the existing terrain,
+; inventory, kinetics and mobile presentation layers.
+[ext_resource type="Script" path="res://src/main/foundation_crafting_main.gd" id="1_main"]
 [ext_resource type="Script" path="res://src/ui/industrial_blueprint_ui.gd" id="2_ui"]
 [ext_resource type="Script" path="res://src/ui/resolved_mobile_layout.gd" id="3_layout"]
 
