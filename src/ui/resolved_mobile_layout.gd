@@ -1,6 +1,7 @@
 extends Node
 
 const TouchScrollDriver = preload("res://src/ui/touch_scroll_driver.gd")
+const ProgressionState = preload("res://src/survival/progression_state.gd")
 
 # Late layout pass for the real phone viewport. The station UI controller builds
 # four independent screens; this layer pins the shared HUD and gives every long
@@ -203,29 +204,33 @@ func _validate_resolved_layout() -> void:
 
 
 func _validate_four_station_interfaces(viewport_rect: Rect2) -> void:
-	var inventory_visible: bool = false
-	var portable_visible: bool = false
-	var table_visible: bool = false
-	var furnace_visible: bool = false
+	# Populate every gated station category for scroll testing without saving the QA
+	# progression. Normal gameplay still reveals recipes through crafted unlocks.
+	_unlock_all_for_ui_qa()
+	if _world.has_method("_refresh_recipe_panel"):
+		_world.call("_refresh_recipe_panel")
+	if _industrial_ui.has_method("refresh_all"):
+		_industrial_ui.call("refresh_all")
+	await get_tree().process_frame
 
 	_industrial_ui.call("show_inventory")
 	await get_tree().process_frame
-	inventory_visible = bool(_industrial_ui.call("is_inventory_visible"))
+	var inventory_visible: bool = bool(_industrial_ui.call("is_inventory_visible"))
 	var inventory_dragged: bool = _qa_drag("inventory")
 
 	_industrial_ui.call("show_crafting")
 	await get_tree().process_frame
-	portable_visible = bool(_industrial_ui.call("is_portable_crafting_visible"))
+	var portable_visible: bool = bool(_industrial_ui.call("is_portable_crafting_visible"))
 	var portable_dragged: bool = _qa_drag("portable")
 
 	var workbench_opened: bool = bool(_world.call("_interact_with_machine_type", WORKBENCH_TYPE))
 	await get_tree().process_frame
-	table_visible = bool(_industrial_ui.call("is_workbench_visible"))
+	var table_visible: bool = bool(_industrial_ui.call("is_workbench_visible"))
 	var table_dragged: bool = _qa_drag("table")
 
 	var furnace_opened: bool = bool(_world.call("_interact_with_machine_type", FURNACE_TYPE))
 	await get_tree().process_frame
-	furnace_visible = bool(_industrial_ui.call("is_furnace_visible"))
+	var furnace_visible: bool = bool(_industrial_ui.call("is_furnace_visible"))
 	var furnace_dragged: bool = _qa_drag("furnace")
 
 	var valid: bool = (
@@ -263,6 +268,21 @@ func _validate_four_station_interfaces(viewport_rect: Rect2) -> void:
 		" host_inside_viewport=", viewport_rect.encloses(_inventory_button_host.get_global_rect())
 	)
 	get_tree().quit(0)
+
+
+func _unlock_all_for_ui_qa() -> void:
+	var progression: TeknikProgressionState = _world.get("_progression")
+	if progression == null:
+		return
+	for unlock_id: StringName in [
+		ProgressionState.UNLOCK_WORKBENCH,
+		ProgressionState.UNLOCK_STONE_PROCESSING,
+		ProgressionState.UNLOCK_ANDESITE_ENGINEERING,
+		ProgressionState.UNLOCK_BRASS_ENGINEERING,
+		ProgressionState.UNLOCK_PRECISION_ENGINEERING,
+		ProgressionState.UNLOCK_KINETIC_STARTER,
+	]:
+		progression.unlock(unlock_id)
 
 
 func _qa_drag(key: String) -> bool:
