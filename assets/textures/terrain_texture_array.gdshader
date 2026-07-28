@@ -111,12 +111,9 @@ void fragment() {
 		ALBEDO = COLOR.rgb;
 		ROUGHNESS = 0.97;
 	} else {
+		// The adapted grass-side layer is already authored top-to-bottom. Keep
+		// projected V unchanged so its green band stays on the physical top edge.
 		vec2 local_uv = fract(projected_uv(terrain_world_position, normal_value) + vec2(0.0001));
-		if (abs(normal_value.y) < 0.5) {
-			// The pack's authored grass band is at image bottom. Inverting V puts it
-			// on the physical top edge of each vertical grass-block face.
-			local_uv.y = 1.0 - local_uv.y;
-		}
 		local_uv = clamp(local_uv, vec2(LAYER_TEXEL_INSET), vec2(1.0 - LAYER_TEXEL_INSET));
 
 		float layer = texture_layer(material_id, normal_value);
