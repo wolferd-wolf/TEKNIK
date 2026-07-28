@@ -1,15 +1,13 @@
 class_name TeknikIndustrialBlueprintUI
 extends Node
 
-# Presentation controller attached to the active gameplay scene. It reuses the
-# existing inventory, recipe and machine systems instead of duplicating state.
-const WINDOW_POSITION := Vector2(24.0, 72.0)
-const WINDOW_SIZE := Vector2(840.0, 520.0)
-const PAGE_SIZE := Vector2(788.0, 350.0)
-const INVENTORY_TITLE := "TEKNIK FIELD TERMINAL // INVENTORY"
-const CRAFTING_TITLE := "FIELD CRAFTING // PORTABLE BLUEPRINTS"
-const WORKBENCH_TITLE := "STONE WORKBENCH // ENGINEERING BLUEPRINTS"
+const ItemRegistry = preload("res://src/survival/item_registry.gd")
+const RecipeBook = preload("res://src/survival/recipe_book.gd")
+const FurnaceRecipeBook = preload("res://src/survival/furnace_recipe_book.gd")
 
+const WINDOW_POSITION := Vector2(24.0, 78.0)
+const INVENTORY_SIZE := Vector2(840.0, 520.0)
+const STATION_SIZE := Vector2(780.0, 520.0)
 const INK := Color(0.025, 0.047, 0.065, 0.98)
 const PLATE := Color(0.055, 0.094, 0.122, 0.98)
 const PLATE_LIGHT := Color(0.078, 0.132, 0.166, 0.98)
@@ -22,20 +20,22 @@ const DISABLED := Color(0.18, 0.23, 0.25, 0.92)
 
 var _world: Node
 var _inventory_window: PanelContainer
-var _items_panel: PanelContainer
-var _crafting_panel: PanelContainer
+var _inventory_items_panel: PanelContainer
+var _inventory_crafting_panel: PanelContainer
+var _crafting_table_screen: PanelContainer
+var _table_recipe_list: VBoxContainer
 var _settings_panel: PanelContainer
-var _recipe_list: VBoxContainer
-var _inventory_scroll: ScrollContainer
-var _recipe_scroll: ScrollContainer
+var _portable_screen: PanelContainer
+var _portable_recipe_list: VBoxContainer
+var _portable_status: Label
+var _furnace_screen: PanelContainer
+var _furnace_recipe_list: VBoxContainer
+var _furnace_status: Label
+var _furnace_fuel_label: Label
+var _craft_open_button: Button
 var _inventory_open_button: Button
 var _settings_button: Button
-var _open_crafting_button: Button
-var _back_to_inventory_button: Button
-var _workspace_title: Label
 var _installed: bool = false
-var _crafting_visible: bool = false
-var _recipe_style_refresh_pending: bool = false
 
 
 func _ready() -> void:
@@ -44,353 +44,425 @@ func _ready() -> void:
 
 
 func _install() -> void:
+	await get_tree().process_frame
 	_world = get_parent()
 	if _world == null:
 		_fail("world root missing")
 		return
-
 	_inventory_window = _world.get("_inventory_window") as PanelContainer
-	_items_panel = _world.get("_inventory_items_panel") as PanelContainer
-	_crafting_panel = _world.get("_inventory_crafting_panel") as PanelContainer
+	_inventory_items_panel = _world.get("_inventory_items_panel") as PanelContainer
+	_inventory_crafting_panel = _world.get("_inventory_crafting_panel") as PanelContainer
+	_crafting_table_screen = _world.get("_engineering_screen") as PanelContainer
+	_table_recipe_list = _world.get("_recipe_list") as VBoxContainer
 	_settings_panel = _world.get("_settings_panel") as PanelContainer
-	_recipe_list = _world.get("_recipe_list") as VBoxContainer
-	var inventory_button_host := _world.get("_inventory_button") as Button
-
-	if (
-		_inventory_window == null
-		or _items_panel == null
-		or _crafting_panel == null
-		or _recipe_list == null
-	):
-		_fail("existing inventory workspace is incomplete")
+	if _inventory_window == null or _inventory_items_panel == null or _crafting_table_screen == null or _table_recipe_list == null:
+		_fail("required inventory or station controls missing")
 		return
-
-	if inventory_button_host != null:
-		_inventory_open_button = inventory_button_host.get_node_or_null("InventoryOpenButton") as Button
-		_settings_button = inventory_button_host.get_node_or_null("SettingsButton") as Button
-
-	_configure_workspace()
-	_configure_inventory_page()
-	_configure_crafting_page()
-	_configure_hud()
-	_connect_actions()
+	_restore_separate_inventory_and_table()
+	_build_portable_crafting_screen()
+	_build_furnace_screen()
+	_configure_hud_buttons()
+	_rewire_close_buttons()
 	_apply_all_ui_theme()
-	_apply_priority_styles()
-	show_inventory()
-	_style_recipe_list()
+	close_all()
 	_installed = true
-	call_deferred("_validate_functional_wiring")
+	refresh_all()
+	call_deferred("_validate_separate_interfaces")
 
 
-func _configure_workspace() -> void:
+func _restore_separate_inventory_and_table() -> void:
 	_inventory_window.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	_inventory_window.grow_horizontal = Control.GROW_DIRECTION_END
-	_inventory_window.grow_vertical = Control.GROW_DIRECTION_END
 	_inventory_window.position = WINDOW_POSITION
-	_inventory_window.size = WINDOW_SIZE
-	_inventory_window.custom_minimum_size = WINDOW_SIZE
-	_inventory_window.mouse_filter = Control.MOUSE_FILTER_STOP
+	_inventory_window.size = INVENTORY_SIZE
+	_inventory_window.custom_minimum_size = INVENTORY_SIZE
 	_inventory_window.z_index = 70
-
-	var content := _inventory_window.get_child(0) as VBoxContainer
-	if content == null:
-		return
-	content.add_theme_constant_override("separation", 8)
-	_workspace_title = content.get_child(0) as Label if content.get_child_count() > 0 else null
-	if _workspace_title != null:
-		_workspace_title.text = INVENTORY_TITLE
-		_workspace_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-		_workspace_title.add_theme_font_size_override("font_size", 22)
-	var close_button := content.get_node_or_null("CloseInventory") as Button
-	if close_button != null:
-		close_button.text = "CLOSE TERMINAL"
-		close_button.custom_minimum_size = Vector2(176.0, 44.0)
-
-	_items_panel.custom_minimum_size = PAGE_SIZE
-	_items_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_items_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_crafting_panel.custom_minimum_size = PAGE_SIZE
-	_crafting_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_crafting_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-
-
-func _configure_inventory_page() -> void:
-	var content := _items_panel.get_child(0) as VBoxContainer
-	if content == null:
-		return
-	content.add_theme_constant_override("separation", 7)
-	var title := content.get_child(0) as Label if content.get_child_count() > 0 else null
-	if title != null:
-		title.text = "MATERIAL LEDGER // VOXEL CARGO"
-		title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-
-	_inventory_scroll = _items_panel.find_child("InventoryItemScroll", true, false) as ScrollContainer
-	var grid := _items_panel.find_child("InventoryGrid", true, false) as GridContainer
-	if _inventory_scroll != null:
-		_inventory_scroll.custom_minimum_size = Vector2(758.0, 242.0)
-		_inventory_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		_inventory_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-		_inventory_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
-		_inventory_scroll.scroll_deadzone = 8
-		_inventory_scroll.follow_focus = true
-	if grid != null:
-		grid.columns = 2
-		grid.custom_minimum_size = Vector2(730.0, 390.0)
-		grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		grid.add_theme_constant_override("h_separation", 10)
-		grid.add_theme_constant_override("v_separation", 7)
-		for child: Node in grid.get_children():
+	_inventory_window.mouse_filter = Control.MOUSE_FILTER_STOP
+	if _inventory_crafting_panel != null:
+		_inventory_crafting_panel.visible = false
+		_inventory_crafting_panel.custom_minimum_size = Vector2.ZERO
+	_inventory_items_panel.custom_minimum_size = Vector2(800.0, 404.0)
+	var item_scroll := _inventory_items_panel.find_child("InventoryItemScroll", true, false) as ScrollContainer
+	if item_scroll != null:
+		item_scroll.custom_minimum_size = Vector2(772.0, 330.0)
+		item_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		item_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	var inventory_grid := _inventory_items_panel.find_child("InventoryGrid", true, false) as GridContainer
+	if inventory_grid != null:
+		inventory_grid.columns = 2
+		inventory_grid.custom_minimum_size = Vector2(744.0, 700.0)
+		inventory_grid.add_theme_constant_override("h_separation", 10)
+		inventory_grid.add_theme_constant_override("v_separation", 6)
+		for child: Node in inventory_grid.get_children():
 			var row := child as Label
-			if row == null:
-				continue
-			row.custom_minimum_size = Vector2(355.0, 48.0)
-			row.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-			row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			row.add_theme_font_size_override("font_size", 16)
-			row.add_theme_color_override("font_color", PAPER)
-			row.add_theme_color_override("font_outline_color", INK)
-			row.add_theme_constant_override("outline_size", 3)
+			if row != null:
+				row.custom_minimum_size = Vector2(360.0, 42.0)
 
-	_open_crafting_button = Button.new()
-	_open_crafting_button.name = "OpenCraftingBlueprints"
-	_open_crafting_button.text = "OPEN CRAFTING BLUEPRINTS  >"
-	_open_crafting_button.custom_minimum_size = Vector2(758.0, 46.0)
-	content.add_child(_open_crafting_button)
-
-
-func _configure_crafting_page() -> void:
-	var content := _crafting_panel.get_child(0) as VBoxContainer
-	if content == null:
+	_crafting_table_screen.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_crafting_table_screen.position = WINDOW_POSITION
+	_crafting_table_screen.size = STATION_SIZE
+	_crafting_table_screen.custom_minimum_size = STATION_SIZE
+	_crafting_table_screen.z_index = 72
+	var table_content := _crafting_table_screen.get_child(0) as VBoxContainer
+	if table_content == null:
 		return
-	content.add_theme_constant_override("separation", 7)
-	var title := content.get_child(0) as Label if content.get_child_count() > 0 else null
-	if title != null:
-		title.text = "BLUEPRINT INDEX // AVAILABLE RECIPES"
-		title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-
-	_recipe_scroll = _recipe_list.get_parent() as ScrollContainer
-	if _recipe_scroll != null:
-		_recipe_scroll.custom_minimum_size = Vector2(758.0, 232.0)
-		_recipe_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		_recipe_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-		_recipe_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
-		_recipe_scroll.scroll_deadzone = 8
-		_recipe_scroll.follow_focus = true
-	_recipe_list.custom_minimum_size = Vector2(730.0, 340.0)
-	_recipe_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_recipe_list.add_theme_constant_override("separation", 7)
-
-	_back_to_inventory_button = Button.new()
-	_back_to_inventory_button.name = "BackToInventory"
-	_back_to_inventory_button.text = "<  RETURN TO INVENTORY"
-	_back_to_inventory_button.custom_minimum_size = Vector2(758.0, 44.0)
-	content.add_child(_back_to_inventory_button)
+	var progression_label := _world.get("_progression_label") as Label
+	var craft_status := _world.get("_craft_status") as Label
+	var recipe_scroll := _table_recipe_list.get_parent() as ScrollContainer
+	if progression_label != null and progression_label.get_parent() != table_content:
+		progression_label.reparent(table_content)
+	if recipe_scroll != null and recipe_scroll.get_parent() != table_content:
+		recipe_scroll.reparent(table_content)
+	if craft_status != null and craft_status.get_parent() != table_content:
+		craft_status.reparent(table_content)
+	if progression_label != null:
+		table_content.move_child(progression_label, mini(1, table_content.get_child_count() - 1))
+	if recipe_scroll != null:
+		recipe_scroll.custom_minimum_size = Vector2(744.0, 372.0)
+		recipe_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		recipe_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+		table_content.move_child(recipe_scroll, mini(2, table_content.get_child_count() - 1))
+	if craft_status != null:
+		craft_status.custom_minimum_size = Vector2(744.0, 30.0)
+		table_content.move_child(craft_status, mini(3, table_content.get_child_count() - 1))
 
 
-func _configure_hud() -> void:
-	var hotbar := _world.get("_bottom_hotbar_panel") as PanelContainer
-	if hotbar != null:
-		hotbar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-		hotbar.grow_horizontal = Control.GROW_DIRECTION_BOTH
-		hotbar.grow_vertical = Control.GROW_DIRECTION_BEGIN
-		hotbar.position = Vector2(-306.0, -102.0)
-		hotbar.size = Vector2(612.0, 78.0)
-		hotbar.custom_minimum_size = Vector2(612.0, 78.0)
-		hotbar.z_index = 20
+func _build_portable_crafting_screen() -> void:
+	_portable_screen = _make_station_window("PortableCraftingScreen", "PORTABLE CRAFTING", "Recipes that can be made without placing a station.")
+	var content := _portable_screen.get_child(0) as VBoxContainer
+	var scroll := ScrollContainer.new()
+	scroll.name = "PortableCraftingScroll"
+	scroll.custom_minimum_size = Vector2(744.0, 362.0)
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	content.add_child(scroll)
+	_portable_recipe_list = VBoxContainer.new()
+	_portable_recipe_list.name = "PortableCraftingRecipeList"
+	_portable_recipe_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_portable_recipe_list.add_theme_constant_override("separation", 6)
+	scroll.add_child(_portable_recipe_list)
+	_portable_status = Label.new()
+	_portable_status.name = "PortableCraftingStatus"
+	_portable_status.custom_minimum_size = Vector2(744.0, 30.0)
+	content.add_child(_portable_status)
+	content.add_child(_close_button("ClosePortableCrafting"))
 
-	var inventory_button_host := _world.get("_inventory_button") as Button
-	if inventory_button_host != null:
-		inventory_button_host.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-		inventory_button_host.position = Vector2(-304.0, 18.0)
-		inventory_button_host.size = Vector2(284.0, 54.0)
-		inventory_button_host.custom_minimum_size = Vector2(284.0, 54.0)
-		inventory_button_host.z_index = 25
+
+func _build_furnace_screen() -> void:
+	_furnace_screen = _make_station_window("FurnaceScreen", "FURNACE", "Select a smelting or heated-alloying recipe. Each operation consumes 1 Wood fuel.")
+	var content := _furnace_screen.get_child(0) as VBoxContainer
+	_furnace_fuel_label = Label.new()
+	_furnace_fuel_label.name = "FurnaceFuelSummary"
+	_furnace_fuel_label.add_theme_font_size_override("font_size", 16)
+	content.add_child(_furnace_fuel_label)
+	var scroll := ScrollContainer.new()
+	scroll.name = "FurnaceRecipeScroll"
+	scroll.custom_minimum_size = Vector2(744.0, 336.0)
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	content.add_child(scroll)
+	_furnace_recipe_list = VBoxContainer.new()
+	_furnace_recipe_list.name = "FurnaceRecipeList"
+	_furnace_recipe_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_furnace_recipe_list.add_theme_constant_override("separation", 6)
+	scroll.add_child(_furnace_recipe_list)
+	_furnace_status = Label.new()
+	_furnace_status.name = "FurnaceStatus"
+	_furnace_status.custom_minimum_size = Vector2(744.0, 30.0)
+	content.add_child(_furnace_status)
+	content.add_child(_close_button("CloseFurnace"))
+
+
+func _make_station_window(node_name: String, title_text: String, subtitle_text: String) -> PanelContainer:
+	var panel := PanelContainer.new()
+	panel.name = node_name
+	panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	panel.position = WINDOW_POSITION
+	panel.size = STATION_SIZE
+	panel.custom_minimum_size = STATION_SIZE
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	panel.z_index = 74
+	panel.visible = false
+	_world.get("_gameplay_hud_layer").add_child(panel)
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 8)
+	panel.add_child(content)
+	var title := Label.new()
+	title.text = title_text
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 24)
+	content.add_child(title)
+	var subtitle := Label.new()
+	subtitle.text = subtitle_text
+	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	subtitle.add_theme_font_size_override("font_size", 14)
+	content.add_child(subtitle)
+	return panel
+
+
+func _close_button(node_name: String) -> Button:
+	var button := Button.new()
+	button.name = node_name
+	button.text = "CLOSE"
+	button.custom_minimum_size = Vector2(180.0, 46.0)
+	button.pressed.connect(close_all)
+	return button
+
+
+func _configure_hud_buttons() -> void:
+	var host := _world.get("_inventory_button") as Button
+	if host == null:
+		return
+	host.custom_minimum_size = Vector2(432.0, 56.0)
+	host.size = host.custom_minimum_size
+	_inventory_open_button = host.get_node_or_null("InventoryOpenButton") as Button
+	_settings_button = host.get_node_or_null("SettingsButton") as Button
 	if _inventory_open_button != null:
+		var old_toggle := Callable(_world, "_toggle_inventory_window")
+		if _inventory_open_button.pressed.is_connected(old_toggle):
+			_inventory_open_button.pressed.disconnect(old_toggle)
 		_inventory_open_button.text = "PACK"
+		_inventory_open_button.position = Vector2.ZERO
+		_inventory_open_button.size = Vector2(136.0, 56.0)
+		_inventory_open_button.pressed.connect(show_inventory)
+	_craft_open_button = Button.new()
+	_craft_open_button.name = "PortableCraftingButton"
+	_craft_open_button.text = "CRAFT"
+	_craft_open_button.position = Vector2(148.0, 0.0)
+	_craft_open_button.size = Vector2(136.0, 56.0)
+	_craft_open_button.custom_minimum_size = _craft_open_button.size
+	_craft_open_button.pressed.connect(show_crafting)
+	host.add_child(_craft_open_button)
 	if _settings_button != null:
 		_settings_button.text = "SYSTEM"
-
-	if _settings_panel != null:
-		_settings_panel.position = Vector2(920.0, 120.0)
-		_settings_panel.size = Vector2(312.0, 430.0)
-		_settings_panel.custom_minimum_size = Vector2(312.0, 430.0)
-		_settings_panel.z_index = 80
-
-	var left_column := _world.get("_left_hud_column") as VBoxContainer
-	if left_column != null:
-		left_column.position = Vector2(14.0, 16.0)
-		left_column.custom_minimum_size = Vector2(310.0, 0.0)
-		left_column.add_theme_constant_override("separation", 7)
-		var status_header := PanelContainer.new()
-		status_header.name = "IndustrialStatusHeader"
-		status_header.custom_minimum_size = Vector2(310.0, 36.0)
-		var status_label := Label.new()
-		status_label.text = "TEKNIK // SURVIVAL STATUS"
-		status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		status_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		status_label.add_theme_font_size_override("font_size", 14)
-		status_header.add_child(status_label)
-		left_column.add_child(status_header)
-		left_column.move_child(status_header, 0)
-
-	var interaction_hint := _world.get("_interaction_hint") as Label
-	if interaction_hint != null:
-		interaction_hint.position = Vector2(-220.0, 40.0)
-		interaction_hint.size = Vector2(440.0, 38.0)
-		interaction_hint.add_theme_font_size_override("font_size", 16)
-		interaction_hint.add_theme_color_override("font_color", BRASS_BRIGHT)
-		interaction_hint.add_theme_color_override("font_outline_color", INK)
-		interaction_hint.add_theme_constant_override("outline_size", 5)
-	var interact_button := _world.get("_interact_button") as Button
-	if interact_button != null:
-		interact_button.custom_minimum_size = Vector2(144.0, 58.0)
-		interact_button.position = Vector2(-304.0, -160.0)
+		_settings_button.position = Vector2(296.0, 0.0)
+		_settings_button.size = Vector2(136.0, 56.0)
 
 
-func _connect_actions() -> void:
-	if _open_crafting_button != null:
-		_open_crafting_button.pressed.connect(show_crafting)
-	if _back_to_inventory_button != null:
-		_back_to_inventory_button.pressed.connect(show_inventory)
-	if _inventory_open_button != null:
-		_inventory_open_button.pressed.connect(_after_inventory_toggle)
-	if _settings_button != null:
-		_settings_button.pressed.connect(_after_settings_toggle)
-	if _recipe_list != null:
-		_recipe_list.child_entered_tree.connect(_on_recipe_control_added)
-
-
-func _on_recipe_control_added(_control: Node) -> void:
-	if _recipe_style_refresh_pending:
-		return
-	_recipe_style_refresh_pending = true
-	call_deferred("_refresh_recipe_styles")
-
-
-func _refresh_recipe_styles() -> void:
-	_recipe_style_refresh_pending = false
-	_style_recipe_list()
-
-
-func _after_inventory_toggle() -> void:
-	call_deferred("_sync_inventory_open")
-
-
-func _after_settings_toggle() -> void:
-	call_deferred("_sync_inventory_open")
-
-
-func _sync_inventory_open() -> void:
-	if _inventory_window != null and _inventory_window.visible:
-		show_inventory()
+func _rewire_close_buttons() -> void:
+	var close_inventory := _inventory_window.find_child("CloseInventory", true, false) as Button
+	if close_inventory != null:
+		var old_toggle := Callable(_world, "_toggle_inventory_window")
+		if close_inventory.pressed.is_connected(old_toggle):
+			close_inventory.pressed.disconnect(old_toggle)
+		close_inventory.text = "CLOSE INVENTORY"
+		close_inventory.pressed.connect(close_all)
 
 
 func show_inventory() -> void:
-	_crafting_visible = false
-	if _workspace_title != null:
-		_workspace_title.text = INVENTORY_TITLE
-	if _items_panel != null:
-		_items_panel.visible = true
-	if _crafting_panel != null:
-		_crafting_panel.visible = false
+	_hide_station_windows()
+	if _settings_panel != null:
+		_settings_panel.visible = false
+	_inventory_window.visible = true
+	if _inventory_crafting_panel != null:
+		_inventory_crafting_panel.visible = false
+	_set_modal(true)
+	refresh_all()
 
 
 func show_crafting() -> void:
-	_crafting_visible = true
-	if _workspace_title != null:
-		_workspace_title.text = CRAFTING_TITLE
-	if _inventory_window != null and not _inventory_window.visible:
-		_inventory_window.visible = true
-		if _world.has_method("_set_modal_controls"):
-			_world.call("_set_modal_controls", true)
-	if _settings_panel != null:
-		_settings_panel.visible = false
-	if _items_panel != null:
-		_items_panel.visible = false
-	if _crafting_panel != null:
-		_crafting_panel.visible = true
-	if _world.has_method("_refresh_recipe_panel"):
-		_world.call("_refresh_recipe_panel")
-	call_deferred("_style_recipe_list")
+	_hide_station_windows()
+	_portable_screen.visible = true
+	_set_modal(true)
+	refresh_all()
 
 
 func open_workbench() -> void:
-	show_crafting()
-	if _workspace_title != null:
-		_workspace_title.text = WORKBENCH_TITLE
+	_hide_station_windows()
+	_crafting_table_screen.visible = true
+	_set_modal(true)
+	if _world.has_method("_refresh_recipe_panel"):
+		_world.call("_refresh_recipe_panel")
+	refresh_all()
+
+
+func open_furnace() -> void:
+	_hide_station_windows()
+	_furnace_screen.visible = true
+	_set_modal(true)
+	refresh_all()
+
+
+func close_all() -> void:
+	_hide_station_windows()
+	_set_modal(_settings_panel != null and _settings_panel.visible)
+
+
+func _hide_station_windows() -> void:
+	if _inventory_window != null:
+		_inventory_window.visible = false
+	if _portable_screen != null:
+		_portable_screen.visible = false
+	if _crafting_table_screen != null:
+		_crafting_table_screen.visible = false
+	if _furnace_screen != null:
+		_furnace_screen.visible = false
+
+
+func _set_modal(open: bool) -> void:
+	if _world.has_method("_set_modal_controls"):
+		_world.call("_set_modal_controls", open)
+
+
+func refresh_all() -> void:
+	if not _installed:
+		return
+	if _world.has_method("_refresh_recipe_panel"):
+		_world.call("_refresh_recipe_panel")
+	_rebuild_station_recipe_list(_portable_recipe_list, RecipeBook.STATION_HAND)
+	_rebuild_furnace_recipe_list()
+	_style_recipe_list(_table_recipe_list)
+	_style_recipe_list(_portable_recipe_list)
+	_style_recipe_list(_furnace_recipe_list)
+	var inventory: Variant = _world.get("_inventory")
+	if _furnace_fuel_label != null and inventory != null:
+		_furnace_fuel_label.text = "FUEL SLOT // Wood x%d // Cost: 1 per operation" % inventory.count(ItemRegistry.ITEM_WOOD)
+
+
+func _rebuild_station_recipe_list(list: VBoxContainer, station: StringName) -> void:
+	if list == null:
+		return
+	for child: Node in list.get_children():
+		child.queue_free()
+	var inventory: Variant = _world.get("_inventory")
+	var progression: Variant = _world.get("_progression")
+	if inventory == null or progression == null:
+		return
+	var current_category: String = ""
+	for recipe_id: StringName in RecipeBook.available_recipes_for_station(progression, station):
+		var definition: Dictionary = RecipeBook.recipe(recipe_id)
+		var category: String = str(definition.category)
+		if category != current_category:
+			current_category = category
+			var heading := Label.new()
+			heading.text = category.to_upper()
+			list.add_child(heading)
+		var button := Button.new()
+		button.name = "%s_%s" % [str(station), str(recipe_id)]
+		button.text = _recipe_button_text(definition)
+		button.custom_minimum_size = Vector2(720.0, 58.0)
+		button.disabled = not RecipeBook.can_craft_at_station(inventory, recipe_id, progression, station)
+		button.pressed.connect(func() -> void: _craft_from_station(recipe_id, station))
+		list.add_child(button)
+
+
+func _rebuild_furnace_recipe_list() -> void:
+	if _furnace_recipe_list == null:
+		return
+	for child: Node in _furnace_recipe_list.get_children():
+		child.queue_free()
+	var inventory: Variant = _world.get("_inventory")
+	var progression: Variant = _world.get("_progression")
+	if inventory == null or progression == null:
+		return
+	var current_category: String = ""
+	for recipe_id: StringName in RecipeBook.available_recipes_for_station(progression, RecipeBook.STATION_FURNACE):
+		var definition: Dictionary = RecipeBook.recipe(recipe_id)
+		var category: String = str(definition.category)
+		if category != current_category:
+			current_category = category
+			var heading := Label.new()
+			heading.text = category.to_upper()
+			_furnace_recipe_list.add_child(heading)
+		var button := Button.new()
+		button.name = "FurnaceRecipe_" + str(recipe_id)
+		button.text = _recipe_button_text(definition) + "\nFuel: 1 Wood"
+		button.custom_minimum_size = Vector2(720.0, 68.0)
+		button.disabled = not FurnaceRecipeBook.can_smelt(inventory, recipe_id, progression)
+		button.pressed.connect(func() -> void: _smelt_recipe(recipe_id))
+		_furnace_recipe_list.add_child(button)
+
+
+func _recipe_button_text(definition: Dictionary) -> String:
+	var ingredients: Array[String] = []
+	for value: Variant in (definition.ingredients as Dictionary).keys():
+		var item_id := StringName(str(value))
+		ingredients.append("%d %s" % [int(definition.ingredients[value]), ItemRegistry.display_name(item_id)])
+	var output := StringName(str(definition.output_item))
+	return "%s → %d %s\n%s // %s" % [
+		" + ".join(ingredients),
+		int(definition.output_count),
+		ItemRegistry.display_name(output),
+		str(definition.display_name),
+		str(definition.get("source_process", "TEKNIK crafting")),
+	]
+
+
+func _craft_from_station(recipe_id: StringName, station: StringName) -> void:
+	var crafted: bool = false
+	if _world.has_method("_craft_recipe_at_station"):
+		crafted = bool(_world.call("_craft_recipe_at_station", recipe_id, station))
+	if _portable_status != null:
+		_portable_status.text = "CRAFT COMPLETE" if crafted else "MISSING MATERIALS OR UNLOCK"
+	refresh_all()
+
+
+func _smelt_recipe(recipe_id: StringName) -> void:
+	var completed: bool = false
+	if _world.has_method("_smelt_furnace_recipe"):
+		completed = bool(_world.call("_smelt_furnace_recipe", recipe_id))
+	if _furnace_status != null:
+		_furnace_status.text = "FURNACE OPERATION COMPLETE" if completed else "NEED FUEL, INGREDIENTS OR UNLOCK"
+	refresh_all()
 
 
 func is_crafting_page_visible() -> bool:
-	return (
-		_installed
-		and _crafting_visible
-		and _inventory_window != null
-		and _inventory_window.visible
-		and _crafting_panel != null
-		and _crafting_panel.visible
-	)
+	return is_portable_crafting_visible() or is_workbench_visible()
 
 
-func _style_recipe_list() -> void:
-	if _recipe_list == null:
+func is_portable_crafting_visible() -> bool:
+	return _installed and _portable_screen != null and _portable_screen.visible
+
+
+func is_workbench_visible() -> bool:
+	return _installed and _crafting_table_screen != null and _crafting_table_screen.visible
+
+
+func is_furnace_visible() -> bool:
+	return _installed and _furnace_screen != null and _furnace_screen.visible
+
+
+func is_inventory_visible() -> bool:
+	return _installed and _inventory_window != null and _inventory_window.visible
+
+
+func _style_recipe_list(list: VBoxContainer) -> void:
+	if list == null:
 		return
-	for child: Node in _recipe_list.get_children():
-		_style_recipe_control(child)
-
-
-func _style_recipe_control(control: Node) -> void:
-	if not is_instance_valid(control):
-		return
-	var button := control as Button
-	if button != null:
-		button.custom_minimum_size = Vector2(720.0, 50.0)
-		_apply_button_style(button)
-		return
-	var heading := control as Label
-	if heading != null:
-		heading.add_theme_color_override("font_color", BRASS_BRIGHT)
-		heading.add_theme_font_size_override("font_size", 14)
+	for child: Node in list.get_children():
+		var button := child as Button
+		if button != null:
+			_apply_button_style(button)
+			continue
+		var label := child as Label
+		if label != null:
+			label.add_theme_color_override("font_color", BRASS_BRIGHT)
+			label.add_theme_font_size_override("font_size", 14)
 
 
 func _apply_all_ui_theme() -> void:
-	for child: Node in _world.get_children():
-		if child is CanvasLayer or child is Control:
-			_apply_theme_recursive(child)
+	_apply_theme_recursive(_world)
+	for panel: PanelContainer in [_inventory_window, _portable_screen, _crafting_table_screen, _furnace_screen]:
+		if panel != null:
+			panel.add_theme_stylebox_override("panel", _panel_style(INK, BRASS_BRIGHT, 3, 8, 10.0))
+	if _inventory_items_panel != null:
+		_inventory_items_panel.add_theme_stylebox_override("panel", _panel_style(PLATE, BLUEPRINT, 2, 6, 8.0))
 
 
 func _apply_theme_recursive(root: Node) -> void:
 	for child: Node in root.get_children():
 		var panel := child as PanelContainer
 		if panel != null:
-			panel.add_theme_stylebox_override("panel", _panel_style(PLATE, BRASS, 2, 6, 8.0))
+			panel.add_theme_stylebox_override("panel", _panel_style(PLATE, BLUEPRINT, 2, 6, 8.0))
 		var button := child as Button
 		if button != null:
 			_apply_button_style(button)
 		var label := child as Label
 		if label != null:
 			label.add_theme_color_override("font_color", PAPER)
-		var progress := child as ProgressBar
-		if progress != null:
-			progress.add_theme_stylebox_override("background", _panel_style(INK, BLUEPRINT, 1, 2, 1.0))
-		var scroll_bar := child as ScrollBar
-		if scroll_bar != null:
-			var minimum_size: Vector2 = scroll_bar.custom_minimum_size
-			minimum_size.x = 18.0
-			scroll_bar.custom_minimum_size = minimum_size
-			scroll_bar.add_theme_stylebox_override("scroll", _panel_style(INK, BLUEPRINT, 1, 2, 1.0))
-			scroll_bar.add_theme_stylebox_override("grabber", _panel_style(BRASS, BRASS_BRIGHT, 1, 2, 1.0))
 		_apply_theme_recursive(child)
-
-
-func _apply_priority_styles() -> void:
-	_inventory_window.add_theme_stylebox_override("panel", _panel_style(INK, BRASS_BRIGHT, 3, 8, 10.0))
-	_items_panel.add_theme_stylebox_override("panel", _panel_style(PLATE, BLUEPRINT, 2, 6, 8.0))
-	_crafting_panel.add_theme_stylebox_override("panel", _panel_style(PLATE, BLUEPRINT, 2, 6, 8.0))
-	if _settings_panel != null:
-		_settings_panel.add_theme_stylebox_override("panel", _panel_style(INK, BRASS_BRIGHT, 2, 7, 9.0))
-	var hotbar := _world.get("_bottom_hotbar_panel") as PanelContainer
-	if hotbar != null:
-		hotbar.add_theme_stylebox_override("panel", _panel_style(Color(0.02, 0.04, 0.055, 0.92), BRASS, 2, 5, 5.0))
 
 
 func _apply_button_style(button: Button) -> void:
@@ -403,7 +475,7 @@ func _apply_button_style(button: Button) -> void:
 	button.add_theme_color_override("font_hover_color", Color.WHITE)
 	button.add_theme_color_override("font_pressed_color", BRASS_BRIGHT)
 	button.add_theme_color_override("font_disabled_color", MUTED)
-	button.add_theme_font_size_override("font_size", 15)
+	button.add_theme_font_size_override("font_size", 14)
 
 
 func _panel_style(background: Color, border: Color, width: int, radius: int, margin: float) -> StyleBoxFlat:
@@ -425,46 +497,28 @@ func _panel_style(background: Color, border: Color, width: int, radius: int, mar
 	return style
 
 
-func _validate_functional_wiring() -> void:
+func _validate_separate_interfaces() -> void:
 	await get_tree().process_frame
-	var recipe_signal_connected: bool = (
-		_recipe_list != null
-		and _recipe_list.child_entered_tree.is_connected(Callable(self, "_on_recipe_control_added"))
-	)
 	var valid: bool = (
-		_inventory_scroll != null
-		and _inventory_scroll.vertical_scroll_mode != ScrollContainer.SCROLL_MODE_DISABLED
-		and _recipe_scroll != null
-		and _recipe_scroll.vertical_scroll_mode != ScrollContainer.SCROLL_MODE_DISABLED
-		and _open_crafting_button != null
-		and _back_to_inventory_button != null
-		and recipe_signal_connected
+		_inventory_window != null
+		and _portable_screen != null
+		and _crafting_table_screen != null
+		and _furnace_screen != null
+		and _portable_recipe_list != null
+		and _table_recipe_list != null
+		and _furnace_recipe_list != null
+		and _craft_open_button != null
+		and _inventory_crafting_panel != null
+		and not _inventory_crafting_panel.visible
 	)
 	if not valid:
-		_fail(
-			"functional wiring failed inventory_scroll=%s recipe_scroll=%s craft_button=%s back_button=%s recipe_signal=%s"
-			% [
-				_inventory_scroll != null,
-				_recipe_scroll != null,
-				_open_crafting_button != null,
-				_back_to_inventory_button != null,
-				recipe_signal_connected,
-			]
-		)
+		_fail("separate station UI wiring incomplete")
 		return
-	print(
-		"QA_INDUSTRIAL_UI_PASS inventory_scroll=", true,
-		" crafting_scroll=", true,
-		" crafting_button=", true,
-		" workbench_route_available=", has_method("open_workbench"),
-		" event_driven_recipe_styling=", recipe_signal_connected,
-		" mobile_window=", WINDOW_SIZE,
-		" voxel_item_grid=", true
-	)
+	print("QA_SEPARATE_STATION_UI_PASS inventory=true portable_crafting=true crafting_table=true furnace=true station_recipe_lists=true")
 
 
 func _fail(reason: String) -> void:
-	push_error("INDUSTRIAL_UI: %s" % reason)
+	push_error("SEPARATE_STATION_UI: %s" % reason)
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--qa-"):
 			get_tree().quit(1)
