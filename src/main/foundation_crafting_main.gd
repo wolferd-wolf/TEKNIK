@@ -28,11 +28,11 @@ func _ready() -> void:
 	super._ready()
 	_rebuild_furnace_visuals()
 	_fit_foundation_hotbar()
-	_runtime_log.event("info", "foundation", "wood_stations_ready", {
+	_runtime_log.event("info", "foundation", "station_interfaces_ready", {
 		"mined_trees": _tree_harvest.count(),
 		"furnaces": _furnaces.size(),
-		"crafting_bench": true,
-		"furnace_smelt_pairs": FurnaceRecipeBook.recipes().size(),
+		"crafting_table": true,
+		"furnace_recipes": FurnaceRecipeBook.recipe_ids().size(),
 	})
 
 
@@ -43,8 +43,6 @@ func _notification(what: int) -> void:
 	super._notification(what)
 
 
-# The adapted grass-side image is already authored with its green band at the top.
-# Texture orientation is handled in the shader; ecology geometry remains unchanged.
 func _ecology_mesh_for_group(group: Dictionary) -> Mesh:
 	_ecology_group_being_committed = str(group.get("name", ""))
 	return super._ecology_mesh_for_group(group)
@@ -57,11 +55,7 @@ func _add_tree_multimesh(
 	streamed: bool = true
 ) -> void:
 	super._add_tree_multimesh(mesh, transforms, cast_shadows, streamed)
-	if (
-		not streamed
-		or _ecology_group_being_committed != "trunks"
-		or _ecology_commit_parent == null
-	):
+	if not streamed or _ecology_group_being_committed != "trunks" or _ecology_commit_parent == null:
 		return
 	for value: Variant in transforms:
 		if value is Transform3D:
@@ -79,12 +73,11 @@ func _add_tree_collider(transform: Transform3D) -> void:
 	body.set_meta("teknik_tree_id", tree_id)
 	body.set_meta("teknik_tree_center", transform.origin)
 	var bottom_y: float = transform.origin.y - absf(scale.y) * 0.5
-	var base_voxel := Vector3i(
+	body.set_meta("teknik_tree_voxel", Vector3i(
 		floori(transform.origin.x),
 		floori(bottom_y),
 		floori(transform.origin.z)
-	)
-	body.set_meta("teknik_tree_voxel", base_voxel)
+	))
 	body.collision_layer = 1
 	body.collision_mask = 1
 	var collision := CollisionShape3D.new()
@@ -102,12 +95,8 @@ func _add_tree_collider(transform: Transform3D) -> void:
 func _make_ecology_groups(plan: Dictionary) -> Array[Dictionary]:
 	var filtered: Dictionary = plan.duplicate(true)
 	var canopy_keys: Array[String] = [
-		"broadleaf_lower",
-		"broadleaf_upper",
-		"broadleaf_side",
-		"conifer_lower",
-		"conifer_middle",
-		"conifer_upper",
+		"broadleaf_lower", "broadleaf_upper", "broadleaf_side",
+		"conifer_lower", "conifer_middle", "conifer_upper",
 	]
 	var filtered_keys: Array[String] = ["trunks"]
 	filtered_keys.append_array(canopy_keys)
@@ -121,10 +110,7 @@ func _make_ecology_groups(plan: Dictionary) -> Array[Dictionary]:
 			if key == "trunks":
 				if _tree_harvest.is_mined(TreeHarvestState.id_for_transform(transform)):
 					continue
-			elif _tree_harvest.near_mined_tree(
-				transform.origin,
-				TREE_CANOPY_CLEAR_RADIUS
-			):
+			elif _tree_harvest.near_mined_tree(transform.origin, TREE_CANOPY_CLEAR_RADIUS):
 				continue
 			kept.append(transform)
 		filtered[key] = kept
@@ -138,9 +124,7 @@ func _find_break_target(origin: Vector3, direction: Vector3) -> Dictionary:
 		return world_target
 	if world_target.is_empty():
 		return tree_target
-	if float(tree_target.get("distance", INF)) <= float(world_target.get("distance", INF)):
-		return tree_target
-	return world_target
+	return tree_target if float(tree_target.get("distance", INF)) <= float(world_target.get("distance", INF)) else world_target
 
 
 func _raycast_tree(origin: Vector3, direction: Vector3) -> Dictionary:
@@ -165,10 +149,11 @@ func _raycast_tree(origin: Vector3, direction: Vector3) -> Dictionary:
 		"kind": "tree",
 		"tree_id": tree_id,
 		"tree_center": collider.get_meta("teknik_tree_center", collider.global_position),
-		"voxel": collider.get_meta(
-			"teknik_tree_voxel",
-			Vector3i(floori(collider.global_position.x), floori(collider.global_position.y), floori(collider.global_position.z))
-		),
+		"voxel": collider.get_meta("teknik_tree_voxel", Vector3i(
+			floori(collider.global_position.x),
+			floori(collider.global_position.y),
+			floori(collider.global_position.z)
+		)),
 		"material": TREE_MATERIAL_ID,
 		"normal": hit.get("normal", Vector3.UP),
 		"distance": origin.distance_to(hit_position),
@@ -193,9 +178,7 @@ func _process_mining(delta: float) -> void:
 	var completed: Dictionary = _mining.update(delta)
 	if _mining_visual != null:
 		_mining_visual.set_progress(_mining.progress())
-	if completed.is_empty():
-		return
-	if not _harvest_active_tree():
+	if not completed.is_empty() and not _harvest_active_tree():
 		_mining.cancel_failed_completion()
 
 
@@ -215,7 +198,6 @@ func _harvest_active_tree() -> bool:
 		_load_tree_harvest()
 		_inventory.remove(FoundationItemRegistry.ITEM_WOOD, TREE_WOOD_YIELD)
 		return false
-
 	var coordinate := Vector3i(
 		floori(tree_center.x / float(VoxelChunk.SIZE)),
 		0,
@@ -224,7 +206,6 @@ func _harvest_active_tree() -> bool:
 	_remove_ecology_chunk(coordinate)
 	_feature_refresh_pending = true
 	_last_center_change_ms = 0
-
 	_active_tree_target_id = ""
 	_active_tree_target_center = Vector3.ZERO
 	_mining.notify_visible_commit()
@@ -232,11 +213,7 @@ func _harvest_active_tree() -> bool:
 		_mining_visual.clear_target()
 	if _block_crosshair != null:
 		_block_crosshair.set_targeted(false)
-	_mark_inventory_changed(
-		"tree_harvested",
-		FoundationItemRegistry.ITEM_WOOD,
-		TREE_WOOD_YIELD
-	)
+	_mark_inventory_changed("tree_harvested", FoundationItemRegistry.ITEM_WOOD, TREE_WOOD_YIELD)
 	_runtime_log.event("info", "survival", "tree_harvested", {
 		"tree_id": tree_id,
 		"center": str(tree_center),
@@ -263,11 +240,7 @@ func _can_place_engineering_item(voxel: Vector3i, item_id: StringName) -> bool:
 	return not _machine_at_position(voxel) and not _furnace_at_position(voxel)
 
 
-func _place_engineering_item(
-	voxel: Vector3i,
-	item_id: StringName,
-	consume_item: bool
-) -> bool:
+func _place_engineering_item(voxel: Vector3i, item_id: StringName, consume_item: bool) -> bool:
 	if item_id != FoundationItemRegistry.ITEM_FURNACE:
 		if _furnace_at_position(voxel):
 			return false
@@ -296,10 +269,7 @@ func _place_engineering_item(
 
 func _try_break_engineering_item(origin: Vector3, direction: Vector3) -> bool:
 	var body: StaticBody3D = _raycast_foundation_body(origin, direction)
-	if (
-		body == null
-		or StringName(str(body.get_meta("teknik_machine_type", ""))) != FURNACE_TYPE
-	):
+	if body == null or StringName(str(body.get_meta("teknik_machine_type", ""))) != FURNACE_TYPE:
 		return super._try_break_engineering_item(origin, direction)
 	var furnace_id: String = str(body.get_meta("teknik_machine_id", ""))
 	if not _furnaces.has(furnace_id):
@@ -314,11 +284,7 @@ func _try_break_engineering_item(origin: Vector3, direction: Vector3) -> bool:
 		_inventory.remove(FoundationItemRegistry.ITEM_FURNACE, 1)
 		return true
 	_rebuild_furnace_visuals()
-	_mark_inventory_changed(
-		"furnace_collected",
-		FoundationItemRegistry.ITEM_FURNACE,
-		1
-	)
+	_mark_inventory_changed("furnace_collected", FoundationItemRegistry.ITEM_FURNACE, 1)
 	return true
 
 
@@ -339,48 +305,57 @@ func _raycast_foundation_body(origin: Vector3, direction: Vector3) -> StaticBody
 
 func _interaction_prompt(machine_type: StringName) -> String:
 	if machine_type == FURNACE_TYPE:
-		var available: Dictionary = FurnaceRecipeBook.first_available(_inventory)
-		if available.is_empty():
-			return "Furnace: need Wood and ore concentrate"
-		return "INTERACT: smelt %s" % FoundationItemRegistry.display_name(
-			StringName(str(available.input))
-		)
+		return "INTERACT: open furnace"
 	return super._interaction_prompt(machine_type)
 
 
 func _interact_with_machine_type(machine_type: StringName) -> bool:
 	if machine_type == FURNACE_TYPE:
-		var report: Dictionary = FurnaceRecipeBook.smelt_one(_inventory)
-		if report.is_empty():
-			_set_machine_message("Furnace needs 1 Wood and an ore concentrate")
-			return false
-		var output := StringName(str(report.output))
-		_mark_inventory_changed("furnace_smelted", output, 1)
-		_set_machine_message(
-			"Smelted 1 %s" % FoundationItemRegistry.display_name(output)
-		)
-		_runtime_log.event("info", "foundation", "furnace_smelted", {
-			"input": str(report.input),
-			"fuel": str(report.fuel),
-			"output": str(output),
-		})
-		return true
+		var ui := get_node_or_null("IndustrialBlueprintUI")
+		if ui != null and ui.has_method("open_furnace"):
+			ui.call("open_furnace")
+			_set_machine_message("Furnace interface opened")
+			return true
+		_set_machine_message("Furnace interface unavailable")
+		return false
 	return super._interact_with_machine_type(machine_type)
+
+
+func _smelt_furnace_recipe(recipe_id: StringName) -> bool:
+	var report: Dictionary = FurnaceRecipeBook.smelt(_inventory, recipe_id, _progression)
+	if report.is_empty():
+		_set_machine_message("Missing fuel, ingredients or progression")
+		var ui := get_node_or_null("IndustrialBlueprintUI")
+		if ui != null and ui.has_method("refresh_all"):
+			ui.call("refresh_all")
+		return false
+	var output := StringName(str(report.output))
+	var output_count: int = int(report.count)
+	_mark_inventory_changed("furnace_processed", output, output_count)
+	_save_progression_now()
+	_set_machine_message("Produced %d %s" % [output_count, FoundationItemRegistry.display_name(output)])
+	_runtime_log.event("info", "foundation", "furnace_recipe_completed", {
+		"recipe": str(recipe_id),
+		"ingredients": report.ingredients,
+		"fuel": str(report.fuel),
+		"output": str(output),
+		"count": output_count,
+		"source_process": str(report.source_process),
+	})
+	return true
 
 
 func _rebuild_machine_visuals() -> void:
 	super._rebuild_machine_visuals()
-	_decorate_crafting_benches()
+	_decorate_crafting_tables()
 
 
-func _decorate_crafting_benches() -> void:
+func _decorate_crafting_tables() -> void:
 	if _machine_root == null:
 		return
 	for child: Node in _machine_root.get_children():
 		var body := child as StaticBody3D
-		if body == null:
-			continue
-		if str(body.get_meta("teknik_machine_type", "")) != "workbench":
+		if body == null or str(body.get_meta("teknik_machine_type", "")) != "workbench":
 			continue
 		var top := MeshInstance3D.new()
 		var top_mesh := BoxMesh.new()
@@ -412,11 +387,7 @@ func _rebuild_furnace_visuals() -> void:
 		var voxel: Vector3i = _furnaces[furnace_id]
 		var body := StaticBody3D.new()
 		body.name = "Furnace_" + furnace_id.replace(":", "_")
-		body.position = Vector3(
-			float(voxel.x) + 0.5,
-			float(voxel.y) + 0.5,
-			float(voxel.z) + 0.5
-		)
+		body.position = Vector3(float(voxel.x) + 0.5, float(voxel.y) + 0.5, float(voxel.z) + 0.5)
 		body.set_meta("teknik_machine_id", furnace_id)
 		body.set_meta("teknik_machine_type", FURNACE_TYPE)
 		body.set_meta("teknik_foundation_item", FoundationItemRegistry.ITEM_FURNACE)
@@ -522,11 +493,7 @@ func _load_furnaces() -> void:
 		var position_data: Variant = row.get("position", [])
 		if not position_data is Array or (position_data as Array).size() != 3:
 			return
-		var position := Vector3i(
-			int(position_data[0]),
-			int(position_data[1]),
-			int(position_data[2])
-		)
+		var position := Vector3i(int(position_data[0]), int(position_data[1]), int(position_data[2]))
 		var furnace_id: String = _furnace_id_for_position(position)
 		if restored.has(furnace_id):
 			return
@@ -541,18 +508,12 @@ func _save_furnaces() -> bool:
 	for value: Variant in ids:
 		var furnace_id: String = str(value)
 		var position: Vector3i = _furnaces[furnace_id]
-		rows.append({
-			"id": furnace_id,
-			"position": [position.x, position.y, position.z],
-		})
+		rows.append({"id": furnace_id, "position": [position.x, position.y, position.z]})
 	var file := FileAccess.open(FURNACE_SAVE_PATH, FileAccess.WRITE)
 	if file == null:
 		push_error("FURNACE could not open save file")
 		return false
-	file.store_string(JSON.stringify({
-		"schema": FURNACE_SCHEMA,
-		"furnaces": rows,
-	}, "\t"))
+	file.store_string(JSON.stringify({"schema": FURNACE_SCHEMA, "furnaces": rows}, "\t"))
 	file.flush()
 	return true
 
@@ -563,3 +524,7 @@ func qa_mined_tree_count() -> int:
 
 func qa_furnace_count() -> int:
 	return _furnaces.size()
+
+
+func qa_smelt_furnace_recipe(recipe_id: StringName) -> bool:
+	return _smelt_furnace_recipe(recipe_id)
