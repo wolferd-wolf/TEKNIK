@@ -1,6 +1,6 @@
-# TEKNIK Devil's Workshop Texture APK Run
+# TEKNIK Foundation Crafting APK Run
 
 - **Result:** **success**
-- **Run:** [30354425961](https://github.com/wolferd-wolf/TEKNIK/actions/runs/30354425961)
-- **Commit:** `06790054ef7f27b51a94b8f47829b2b509de5e9a`
-- **Generated:** 2026-07-28T11:38:07Z
+- **Run:** [30354879109](https://github.com/wolferd-wolf/TEKNIK/actions/runs/30354879109)
+- **Commit:** `9d0c28b9b9a27e5861a44887c6cded998a11cc94`
+- **Generated:** 2026-07-28T11:43:35Z
