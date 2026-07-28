@@ -27,7 +27,7 @@
   },
   "adaptation": {
     "grass_top": "ground.png center face crop [320,320,616,616]",
-    "grass_side": "groundEarth.png upper face crop [320,24,616,320]; shader flips V on side faces",
+    "grass_side": "groundEarth.png upper face crop [320,24,616,320]; authored top edge is used without a shader V flip",
     "dirt": "groundEarth.png clean left-face crop [16,320,264,616]",
     "stone": "Stone01.png center face crop [320,320,616,616]",
     "sand": "recolored dirt face",
