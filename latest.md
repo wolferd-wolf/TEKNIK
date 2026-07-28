@@ -1,6 +1,6 @@
 # TEKNIK Station UI Create Recipes APK Run
 
-- **Result:** **success**
-- **Run:** [30368737318](https://github.com/wolferd-wolf/TEKNIK/actions/runs/30368737318)
-- **Commit:** `295545bd76b1dde700f955e8d2e0eb4ae689a99f`
-- **Generated:** 2026-07-28T14:47:28Z
+- **Result:** **cancelled**
+- **Run:** [30370345172](https://github.com/wolferd-wolf/TEKNIK/actions/runs/30370345172)
+- **Commit:** `82528664bc94a758254e00322ffda8f3a0f2efe9`
+- **Generated:** 2026-07-28T14:53:34Z
