@@ -30,28 +30,35 @@ func qa_apply_voxel_edit(voxel: Vector3i, material: int, action: String) -> void
 
 
 func qa_save_edits_now() -> void:
-	var needed: int = maxi(0, 30 - _inventory.count(ItemRegistry.ITEM_STONE))
-	if needed > 0:
-		if _inventory.add(ItemRegistry.ITEM_STONE, needed) != 0:
-			push_error("QA_ENGINEERING could not grant progression materials")
-			get_tree().quit(1)
-			return
-		_qa_granted_items += needed
-		_mark_inventory_changed("qa_engineering_supply", ItemRegistry.ITEM_STONE, needed)
+	var supplies: Dictionary = {
+		ItemRegistry.ITEM_PLANKS: 7,
+		ItemRegistry.ITEM_STONE: 10,
+		ItemRegistry.ITEM_ANDESITE: 2,
+		ItemRegistry.ITEM_IRON_NUGGET: 2,
+	}
+	for item_variant: Variant in supplies.keys():
+		var item_id := StringName(str(item_variant))
+		var needed: int = maxi(0, int(supplies[item_variant]) - _inventory.count(item_id))
+		if needed > 0:
+			if _inventory.add(item_id, needed) != 0:
+				push_error("QA_ENGINEERING could not grant Create recipe material: %s" % item_id)
+				get_tree().quit(1)
+				return
+			_qa_granted_items += needed
+			_mark_inventory_changed("qa_engineering_supply", item_id, needed)
+
 	var sequence: Array[StringName] = [
-		RecipeBook.RECIPE_STONE_GEAR,
 		RecipeBook.RECIPE_WORKBENCH,
 		RecipeBook.RECIPE_CRUSHED_STONE,
-		RecipeBook.RECIPE_STONE_SHAFT,
-		RecipeBook.RECIPE_STONE_GEAR,
-		RecipeBook.RECIPE_HAND_CRANK,
 		RecipeBook.RECIPE_CRUSHED_STONE,
 		RecipeBook.RECIPE_STONE_SHAFT,
+		RecipeBook.RECIPE_ANDESITE_ALLOY,
+		RecipeBook.RECIPE_HAND_CRANK,
 		RecipeBook.RECIPE_STONE_CRUSHER,
 	]
 	for recipe_id: StringName in sequence:
 		if not qa_craft_recipe(recipe_id):
-			push_error("QA_ENGINEERING recipe failed: %s" % recipe_id)
+			push_error("QA_ENGINEERING station recipe failed: %s" % recipe_id)
 			get_tree().quit(1)
 			return
 		_qa_crafted_items += 1
@@ -84,27 +91,24 @@ func qa_save_edits_now() -> void:
 		and _inventory.count(ItemRegistry.ITEM_STONE_SHAFT) == 1
 		and _inventory.count(ItemRegistry.ITEM_STONE_CRUSHER) == 1
 		and qa_progression_unlocked(ProgressionState.UNLOCK_STONE_PROCESSING)
+		and qa_progression_unlocked(ProgressionState.UNLOCK_ANDESITE_ENGINEERING)
 		and qa_progression_unlocked(ProgressionState.UNLOCK_KINETIC_STARTER)
 	)
 	if not passed:
-		push_error("QA_ENGINEERING progression, hotbar, or persistence failed")
+		push_error("QA_ENGINEERING station progression, hotbar, or persistence failed")
 		get_tree().quit(1)
 		return
 	print(
 		"QA_CRAFTING_PASS crafted=", _qa_crafted_items,
-		" workbenches=", _inventory.count(ItemRegistry.ITEM_WORKBENCH),
+		" table=", _inventory.count(ItemRegistry.ITEM_WORKBENCH),
 		" hand_cranks=", _inventory.count(ItemRegistry.ITEM_HAND_CRANK),
 		" shafts=", _inventory.count(ItemRegistry.ITEM_STONE_SHAFT),
 		" crushers=", _inventory.count(ItemRegistry.ITEM_STONE_CRUSHER),
-		" persisted=", inventory_persisted and progression_persisted
+		" create_recipe_chain=true persisted=", inventory_persisted and progression_persisted
 	)
 	print(
-		"QA_ENGINEERING_PASS crafted=", _qa_crafted_items,
-		" workbenches=", _inventory.count(ItemRegistry.ITEM_WORKBENCH),
-		" hand_cranks=", _inventory.count(ItemRegistry.ITEM_HAND_CRANK),
-		" shafts=", _inventory.count(ItemRegistry.ITEM_STONE_SHAFT),
-		" crushers=", _inventory.count(ItemRegistry.ITEM_STONE_CRUSHER),
-		" processing_unlocked=", qa_progression_unlocked(ProgressionState.UNLOCK_STONE_PROCESSING),
+		"QA_ENGINEERING_PASS processing_unlocked=", qa_progression_unlocked(ProgressionState.UNLOCK_STONE_PROCESSING),
+		" andesite_unlocked=", qa_progression_unlocked(ProgressionState.UNLOCK_ANDESITE_ENGINEERING),
 		" kinetic_unlocked=", qa_progression_unlocked(ProgressionState.UNLOCK_KINETIC_STARTER),
 		" persisted=", inventory_persisted and progression_persisted
 	)
