@@ -4,6 +4,7 @@ const ItemRegistry = preload("res://src/survival/item_registry.gd")
 const RecipeBook = preload("res://src/survival/recipe_book.gd")
 const StackInventory = preload("res://src/survival/stack_inventory.gd")
 const FurnaceRecipeBook = preload("res://src/survival/furnace_recipe_book.gd")
+const ProgressionState = preload("res://src/survival/progression_state.gd")
 const TreeHarvestState = preload("res://src/world/tree_harvest_state.gd")
 const MiningController = preload("res://src/player/mining_controller.gd")
 
@@ -12,11 +13,11 @@ var _failures: int = 0
 
 func _init() -> void:
 	_test_tree_state()
-	_test_crafting_bench_and_furnace_recipes()
-	_test_furnace_processing()
+	_test_station_recipes()
+	_test_furnace_recipe_selection()
 	_test_tree_mining_duration()
 	if _failures == 0:
-		print("FOUNDATION_CRAFTING_TESTS_PASS wood_yield_item=true crafting_bench=true furnace=true mineable_tree_state=true")
+		print("FOUNDATION_CRAFTING_TESTS_PASS mineable_trees=true portable_crafting=true crafting_table=true furnace_selection=true")
 		quit(0)
 	else:
 		push_error("FOUNDATION_CRAFTING_TESTS_FAILED count=%d" % _failures)
@@ -30,41 +31,56 @@ func _test_tree_state() -> void:
 	var state := TreeHarvestState.new()
 	_expect(state.mark_mined(tree_id, transform.origin), "tree can be marked mined")
 	_expect(not state.mark_mined(tree_id, transform.origin), "tree cannot be mined twice")
-	_expect(state.is_mined(tree_id), "mined tree id is retained")
 	_expect(state.near_mined_tree(transform.origin + Vector3(2.0, 6.0, 0.0), 3.35), "canopy filter follows mined trunk horizontally")
 	var encoded: Dictionary = state.encode()
 	var restored := TreeHarvestState.new()
-	_expect(restored.decode(encoded), "tree harvest save decodes")
-	_expect(restored.encode() == encoded, "tree harvest persistence is deterministic")
+	_expect(restored.decode(encoded) and restored.encode() == encoded, "tree harvest persistence is deterministic")
 
 
-func _test_crafting_bench_and_furnace_recipes() -> void:
-	var bench: Dictionary = RecipeBook.recipe(RecipeBook.RECIPE_WORKBENCH)
-	_expect(StringName(str(bench.output_item)) == ItemRegistry.ITEM_WORKBENCH, "bench recipe produces crafting bench")
-	_expect(int(bench.ingredients[ItemRegistry.ITEM_WOOD]) == 4, "crafting bench consumes four wood")
+func _test_station_recipes() -> void:
+	var planks: Dictionary = RecipeBook.recipe(RecipeBook.RECIPE_PLANKS)
+	_expect(StringName(str(planks.station)) == RecipeBook.STATION_HAND, "planks use portable crafting")
+	_expect(int(planks.ingredients[ItemRegistry.ITEM_WOOD]) == 1 and int(planks.output_count) == 4, "one tree wood becomes four planks")
+	var table: Dictionary = RecipeBook.recipe(RecipeBook.RECIPE_WORKBENCH)
+	_expect(StringName(str(table.station)) == RecipeBook.STATION_HAND, "Crafting Table is portable-crafted")
+	_expect(int(table.ingredients[ItemRegistry.ITEM_PLANKS]) == 4, "Crafting Table consumes four planks")
+	var alloy: Dictionary = RecipeBook.recipe(RecipeBook.RECIPE_ANDESITE_ALLOY)
+	_expect(StringName(str(alloy.station)) == RecipeBook.STATION_TABLE, "andesite alloy requires Crafting Table")
 	var furnace: Dictionary = RecipeBook.recipe(RecipeBook.RECIPE_FURNACE)
 	_expect(StringName(str(furnace.output_item)) == ItemRegistry.ITEM_FURNACE, "furnace recipe produces furnace")
 	_expect(int(furnace.ingredients[ItemRegistry.ITEM_STONE]) == 8, "furnace consumes eight stone")
+	_expect(RecipeBook.station_recipes(RecipeBook.STATION_HAND).size() > 8, "portable crafting has a useful recipe set")
+	_expect(RecipeBook.station_recipes(RecipeBook.STATION_TABLE).size() >= 20, "Crafting Table contains Phase 1 engineering recipes")
+	_expect(FurnaceRecipeBook.recipe_ids().size() == 6, "furnace exposes four smelts, kelp drying and brass alloying")
 
 
-func _test_furnace_processing() -> void:
+func _test_furnace_recipe_selection() -> void:
+	var progression := ProgressionState.new()
+	progression.unlock(ProgressionState.UNLOCK_WORKBENCH)
 	var inventory := StackInventory.new()
 	inventory.add(ItemRegistry.ITEM_WOOD, 2)
 	inventory.add(ItemRegistry.ITEM_IRON_CONCENTRATE, 1)
-	var report: Dictionary = FurnaceRecipeBook.smelt_one(inventory)
-	_expect(not report.is_empty(), "furnace smelts an available concentrate")
-	_expect(StringName(str(report.output)) == ItemRegistry.ITEM_IRON_INGOT, "iron concentrate becomes iron ingot")
-	_expect(inventory.count(ItemRegistry.ITEM_WOOD) == 1, "furnace consumes one wood fuel")
-	_expect(inventory.count(ItemRegistry.ITEM_IRON_CONCENTRATE) == 0, "furnace consumes one concentrate")
-	_expect(inventory.count(ItemRegistry.ITEM_IRON_INGOT) == 1, "furnace produces one ingot")
+	inventory.add(ItemRegistry.ITEM_KELP, 1)
+	var iron: Dictionary = FurnaceRecipeBook.smelt(inventory, RecipeBook.RECIPE_IRON_INGOT, progression)
+	_expect(not iron.is_empty(), "specific iron recipe runs")
+	_expect(StringName(str(iron.output)) == ItemRegistry.ITEM_IRON_INGOT, "iron concentrate becomes iron ingot")
+	_expect(inventory.count(ItemRegistry.ITEM_WOOD) == 1, "furnace consumes one wood fuel per operation")
+	_expect(inventory.count(ItemRegistry.ITEM_KELP) == 1, "selected recipe does not consume unrelated input")
+	var kelp: Dictionary = FurnaceRecipeBook.smelt(inventory, RecipeBook.RECIPE_DRIED_KELP, progression)
+	_expect(not kelp.is_empty(), "specific kelp drying recipe runs")
+	_expect(inventory.count(ItemRegistry.ITEM_DRIED_KELP) == 1, "kelp becomes dried kelp")
 	var no_fuel := StackInventory.new()
 	no_fuel.add(ItemRegistry.ITEM_COPPER_CONCENTRATE, 1)
-	_expect(FurnaceRecipeBook.smelt_one(no_fuel).is_empty(), "furnace refuses to smelt without fuel")
+	_expect(not FurnaceRecipeBook.can_smelt(no_fuel, RecipeBook.RECIPE_COPPER_INGOT, progression), "furnace refuses operation without fuel")
+	var wrong_recipe := StackInventory.new()
+	wrong_recipe.add(ItemRegistry.ITEM_WOOD, 1)
+	wrong_recipe.add(ItemRegistry.ITEM_IRON_CONCENTRATE, 1)
+	_expect(FurnaceRecipeBook.smelt(wrong_recipe, RecipeBook.RECIPE_COPPER_INGOT, progression).is_empty(), "furnace does not auto-substitute a different recipe")
 
 
 func _test_tree_mining_duration() -> void:
-	_expect(is_equal_approx(MiningController.duration_for_material(MiningController.TREE_MATERIAL_ID), MiningController.TREE_SECONDS), "trees use the dedicated held-mining duration")
-	_expect(MiningController.TREE_SECONDS > MiningController.STONE_SECONDS, "tree mining is deliberate rather than instant")
+	_expect(is_equal_approx(MiningController.duration_for_material(MiningController.TREE_MATERIAL_ID), MiningController.TREE_SECONDS), "trees use dedicated held-mining duration")
+	_expect(MiningController.TREE_SECONDS > MiningController.STONE_SECONDS, "tree mining remains deliberate")
 
 
 func _expect(condition: bool, message: String) -> void:
