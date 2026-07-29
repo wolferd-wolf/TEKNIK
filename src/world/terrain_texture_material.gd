@@ -15,30 +15,34 @@ const LAYER_PATHS: Array[String] = [
 	"res://assets/textures/terrain_layers/gold_ore.png",
 ]
 
+const GRASS_TOP_JPG := "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"
+const GRASS_SIDE_JPG := "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"
+const DIRT_JPG := "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"
+const STONE_JPG := "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"
+const SAND_JPG := "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAcFBQYFBAcGBgYIBwcICxILCwoKCxYPEA0SGhYbGhkWGRgcICgiHB4mHhgZIzAkJiorLS4tGyIyNTEsNSgsLSz/2wBDAQcICAsJCxULCxUsHRkdLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCz/wAARCACAAIADASEAAhEBAxEB/8QAGgAAAwEBAQEAAAAAAAAAAAAAAQIDBQAGBP/EADQQAAICAQIEBQMDAwMFAAAAAAECABEDEiEEMUFhBRMiUXEygbEUkaFSYoIVQtEjJDNykv/EABoBAQEBAQEBAQAAAAAAAAAAAAABBQYCBAP/xAAiEQEAAQMDBQEBAAAAAAAAAAAAAQQRMwIDEzJRUoGRMbH/2gAMAwEAAhEDEQA/AHmt4RhTLgyl1xtTD6hZ5T5KzVOnamdMv22IidcRLQPC4euHFQ9gBGbg8LC/Jxjboo3mFz7nlP1o8ejsQ8HhA/8AFi27QfosZIvCn2WXn3PKU49PZfHwvDn0nhcRIH9IjNwWCr/T4V/wEnPu+U/Tj0diNwOCrGBP/kSZ4HEx9OFKHXSI593yn6cejs4cHgBo4UPyJdOD4fkeHw/OkRz7vlP049HY44HhgbGDE3bSIrcHw5NfpsQ/xEc+75T9OPR2A8Dw5O2DEP8AARv9O4Y88GMf4iOfc8p+nHo7PITW8IvystC/UPxNutwz6fBT5IaRUsptQW5HfYxU8xGNggdB0nPtN9KZVr1rv2hbiMQ3AZpBDJxWXVeIKq/3DeOvHAAHIh710lsi65sORbDxqxjfYX3kE2fHZrUT3G0nkzZCPQtdgLlA/UtWxU12hXiyoOrGD7EGBQcXjOIWpLH2kn4lyLCgfe4sPJzZ8EryMt8tQ/E6Cuwz6/rNp8kNYaaqEoBOeaaTKaNHl/Mkqgm7uBUJqICgTvJs+8XAPDBVpQQx9j+ZQYj/AMxcPpoUIrLYqQIcV3SAd5F8TkBAa/M9RKOTG+HYFt4VxUukmwfeWZHmJveAD/ts+22ob/ab9dhlm0+SGmPL17NZPSUARhsQT0nOtNF0BfcFqFVyAgOIKtqoEtwQCp3Um5QZByse28gJZSN3G3SIeIxIaLfxLZDh0cekiMMe9ljIpqAXfftJZFRxuTCJjHRJu7gI0+rSJVeSmt4Oaw5tv9w/E6Gtwz6ZlPkh9xfflfvXSC2BGliW/wDaYDSUXiTjHqN177yzcSUB/wCnrGx1KdpLXCjihkFrjIHufedqJBrrFrAHEBuef8RGxg3dV3i6iUN3e/ed5zotayAIDJxT2OvaOvE3WrGD95LBmZTZRADJ6H2sgntA8pNnwTHr4fNy+oDf4nQ12GfTMp8kNYYhZNVfSRfCq+pUHeudTnrtMmTHiy7qrKCOTCqipw2PHsuwrkJ6uigC8tMqF2obSSCE09TDp3r99p5UwxkmyK+Yj4tTj08uplHHEBO0CuQuA6IRvUoAOdn2hHipteBOExZQb3YcvidDW4ZZtPkhsDPj30nlzFQa0azy+055pOdFYVpBHuIvlqDsJFcVoXBRv/iUMjq2x59NpWlPX9oRNsppwmJ9V0C233hAfSNXOJsCqjctQEVqUWCIEMnEOrGlBHSKOMyCrQEVPVh5ea/gxAxZSf6h+Jv1uGWbT5cNDymVRW8V+HbRY9TCc/EtIVITSGdieoqWCq2w2MkjmUlbX+ZNnbGoDKO5uAEd2YrjCt050BBoYkE4wCPvKHGEMTvRMHklAABZ95Lhh6eYJ+JN8b5ciqF+rqRVSxIULj84oGdwtb6aHeWKISALPTaJH//Z"
+
 static var _shared_material: ShaderMaterial
 static var _terrain_layers: Texture2DArray
-
 
 static func shared_material() -> ShaderMaterial:
 	if _shared_material == null:
 		_shared_material = ShaderMaterial.new()
 		_shared_material.shader = TERRAIN_SHADER
 		_shared_material.set_shader_parameter("terrain_layers", texture_layers())
-		_shared_material.set_shader_parameter("detail_fade_start", 22.0)
-		_shared_material.set_shader_parameter("detail_fade_end", 76.0)
-		_shared_material.set_shader_parameter("detail_fade_strength", 0.72)
+		_shared_material.set_shader_parameter("detail_fade_start", 24.0)
+		_shared_material.set_shader_parameter("detail_fade_end", 88.0)
+		_shared_material.set_shader_parameter("detail_fade_strength", 0.88)
 	return _shared_material
-
 
 static func texture_layers() -> Texture2DArray:
 	if _terrain_layers != null:
 		return _terrain_layers
 	var images: Array[Image] = [
-		_build_grass_top(),
-		_build_grass_side(),
-		_build_soil(),
-		_build_stone(),
-		_build_sand(),
+		_decode_jpg(GRASS_TOP_JPG, "grass_top"),
+		_decode_jpg(GRASS_SIDE_JPG, "grass_side"),
+		_decode_jpg(DIRT_JPG, "dirt"),
+		_decode_jpg(STONE_JPG, "stone"),
+		_decode_jpg(SAND_JPG, "sand"),
 	]
 	for index: int in range(5, LAYER_PATHS.size()):
 		var texture := load(LAYER_PATHS[index]) as Texture2D
@@ -50,6 +54,9 @@ static func texture_layers() -> Texture2DArray:
 			image.resize(LAYER_SIZE, LAYER_SIZE, Image.INTERPOLATE_LANCZOS)
 		images.append(image)
 	for image: Image in images:
+		if image == null or image.is_empty():
+			push_error("TEKNIK terrain texture image is empty")
+			return null
 		if image.get_format() != Image.FORMAT_RGBA8:
 			image.convert(Image.FORMAT_RGBA8)
 		if not image.has_mipmaps():
@@ -64,109 +71,12 @@ static func texture_layers() -> Texture2DArray:
 		_terrain_layers = null
 	return _terrain_layers
 
-
-static func _new_image() -> Image:
-	return Image.create(LAYER_SIZE, LAYER_SIZE, false, Image.FORMAT_RGBA8)
-
-
-static func _hash(x: int, y: int, seed: int) -> float:
-	var n: int = x * 374761393 + y * 668265263 + seed * 1442695041
-	n = (n ^ (n >> 13)) * 1274126177
-	return float((n ^ (n >> 16)) & 0xffff) / 65535.0
-
-
-static func _tile_noise(x: int, y: int, seed: int, scale: int) -> float:
-	var sx: int = posmod(x, LAYER_SIZE)
-	var sy: int = posmod(y, LAYER_SIZE)
-	var gx: int = sx / scale
-	var gy: int = sy / scale
-	var fx: float = float(sx % scale) / float(scale)
-	var fy: float = float(sy % scale) / float(scale)
-	var cells: int = LAYER_SIZE / scale
-	var x1: int = posmod(gx + 1, cells)
-	var y1: int = posmod(gy + 1, cells)
-	fx = fx * fx * (3.0 - 2.0 * fx)
-	fy = fy * fy * (3.0 - 2.0 * fy)
-	var a: float = lerpf(_hash(gx, gy, seed), _hash(x1, gy, seed), fx)
-	var b: float = lerpf(_hash(gx, y1, seed), _hash(x1, y1, seed), fx)
-	return lerpf(a, b, fy)
-
-
-static func _layered_noise(x: int, y: int, seed: int) -> float:
-	return _tile_noise(x, y, seed, 32) * 0.50 + _tile_noise(x, y, seed + 11, 16) * 0.30 + _tile_noise(x, y, seed + 29, 8) * 0.20
-
-
-static func _build_grass_top() -> Image:
-	var image := _new_image()
-	for y: int in range(LAYER_SIZE):
-		for x: int in range(LAYER_SIZE):
-			var n: float = _layered_noise(x, y, 7)
-			var fine: float = _hash(x, y, 101)
-			var color := Color("4d7a37").lerp(Color("769447"), n)
-			if fine > 0.965:
-				color = color.lightened(0.13)
-			elif fine < 0.025:
-				color = color.darkened(0.12)
-			image.set_pixel(x, y, color)
-	return image
-
-
-static func _build_soil() -> Image:
-	var image := _new_image()
-	for y: int in range(LAYER_SIZE):
-		for x: int in range(LAYER_SIZE):
-			var n: float = _layered_noise(x, y, 19)
-			var color := Color("5a3c29").lerp(Color("826044"), n)
-			var speck: float = _hash(x, y, 211)
-			if speck > 0.982:
-				color = Color("9a8b73")
-			elif speck < 0.018:
-				color = color.darkened(0.18)
-			image.set_pixel(x, y, color)
-	return image
-
-
-static func _build_grass_side() -> Image:
-	var image := _build_soil()
-	for y: int in range(30):
-		for x: int in range(LAYER_SIZE):
-			var edge: int = 14 + int(round((_tile_noise(x, 0, 41, 16) - 0.5) * 14.0))
-			if y <= edge:
-				var n: float = _layered_noise(x, y, 43)
-				var color := Color("426f31").lerp(Color("739244"), n)
-				if y > edge - 3:
-					color = color.darkened(0.08)
-				image.set_pixel(x, y, color)
-	return image
-
-
-static func _build_stone() -> Image:
-	var image := _new_image()
-	for y: int in range(LAYER_SIZE):
-		for x: int in range(LAYER_SIZE):
-			var n: float = _layered_noise(x, y, 53)
-			var strata: float = sin(float(y) * 0.18 + _tile_noise(x, y, 61, 32) * 3.0) * 0.035
-			var color := Color("59605e").lerp(Color("808582"), clampf(n + strata, 0.0, 1.0))
-			var pit: float = _hash(x, y, 71)
-			if pit < 0.012:
-				color = color.darkened(0.22)
-			elif pit > 0.991:
-				color = color.lightened(0.10)
-			image.set_pixel(x, y, color)
-	return image
-
-
-static func _build_sand() -> Image:
-	var image := _new_image()
-	for y: int in range(LAYER_SIZE):
-		for x: int in range(LAYER_SIZE):
-			var n: float = _layered_noise(x, y, 83)
-			var ripple: float = sin(float(x + y) * 0.11 + _tile_noise(x, y, 89, 32) * 4.0) * 0.055
-			var color := Color("b69a62").lerp(Color("d4bd82"), clampf(n + ripple, 0.0, 1.0))
-			var grain: float = _hash(x, y, 97)
-			if grain > 0.985:
-				color = color.lightened(0.12)
-			elif grain < 0.018:
-				color = color.darkened(0.12)
-			image.set_pixel(x, y, color)
+static func _decode_jpg(encoded: String, label: String) -> Image:
+	var image := Image.new()
+	var error := image.load_jpg_from_buffer(Marshalls.base64_to_raw(encoded))
+	if error != OK:
+		push_error("TEKNIK approved texture decode failed for %s: %s" % [label, error_string(error)])
+		return Image.new()
+	if image.get_width() != LAYER_SIZE or image.get_height() != LAYER_SIZE:
+		image.resize(LAYER_SIZE, LAYER_SIZE, Image.INTERPOLATE_LANCZOS)
 	return image
