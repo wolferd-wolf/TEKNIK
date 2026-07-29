@@ -1,20 +1,20 @@
 {
   "schema": 1,
-  "generated_at_utc": "2026-07-29T08:04:25Z",
+  "generated_at_utc": "2026-07-29T10:16:11Z",
   "run": {
-    "id": 30433535084,
+    "id": 30441961937,
     "attempt": 1,
-    "url": "https://github.com/wolferd-wolf/TEKNIK/actions/runs/30433535084",
+    "url": "https://github.com/wolferd-wolf/TEKNIK/actions/runs/30441961937",
     "repository": "wolferd-wolf/TEKNIK",
     "workflow": "TEKNIK Station UI Create Recipes APK",
     "event": "push",
     "ref": "refs/heads/agent/station-uis-create-recipes",
     "branch_or_tag": "agent/station-uis-create-recipes",
-    "commit_sha": "5cd3c3622e81252fdc0bfc1a548859ad3c1c3cdc",
+    "commit_sha": "8d41d750b656072b1a29285722c2481e1cf7531e",
     "actor": "wolferd-wolf",
-    "overall_result": "failure"
+    "overall_result": "success"
   },
   "required_jobs": {
-    "phase_one_arm64": "failure"
+    "phase_one_arm64": "success"
   }
 }
