@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import com.akila.claudepocket.databinding.ActivityMainBinding
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
@@ -12,8 +13,33 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            try {
+                File(filesDir, CRASH_FILE_NAME).writeText(throwable.stackTraceToString())
+            } catch (_: Exception) {
+                // The process is already crashing; preserve the original failure path.
+            } finally {
+                if (previousHandler != null) {
+                    previousHandler.uncaughtException(thread, throwable)
+                } else {
+                    android.os.Process.killProcess(android.os.Process.myPid())
+                }
+            }
+        }
+
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        val crashFile = File(filesDir, CRASH_FILE_NAME)
+        if (crashFile.isFile) {
+            val crashText = runCatching { crashFile.readText() }
+                .getOrElse { "Could not read saved crash report: ${it.stackTraceToString()}" }
+            appendOutput("Previous crash report:")
+            appendOutput(crashText)
+            crashFile.delete()
+        }
 
         claudeProcess = ClaudeProcess(this)
         val bootstrap = RuntimeBootstrap(this)
@@ -75,5 +101,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun appendOutput(line: String) {
         binding.outputText.append(line + "\n")
+    }
+
+    companion object {
+        private const val CRASH_FILE_NAME = "crash.txt"
     }
 }
