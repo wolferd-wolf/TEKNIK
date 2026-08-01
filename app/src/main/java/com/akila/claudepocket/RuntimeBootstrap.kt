@@ -45,56 +45,74 @@ class RuntimeBootstrap(private val context: Context) {
                 stagingDir.mkdirs()
                 File(runtimeDir, "lib").mkdirs()
 
-                onProgress("Step 2/5: Resolving the current Claude Code release.")
-                val version = downloadText("$CLAUDE_RELEASES/latest").trim()
+                onProgress("Step 2/5: Resolving the latest Claude Code GitHub release.")
+                val release = JSONObject(downloadText(CLAUDE_LATEST_RELEASE_API))
+                val tagName = release.optString("tag_name")
+                val version = tagName.removePrefix("v")
                 if (!VERSION_PATTERN.matches(version)) {
-                    throw InstallException("Anthropic returned an invalid release version: $version")
+                    throw InstallException("GitHub returned an invalid Claude release tag: $tagName")
                 }
 
-                val manifestUrl = "$CLAUDE_RELEASES/$version/manifest.json"
-                val signatureUrl = "$CLAUDE_RELEASES/$version/manifest.json.sig"
-                val archiveUrl =
-                    "$CLAUDE_RELEASES/$version/claude-linux-arm64-musl.tar.gz"
-
-                onProgress("Step 2/5: Downloading Anthropic manifest and signature for $version.")
-                val manifestFile = File(stagingDir, "manifest.json")
-                val signatureFile = File(stagingDir, "manifest.json.sig")
-                downloadToFile(manifestUrl, manifestFile)
-                downloadToFile(signatureUrl, signatureFile)
-                if (signatureFile.length() == 0L) {
-                    throw InstallException("Anthropic manifest signature was empty.")
+                val assets = release.optJSONArray("assets")
+                    ?: throw InstallException("Claude GitHub release contains no assets array.")
+                var archiveName: String? = null
+                var archiveUrl: String? = null
+                var checksumsUrl: String? = null
+                for (index in 0 until assets.length()) {
+                    val asset = assets.getJSONObject(index)
+                    val name = asset.optString("name")
+                    val url = asset.optString("browser_download_url")
+                    if (
+                        name.contains("linux-arm64", ignoreCase = true) &&
+                        name.contains("musl", ignoreCase = true) &&
+                        name.endsWith(".tar.gz", ignoreCase = true)
+                    ) {
+                        archiveName = name
+                        archiveUrl = url
+                    }
+                    if (name == CHECKSUMS_ASSET_NAME) {
+                        checksumsUrl = url
+                    }
                 }
 
-                val manifest = JSONObject(manifestFile.readText())
-                val platform = manifest
-                    .getJSONObject("platforms")
-                    .optJSONObject(CLAUDE_PLATFORM)
+                val resolvedArchiveName = archiveName
                     ?: throw InstallException(
-                        "Anthropic manifest has no $CLAUDE_PLATFORM checksum entry."
+                        "Latest Claude GitHub release has no linux-arm64 musl .tar.gz asset."
                     )
-                val expectedChecksum = platform.optString("checksum").lowercase()
-                if (!SHA256_PATTERN.matches(expectedChecksum)) {
+                val resolvedArchiveUrl = archiveUrl
+                    ?: throw InstallException("Claude musl asset has no browser_download_url.")
+                val resolvedChecksumsUrl = checksumsUrl
+                    ?: throw InstallException(
+                        "Latest Claude GitHub release has no $CHECKSUMS_ASSET_NAME asset; " +
+                            "installation stopped because the archive cannot be verified."
+                    )
+
+                onProgress("Step 2/5: Downloading $CHECKSUMS_ASSET_NAME for Claude Code $version.")
+                val checksumsText = downloadText(resolvedChecksumsUrl)
+                val expectedChecksum = findChecksum(checksumsText, resolvedArchiveName)
+                    ?: throw InstallException(
+                        "$CHECKSUMS_ASSET_NAME contains no checksum for $resolvedArchiveName."
+                    )
+
+                onProgress("Step 2/5: Downloading $resolvedArchiveName from GitHub Releases.")
+                val archiveFile = File(stagingDir, resolvedArchiveName)
+                downloadToFile(resolvedArchiveUrl, archiveFile)
+
+                onProgress("Step 2/5: Verifying the Claude archive SHA-256.")
+                val actualArchiveChecksum = sha256(archiveFile)
+                if (!actualArchiveChecksum.equals(expectedChecksum, ignoreCase = true)) {
                     throw InstallException(
-                        "Anthropic manifest contains an invalid $CLAUDE_PLATFORM checksum."
+                        "Claude archive checksum mismatch. Expected $expectedChecksum, " +
+                            "got $actualArchiveChecksum."
                     )
                 }
 
-                onProgress("Step 2/5: Downloading claude-linux-arm64-musl.tar.gz.")
-                val archiveFile = File(stagingDir, "claude-linux-arm64-musl.tar.gz")
-                downloadToFile(archiveUrl, archiveFile)
-
-                onProgress("Step 2/5: Extracting and checksum-verifying the Claude binary.")
+                onProgress("Step 2/5: Extracting the verified Claude binary.")
                 val stagedClaude = File(stagingDir, "claude")
                 extractTarGzEntry(
                     archiveFile,
                     stagedClaude
                 ) { path -> path.removePrefix("./") == "claude" }
-                val actualChecksum = sha256(stagedClaude)
-                if (!actualChecksum.equals(expectedChecksum, ignoreCase = true)) {
-                    throw InstallException(
-                        "Claude checksum mismatch. Expected $expectedChecksum, got $actualChecksum."
-                    )
-                }
 
                 onProgress("Step 3/5: Reading Alpine's current aarch64 package index.")
                 val alpineIndex = File(stagingDir, "APKINDEX.tar.gz")
@@ -169,8 +187,24 @@ class RuntimeBootstrap(private val context: Context) {
         }.start()
     }
 
-    private fun downloadText(url: String): String =
-        openConnection(url).inputStream.bufferedReader().use { it.readText() }
+    private fun findChecksum(checksums: String, assetName: String): String? =
+        checksums.lineSequence()
+            .map { it.trim() }
+            .mapNotNull { line ->
+                val match = CHECKSUM_LINE_PATTERN.matchEntire(line) ?: return@mapNotNull null
+                match.groupValues[1].lowercase() to match.groupValues[2].removePrefix("*")
+            }
+            .firstOrNull { it.second == assetName }
+            ?.first
+
+    private fun downloadText(url: String): String {
+        val connection = openConnection(url)
+        return try {
+            connection.inputStream.bufferedReader().use { it.readText() }
+        } finally {
+            connection.disconnect()
+        }
+    }
 
     private fun downloadToFile(url: String, destination: File) {
         destination.parentFile?.mkdirs()
@@ -194,6 +228,7 @@ class RuntimeBootstrap(private val context: Context) {
             connection.connectTimeout = CONNECT_TIMEOUT_MS
             connection.readTimeout = READ_TIMEOUT_MS
             connection.setRequestProperty("User-Agent", "ClaudePocket/1.0")
+            connection.setRequestProperty("Accept", "application/vnd.github+json")
             connection.connect()
 
             when (connection.responseCode) {
@@ -387,9 +422,9 @@ class RuntimeBootstrap(private val context: Context) {
     private class InstallException(message: String) : Exception(message)
 
     companion object {
-        private const val CLAUDE_RELEASES =
-            "https://downloads.claude.ai/claude-code-releases"
-        private const val CLAUDE_PLATFORM = "linux-arm64-musl"
+        private const val CLAUDE_LATEST_RELEASE_API =
+            "https://api.github.com/repos/anthropics/claude-code/releases/latest"
+        private const val CHECKSUMS_ASSET_NAME = "SHASUMS256.txt"
         private const val ALPINE_REPOSITORY =
             "https://dl-cdn.alpinelinux.org/alpine/latest-stable/main/aarch64"
         private const val ALPINE_INDEX_URL = "$ALPINE_REPOSITORY/APKINDEX.tar.gz"
@@ -399,6 +434,6 @@ class RuntimeBootstrap(private val context: Context) {
         private const val DOWNLOAD_BUFFER_SIZE = 64 * 1024
         private const val TAR_BLOCK_SIZE = 512
         private val VERSION_PATTERN = Regex("""\d+\.\d+\.\d+""")
-        private val SHA256_PATTERN = Regex("""[0-9a-f]{64}""")
+        private val CHECKSUM_LINE_PATTERN = Regex("""([0-9a-fA-F]{64})\s+(.+)""")
     }
 }
