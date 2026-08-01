@@ -163,6 +163,7 @@ class RuntimeBootstrap(private val context: Context) {
                     )
                 }
 
+                stagingDir.deleteRecursively()
                 val installedBytes = directorySize(runtimeDir)
                 val installedMiB = installedBytes / (1024L * 1024L)
                 if (installedMiB !in 240L..300L) {
@@ -172,7 +173,6 @@ class RuntimeBootstrap(private val context: Context) {
                     )
                 }
 
-                stagingDir.deleteRecursively()
                 dumpRuntimeFiles(onProgress)
                 onDone(
                     true,
