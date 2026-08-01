@@ -23,7 +23,19 @@ class MainActivity : AppCompatActivity() {
         binding.setupButton.setOnClickListener {
             binding.statusText.text = "Setting up..."
             bootstrap.install(
-                onProgress = { msg -> runOnUiThread { binding.statusText.text = msg } },
+                onProgress = { msg ->
+                    runOnUiThread {
+                        if (
+                            msg == "Runtime file diagnostic:" ||
+                            msg.startsWith("runtime/") ||
+                            msg.startsWith("Runtime diagnostic total:")
+                        ) {
+                            appendOutput(msg)
+                        } else {
+                            binding.statusText.text = msg
+                        }
+                    }
+                },
                 onDone = { ok, msg ->
                     runOnUiThread {
                         binding.statusText.text = msg
