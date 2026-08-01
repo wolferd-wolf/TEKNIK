@@ -173,18 +173,38 @@ class RuntimeBootstrap(private val context: Context) {
                 }
 
                 stagingDir.deleteRecursively()
+                dumpRuntimeFiles(onProgress)
                 onDone(
                     true,
                     "Installed Claude Code $version via Alpine musl loader " +
                         "(${installedMiB} MiB). Verified: $versionOutput"
                 )
             } catch (e: Exception) {
+                // TEMPORARY DIAGNOSTIC: report every runtime file before failure cleanup.
+                dumpRuntimeFiles(onProgress)
                 stagingDir.deleteRecursively()
                 claudeFile.delete()
                 loaderFile.delete()
                 onDone(false, e.message ?: "Runtime installation failed.")
             }
         }.start()
+    }
+
+    // TEMPORARY DIAGNOSTIC: remove after the on-device runtime-size investigation.
+    private fun dumpRuntimeFiles(onProgress: (String) -> Unit) {
+        onProgress("Runtime file diagnostic:")
+        val files = runtimeDir.walkTopDown()
+            .filter { it.isFile }
+            .sortedBy { it.relativeTo(runtimeDir).invariantSeparatorsPath }
+            .toList()
+        var totalBytes = 0L
+        for (file in files) {
+            val size = file.length()
+            totalBytes += size
+            val relativePath = file.relativeTo(runtimeDir).invariantSeparatorsPath
+            onProgress("runtime/$relativePath — $size bytes")
+        }
+        onProgress("Runtime diagnostic total: $totalBytes bytes")
     }
 
     private fun findChecksum(checksums: String, assetName: String): String? =
