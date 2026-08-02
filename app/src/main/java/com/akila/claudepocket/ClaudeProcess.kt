@@ -30,6 +30,10 @@ class ClaudeProcess(private val context: Context) {
 
                     val environment = processBuilder.environment()
                     environment.remove("LD_PRELOAD")
+                    val homeDir = File(context.filesDir, "home").apply { mkdirs() }
+                    environment["HOME"] = homeDir.absolutePath
+                    environment["USER"] = "claude"
+                    environment["LOGNAME"] = "claude"
                     environment["ANTHROPIC_API_KEY"] = SettingsActivity.getApiKey(context)
                     val baseUrl = SettingsActivity.getBaseUrl(context)
                     if (baseUrl.isNotBlank()) {
