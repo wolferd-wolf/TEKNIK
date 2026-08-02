@@ -41,7 +41,35 @@ class MainActivity : AppCompatActivity() {
             crashFile.delete()
         }
 
-        claudeProcess = ClaudeProcess(this)
+        claudeProcess = ClaudeProcess(
+            context = this,
+            onAssistantText = { text ->
+                runOnUiThread {
+                    appendOutput(text)
+                }
+            },
+            onResult = { isError, result ->
+                runOnUiThread {
+                    if (isError) {
+                        appendOutput(
+                            result.ifBlank { "Claude request failed." }
+                        )
+                    } else {
+                        appendOutput("Done.")
+                    }
+                }
+            },
+            onStatus = { status ->
+                runOnUiThread {
+                    appendOutput(status)
+                }
+            },
+            onError = { error ->
+                runOnUiThread {
+                    appendOutput(error)
+                }
+            }
+        )
         val bootstrap = RuntimeBootstrap(this)
 
         refreshStatus(bootstrap)
@@ -79,12 +107,15 @@ class MainActivity : AppCompatActivity() {
             if (text.isNotBlank()) {
                 appendOutput("> $text")
                 appendOutput("Running...")
-                claudeProcess.send(text) { output ->
-                    runOnUiThread { appendOutput(output) }
-                }
+                claudeProcess.send(text)
                 binding.inputField.setText("")
             }
         }
+    }
+
+    override fun onDestroy() {
+        claudeProcess.stop()
+        super.onDestroy()
     }
 
     override fun onResume() {
