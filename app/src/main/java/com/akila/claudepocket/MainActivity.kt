@@ -78,6 +78,7 @@ class MainActivity : AppCompatActivity() {
             val text = binding.inputField.text.toString()
             if (text.isNotBlank()) {
                 appendOutput("> $text")
+                appendOutput("Running...")
                 claudeProcess.send(text) { output ->
                     runOnUiThread { appendOutput(output) }
                 }
