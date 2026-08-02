@@ -2,6 +2,7 @@ package com.akila.claudepocket
 
 import android.content.Context
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 class ClaudeProcess(private val context: Context) {
 
@@ -39,16 +40,25 @@ class ClaudeProcess(private val context: Context) {
 
                     val process = processBuilder.start()
                     activeProcess = process
-                    val exitCode = process.waitFor()
+                    val finished = process.waitFor(PROCESS_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    if (!finished) {
+                        process.destroyForcibly()
+                        process.waitFor()
+                        onOutputLine("Timed out after ${PROCESS_TIMEOUT_SECONDS}s")
+                    }
+
+                    val exitCode = process.exitValue()
                     val output = process.inputStream.bufferedReader().use { it.readText() }
+                    val outputLength = output.toByteArray(Charsets.UTF_8).size
                     activeProcess = null
 
-                    if (output.isNotBlank()) {
-                        onOutputLine(output.trimEnd())
+                    onOutputLine("Exit code: $exitCode, output length: $outputLength bytes")
+                    if (output.isNotEmpty()) {
+                        onOutputLine(output)
                     }
-                    if (exitCode == 0) {
+                    if (finished && exitCode == 0) {
                         hasSentMessage = true
-                    } else {
+                    } else if (finished) {
                         onOutputLine("Claude process failed with exit code $exitCode.")
                     }
                 } catch (error: Throwable) {
@@ -64,5 +74,9 @@ class ClaudeProcess(private val context: Context) {
             activeProcess?.destroy()
             activeProcess = null
         }
+    }
+
+    companion object {
+        private const val PROCESS_TIMEOUT_SECONDS = 30L
     }
 }
