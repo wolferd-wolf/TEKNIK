@@ -22,6 +22,20 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:paddingTop="16dp"
+        android:text="ANTHROPIC_AUTH_TOKEN (leave blank to use API key)"
+        android:textStyle="bold" />
+
+    <EditText
+        android:id="@+id/authTokenField"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:inputType="textPassword"
+        android:hint="OpenRouter auth token" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="16dp"
         android:text="ANTHROPIC_BASE_URL (leave blank for default)"
         android:textStyle="bold" />
 
