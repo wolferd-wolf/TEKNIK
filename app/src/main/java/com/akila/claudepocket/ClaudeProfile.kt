@@ -42,6 +42,7 @@ object ProfileStore {
     private const val PREFS_NAME = "claude_pocket_prefs"
     private const val KEY_PROFILES_JSON = "profiles_json"
     private const val KEY_ACTIVE_PROFILE_ID = "active_profile_id"
+    private const val KEY_PROFILES_REVISION = "profiles_revision"
 
     private const val LEGACY_API_KEY = "api_key"
     private const val LEGACY_AUTH_TOKEN = "auth_token"
@@ -64,6 +65,15 @@ object ProfileStore {
         synchronized(lock) {
             val (profiles, activeId) = loadOrInitialize(context)
             profiles.firstOrNull { it.id == activeId } ?: profiles.first()
+        }
+
+    fun getProfilesRevision(context: Context): Long =
+        synchronized(lock) {
+            loadOrInitialize(context)
+            context.getSharedPreferences(
+                PREFS_NAME,
+                Context.MODE_PRIVATE
+            ).getLong(KEY_PROFILES_REVISION, 0L)
         }
 
     fun saveProfile(
@@ -262,10 +272,18 @@ object ProfileStore {
         val array = JSONArray()
         profiles.forEach { array.put(it.toJson()) }
 
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(
+            PREFS_NAME,
+            Context.MODE_PRIVATE
+        )
+        val nextRevision =
+            prefs.getLong(KEY_PROFILES_REVISION, 0L) + 1L
+
+        prefs
             .edit()
             .putString(KEY_PROFILES_JSON, array.toString())
             .putString(KEY_ACTIVE_PROFILE_ID, activeId)
+            .putLong(KEY_PROFILES_REVISION, nextRevision)
             .apply()
     }
 }
