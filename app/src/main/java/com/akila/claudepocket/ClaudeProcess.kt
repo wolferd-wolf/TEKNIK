@@ -69,6 +69,7 @@ class ClaudeProcess(private val context: Context) {
                     }
 
                     val resolvConf = File(resolvConfPath)
+                    onOutputLine("Model: $selectedModel")
                     onOutputLine(
                         "DNS bind: $resolvConfPath -> /etc/resolv.conf, " +
                             "source exists=${resolvConf.exists()}, " +
@@ -93,7 +94,7 @@ class ClaudeProcess(private val context: Context) {
 
                     onOutputLine("Exit code: $exitCode, output length: $outputLength bytes")
                     if (output.isNotEmpty()) {
-                        onOutputLine(output)
+                        onOutputLine("Escaped output: ${escapeOutput(output)}")
                     }
                     if (exitCode == 0) {
                         hasSentMessage = true
@@ -112,6 +113,28 @@ class ClaudeProcess(private val context: Context) {
         synchronized(sendLock) {
             activeProcess?.destroy()
             activeProcess = null
+        }
+    }
+
+    private fun escapeOutput(output: String): String = buildString {
+        for (character in output) {
+            when (character) {
+                '\\' -> append("\\\\")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                else -> {
+                    if (
+                        Character.isISOControl(character) ||
+                        Character.isWhitespace(character)
+                    ) {
+                        append("\\u")
+                        append(character.code.toString(16).uppercase().padStart(4, '0'))
+                    } else {
+                        append(character)
+                    }
+                }
+            }
         }
     }
 
