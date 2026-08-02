@@ -48,7 +48,9 @@ class ClaudeProcess(private val context: Context) {
                     if (!finished) {
                         process.destroyForcibly()
                         process.waitFor()
+                        activeProcess = null
                         onOutputLine("Timed out after ${PROCESS_TIMEOUT_SECONDS}s")
+                        return@synchronized
                     }
 
                     val exitCode = process.exitValue()
@@ -60,9 +62,9 @@ class ClaudeProcess(private val context: Context) {
                     if (output.isNotEmpty()) {
                         onOutputLine(output)
                     }
-                    if (finished && exitCode == 0) {
+                    if (exitCode == 0) {
                         hasSentMessage = true
-                    } else if (finished) {
+                    } else {
                         onOutputLine("Claude process failed with exit code $exitCode.")
                     }
                 } catch (error: Throwable) {
