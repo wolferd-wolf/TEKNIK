@@ -62,12 +62,9 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                 },
-                onDone = { ok, msg ->
+                onDone = { _, msg ->
                     runOnUiThread {
                         binding.statusText.text = msg
-                        if (ok) claudeProcess.start { line ->
-                            runOnUiThread { appendOutput(line) }
-                        }
                     }
                 }
             )
@@ -81,7 +78,9 @@ class MainActivity : AppCompatActivity() {
             val text = binding.inputField.text.toString()
             if (text.isNotBlank()) {
                 appendOutput("> $text")
-                claudeProcess.send(text)
+                claudeProcess.send(text) { output ->
+                    runOnUiThread { appendOutput(output) }
+                }
                 binding.inputField.setText("")
             }
         }
