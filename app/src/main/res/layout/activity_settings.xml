@@ -13,103 +13,30 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="ANTHROPIC_API_KEY"
+            android:text="Connection profiles"
+            android:textSize="20sp"
             android:textStyle="bold" />
-
-        <EditText
-            android:id="@+id/apiKeyField"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="sk-ant-..."
-            android:inputType="textPassword" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:paddingTop="16dp"
-            android:text="ANTHROPIC_AUTH_TOKEN (leave blank to use API key)"
-            android:textStyle="bold" />
+            android:layout_marginTop="4dp"
+            android:text="Tap a profile to edit it. The active profile is used for new Claude sessions and automatic failover."
+            android:textSize="14sp" />
 
-        <EditText
-            android:id="@+id/authTokenField"
+        <LinearLayout
+            android:id="@+id/profilesContainer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="OpenRouter auth token"
-            android:inputType="textPassword" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingTop="16dp"
-            android:text="ANTHROPIC_BASE_URL (leave blank for default)"
-            android:textStyle="bold" />
-
-        <EditText
-            android:id="@+id/baseUrlField"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="https://api.anthropic.com"
-            android:inputType="textUri" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingTop="16dp"
-            android:text="Free OpenRouter models"
-            android:textStyle="bold" />
-
-        <RadioGroup
-            android:id="@+id/modelRadioGroup"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content">
-
-            <RadioButton
-                android:id="@+id/modelQwenButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="qwen/qwen3-coder:free" />
-
-            <RadioButton
-                android:id="@+id/modelDeepSeekButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="deepseek/deepseek-v4-flash:free" />
-
-            <RadioButton
-                android:id="@+id/modelGlmButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="z-ai/glm-4.5-air:free" />
-
-            <RadioButton
-                android:id="@+id/modelAutoRouterButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="openrouter/free (automatic free-model router)" />
-
-        </RadioGroup>
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingTop="12dp"
-            android:text="Custom model ID"
-            android:textStyle="bold" />
-
-        <EditText
-            android:id="@+id/customModelField"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="provider/model"
-            android:inputType="text"
-            android:singleLine="true" />
+            android:layout_marginTop="12dp"
+            android:orientation="vertical" />
 
         <Button
-            android:id="@+id/saveButton"
+            android:id="@+id/addProfileButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="Save" />
+            android:text="Add profile" />
 
     </LinearLayout>
 
