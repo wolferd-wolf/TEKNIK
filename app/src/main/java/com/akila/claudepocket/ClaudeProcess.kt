@@ -25,6 +25,9 @@ class ClaudeProcess(
     private var stdinWriter: BufferedWriter? = null
     private var runningProfileId: String? = null
     private var runningProfilesRevision: Long? = null
+    private var runningSessionId: String? = null
+    private var currentSessionId: String? = null
+    private var pendingNewSessionLabel: String? = null
     private var pendingTurn: PendingTurn? = null
 
     @Volatile
@@ -47,6 +50,16 @@ class ClaudeProcess(
                         ProfileStore.getActiveProfile(context)
                     val profilesRevision =
                         ProfileStore.getProfilesRevision(context)
+                    val resumeSessionId = currentSessionId
+
+                    if (
+                        resumeSessionId == null &&
+                        pendingNewSessionLabel == null
+                    ) {
+                        pendingNewSessionLabel =
+                            createSessionLabel(text)
+                    }
+
                     val turn = PendingTurn(
                         text = text,
                         triedProfileIds = linkedSetOf(profile.id)
@@ -56,7 +69,8 @@ class ClaudeProcess(
                     try {
                         ensureProcessStartedLocked(
                             profile,
-                            profilesRevision
+                            profilesRevision,
+                            resumeSessionId
                         )
                         writeUserMessageLocked(text)
                     } catch (error: Throwable) {
@@ -77,24 +91,68 @@ class ClaudeProcess(
         }.start()
     }
 
+    fun resumeSession(sessionId: String) {
+        val normalizedSessionId = sessionId.trim()
+        if (normalizedSessionId.isBlank()) return
+
+        Thread {
+            try {
+                synchronized(processLock) {
+                    check(!stopped) {
+                        "Claude process has been stopped."
+                    }
+                    check(pendingTurn == null) {
+                        "A Claude request is already in progress."
+                    }
+
+                    val profile =
+                        ProfileStore.getActiveProfile(context)
+                    val profilesRevision =
+                        ProfileStore.getProfilesRevision(context)
+
+                    stopActiveProcessLocked()
+                    currentSessionId = normalizedSessionId
+                    pendingNewSessionLabel = null
+
+                    ensureProcessStartedLocked(
+                        profile,
+                        profilesRevision,
+                        normalizedSessionId
+                    )
+                }
+            } catch (error: Throwable) {
+                if (!stopped) {
+                    onError(
+                        "Claude session resume error:\n" +
+                            error.stackTraceToString()
+                    )
+                }
+            }
+        }.start()
+    }
+
     fun stop() {
         stopped = true
 
         synchronized(processLock) {
             pendingTurn = null
+            currentSessionId = null
+            pendingNewSessionLabel = null
             stopActiveProcessLocked()
         }
     }
 
     private fun ensureProcessStartedLocked(
         profile: ClaudeProfile,
-        profilesRevision: Long
+        profilesRevision: Long,
+        resumeSessionId: String?
     ) {
         if (
             activeProcess?.isAlive == true &&
             stdinWriter != null &&
             runningProfileId == profile.id &&
-            runningProfilesRevision == profilesRevision
+            runningProfilesRevision == profilesRevision &&
+            runningSessionId == resumeSessionId
         ) {
             return
         }
@@ -127,6 +185,10 @@ class ClaudeProcess(
             "--permission-mode",
             "bypassPermissions"
         )
+
+        if (!resumeSessionId.isNullOrBlank()) {
+            command += listOf("-r", resumeSessionId)
+        }
 
         if (profile.model.isNotBlank()) {
             command += listOf("--model", profile.model)
@@ -172,6 +234,7 @@ class ClaudeProcess(
         activeProcess = process
         runningProfileId = profile.id
         runningProfilesRevision = profilesRevision
+        runningSessionId = resumeSessionId
         stdinWriter = process.outputStream.bufferedWriter()
 
         startOutputReader(process)
@@ -185,6 +248,7 @@ class ClaudeProcess(
         activeProcess = null
         runningProfileId = null
         runningProfilesRevision = null
+        runningSessionId = null
 
         process?.destroy()
         if (process?.isAlive == true) {
@@ -242,7 +306,13 @@ class ClaudeProcess(
                     activeProcess = null
                     runningProfileId = null
                     runningProfilesRevision = null
+                    runningSessionId = null
                     pendingTurn = null
+
+                    if (currentSessionId == null) {
+                        pendingNewSessionLabel = null
+                    }
+
                     !stopped
                 }
             }
@@ -279,11 +349,7 @@ class ClaudeProcess(
         }
 
         when (event.optString("type")) {
-            "system" -> {
-                // Initialization and other system events are intentionally
-                // ignored for now.
-            }
-
+            "system" -> handleSystemEvent(process, event)
             "assistant" -> handleAssistantEvent(event)
             "result" -> handleResultEvent(process, event)
 
@@ -291,6 +357,40 @@ class ClaudeProcess(
                 // Ignore currently unsupported event types so new Claude
                 // events do not terminate the session.
             }
+        }
+    }
+
+    private fun handleSystemEvent(
+        process: Process,
+        event: JSONObject
+    ) {
+        if (event.optString("subtype") != "init") return
+
+        val sessionId = event.optString("session_id").trim()
+        if (sessionId.isBlank()) return
+
+        val newSession = synchronized(processLock) {
+            if (activeProcess !== process) {
+                return@synchronized null
+            }
+
+            currentSessionId = sessionId
+            runningSessionId = sessionId
+
+            val label = pendingNewSessionLabel
+            pendingNewSessionLabel = null
+
+            label?.let {
+                ClaudeSession(
+                    sessionId = sessionId,
+                    label = it,
+                    timestamp = System.currentTimeMillis()
+                )
+            }
+        }
+
+        if (newSession != null) {
+            SessionStore.addIfMissing(context, newSession)
         }
     }
 
@@ -372,7 +472,8 @@ class ClaudeProcess(
         return@synchronized try {
             ensureProcessStartedLocked(
                 nextProfile,
-                profilesRevision
+                profilesRevision,
+                currentSessionId
             )
             writeUserMessageLocked(turn.text)
             true
@@ -394,6 +495,20 @@ class ClaudeProcess(
         else -> null
     }
 
+    private fun createSessionLabel(text: String): String {
+        val normalized = text
+            .trim()
+            .replace(Regex("\\s+"), " ")
+
+        return if (normalized.length <= SESSION_LABEL_MAX_LENGTH) {
+            normalized
+        } else {
+            normalized
+                .take(SESSION_LABEL_MAX_LENGTH - 3)
+                .trimEnd() + "..."
+        }
+    }
+
     private fun createUserMessage(text: String): JSONObject {
         val content = JSONArray().put(
             JSONObject()
@@ -413,6 +528,7 @@ class ClaudeProcess(
     companion object {
         private const val STDIN_WARNING_PREFIX =
             "Warning: no stdin data"
+        private const val SESSION_LABEL_MAX_LENGTH = 60
         private val RETRYABLE_API_STATUSES =
             setOf(401, 402, 403, 429)
     }
