@@ -90,11 +90,16 @@ class ClaudeProcess(private val context: Context) {
                     val exitCode = process.exitValue()
                     val output = process.inputStream.bufferedReader().use { it.readText() }
                     val outputLength = output.toByteArray(Charsets.UTF_8).size
+                    val visibleOutput = output
+                        .lineSequence()
+                        .filterNot { it.startsWith(STDIN_WARNING_PREFIX) }
+                        .joinToString("\n")
+                        .trimEnd()
                     activeProcess = null
 
                     onOutputLine("Exit code: $exitCode, output length: $outputLength bytes")
-                    if (output.isNotEmpty()) {
-                        onOutputLine("Escaped output: ${escapeOutput(output)}")
+                    if (visibleOutput.isNotEmpty()) {
+                        onOutputLine(visibleOutput)
                     }
                     if (exitCode == 0) {
                         hasSentMessage = true
@@ -116,29 +121,8 @@ class ClaudeProcess(private val context: Context) {
         }
     }
 
-    private fun escapeOutput(output: String): String = buildString {
-        for (character in output) {
-            when (character) {
-                '\\' -> append("\\\\")
-                '\n' -> append("\\n")
-                '\r' -> append("\\r")
-                '\t' -> append("\\t")
-                else -> {
-                    if (
-                        Character.isISOControl(character) ||
-                        Character.isWhitespace(character)
-                    ) {
-                        append("\\u")
-                        append(character.code.toString(16).uppercase().padStart(4, '0'))
-                    } else {
-                        append(character)
-                    }
-                }
-            }
-        }
-    }
-
     companion object {
         private const val PROCESS_TIMEOUT_SECONDS = 30L
+        private const val STDIN_WARNING_PREFIX = "Warning: no stdin data"
     }
 }
