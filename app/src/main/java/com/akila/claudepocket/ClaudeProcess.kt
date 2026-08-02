@@ -18,9 +18,22 @@ class ClaudeProcess(private val context: Context) {
                     val loaderPath =
                         File(context.filesDir, "runtime/lib/ld-musl-aarch64.so.1").absolutePath
                     val claudePath = File(context.filesDir, "runtime/claude").absolutePath
+                    val prootPath = File(context.filesDir, "runtime/bin/proot").absolutePath
+                    val resolvConfPath =
+                        File(context.filesDir, "runtime/etc/resolv.conf").absolutePath
+                    val prootTmpDir =
+                        File(context.filesDir, "runtime/tmp").apply { mkdirs() }
                     val workDir = File(bootstrap.workspacePath())
 
-                    val command = mutableListOf(loaderPath, claudePath, "-p")
+                    val command = mutableListOf(
+                        prootPath,
+                        "-b",
+                        "$resolvConfPath:/etc/resolv.conf",
+                        "--",
+                        loaderPath,
+                        claudePath,
+                        "-p"
+                    )
                     if (hasSentMessage) command += "-c"
                     command += text
 
@@ -30,6 +43,7 @@ class ClaudeProcess(private val context: Context) {
 
                     val environment = processBuilder.environment()
                     environment.remove("LD_PRELOAD")
+                    environment["PROOT_TMP_DIR"] = prootTmpDir.absolutePath
                     val homeDir = File(context.filesDir, "home").apply { mkdirs() }
                     environment["HOME"] = homeDir.absolutePath
                     environment["USER"] = "claude"
@@ -49,9 +63,10 @@ class ClaudeProcess(private val context: Context) {
                         environment.remove("ANTHROPIC_BASE_URL")
                     }
 
-                    val resolvConf = File("/etc/resolv.conf")
+                    val resolvConf = File(resolvConfPath)
                     onOutputLine(
-                        "DNS diagnostic: /etc/resolv.conf exists=${resolvConf.exists()}, " +
+                        "DNS bind: $resolvConfPath -> /etc/resolv.conf, " +
+                            "source exists=${resolvConf.exists()}, " +
                             "readable=${resolvConf.canRead()}"
                     )
 
