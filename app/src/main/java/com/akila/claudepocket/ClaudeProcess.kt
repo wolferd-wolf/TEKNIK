@@ -14,10 +14,17 @@ class ClaudeProcess(
     private val onError: (String) -> Unit
 ) {
 
+    private data class PendingTurn(
+        val text: String,
+        val triedProfileIds: MutableSet<String>
+    )
+
     private val processLock = Any()
     private val writeLock = Any()
     private var activeProcess: Process? = null
     private var stdinWriter: BufferedWriter? = null
+    private var runningProfileId: String? = null
+    private var pendingTurn: PendingTurn? = null
 
     @Volatile
     private var stopped = false
@@ -27,21 +34,38 @@ class ClaudeProcess(
 
         Thread {
             try {
-                val writer = synchronized(processLock) {
-                    check(!stopped) { "Claude process has been stopped." }
-                    ensureProcessStartedLocked()
-                    stdinWriter ?: error("Claude stdin is unavailable.")
-                }
+                synchronized(processLock) {
+                    check(!stopped) {
+                        "Claude process has been stopped."
+                    }
+                    check(pendingTurn == null) {
+                        "A Claude request is already in progress."
+                    }
 
-                val inputLine = createUserMessage(text).toString()
-                synchronized(writeLock) {
-                    writer.write(inputLine)
-                    writer.newLine()
-                    writer.flush()
+                    val profile =
+                        ProfileStore.getActiveProfile(context)
+                    val turn = PendingTurn(
+                        text = text,
+                        triedProfileIds = linkedSetOf(profile.id)
+                    )
+                    pendingTurn = turn
+
+                    try {
+                        ensureProcessStartedLocked(profile)
+                        writeUserMessageLocked(text)
+                    } catch (error: Throwable) {
+                        if (pendingTurn === turn) {
+                            pendingTurn = null
+                        }
+                        throw error
+                    }
                 }
             } catch (error: Throwable) {
                 if (!stopped) {
-                    onError("Claude process error:\n${error.stackTraceToString()}")
+                    onError(
+                        "Claude process error:\n" +
+                            error.stackTraceToString()
+                    )
                 }
             }
         }.start()
@@ -50,29 +74,24 @@ class ClaudeProcess(
     fun stop() {
         stopped = true
 
-        val process = synchronized(processLock) {
-            runCatching { stdinWriter?.close() }
-            stdinWriter = null
-
-            activeProcess.also {
-                activeProcess = null
-            }
-        }
-
-        process?.destroy()
-        if (process?.isAlive == true) {
-            process.destroyForcibly()
+        synchronized(processLock) {
+            pendingTurn = null
+            stopActiveProcessLocked()
         }
     }
 
-    private fun ensureProcessStartedLocked() {
-        if (activeProcess?.isAlive == true && stdinWriter != null) {
+    private fun ensureProcessStartedLocked(
+        profile: ClaudeProfile
+    ) {
+        if (
+            activeProcess?.isAlive == true &&
+            stdinWriter != null &&
+            runningProfileId == profile.id
+        ) {
             return
         }
 
-        runCatching { stdinWriter?.close() }
-        stdinWriter = null
-        activeProcess = null
+        stopActiveProcessLocked()
 
         val bootstrap = RuntimeBootstrap(context)
         val loaderPath =
@@ -101,9 +120,8 @@ class ClaudeProcess(
             "bypassPermissions"
         )
 
-        val selectedModel = SettingsActivity.getSelectedModel(context)
-        if (selectedModel.isNotBlank()) {
-            command += listOf("--model", selectedModel)
+        if (profile.model.isNotBlank()) {
+            command += listOf("--model", profile.model)
         }
 
         val processBuilder = ProcessBuilder(command)
@@ -119,24 +137,23 @@ class ClaudeProcess(
         environment["USER"] = "claude"
         environment["LOGNAME"] = "claude"
 
-        val authToken = SettingsActivity.getAuthToken(context)
-        if (authToken.isNotBlank()) {
-            environment["ANTHROPIC_AUTH_TOKEN"] = authToken
+        if (profile.authToken.isNotBlank()) {
+            environment["ANTHROPIC_AUTH_TOKEN"] = profile.authToken
             environment["ANTHROPIC_API_KEY"] = ""
         } else {
             environment.remove("ANTHROPIC_AUTH_TOKEN")
-            environment["ANTHROPIC_API_KEY"] = SettingsActivity.getApiKey(context)
+            environment["ANTHROPIC_API_KEY"] = profile.apiKey
         }
 
-        val baseUrl = SettingsActivity.getBaseUrl(context)
-        if (baseUrl.isNotBlank()) {
-            environment["ANTHROPIC_BASE_URL"] = baseUrl
+        if (profile.baseUrl.isNotBlank()) {
+            environment["ANTHROPIC_BASE_URL"] = profile.baseUrl
         } else {
             environment.remove("ANTHROPIC_BASE_URL")
         }
 
         val resolvConf = File(resolvConfPath)
-        onStatus("Model: $selectedModel")
+        onStatus("Profile: ${profile.name}")
+        onStatus("Model: ${profile.model}")
         onStatus(
             "DNS bind: $resolvConfPath -> /etc/resolv.conf, " +
                 "source exists=${resolvConf.exists()}, " +
@@ -145,22 +162,57 @@ class ClaudeProcess(
 
         val process = processBuilder.start()
         activeProcess = process
+        runningProfileId = profile.id
         stdinWriter = process.outputStream.bufferedWriter()
 
         startOutputReader(process)
         startExitWatcher(process)
     }
 
+    private fun stopActiveProcessLocked() {
+        val process = activeProcess
+        runCatching { stdinWriter?.close() }
+        stdinWriter = null
+        activeProcess = null
+        runningProfileId = null
+
+        process?.destroy()
+        if (process?.isAlive == true) {
+            process.destroyForcibly()
+        }
+    }
+
+    private fun writeUserMessageLocked(text: String) {
+        val writer =
+            stdinWriter ?: error("Claude stdin is unavailable.")
+        val inputLine = createUserMessage(text).toString()
+
+        synchronized(writeLock) {
+            writer.write(inputLine)
+            writer.newLine()
+            writer.flush()
+        }
+    }
+
     private fun startOutputReader(process: Process) {
         Thread {
             try {
                 process.inputStream.bufferedReader().useLines { lines ->
-                    lines.forEach(::handleOutputLine)
+                    lines.forEach { line ->
+                        handleOutputLine(process, line)
+                    }
                 }
             } catch (error: Throwable) {
-                if (!stopped && process.isAlive) {
+                val shouldReport = synchronized(processLock) {
+                    !stopped &&
+                        activeProcess === process &&
+                        process.isAlive
+                }
+
+                if (shouldReport) {
                     onError(
-                        "Claude output reader failed:\n${error.stackTraceToString()}"
+                        "Claude output reader failed:\n" +
+                            error.stackTraceToString()
                     )
                 }
             }
@@ -171,21 +223,36 @@ class ClaudeProcess(
         Thread {
             val exitCode = process.waitFor()
 
-            synchronized(processLock) {
-                if (activeProcess === process) {
+            val shouldReport = synchronized(processLock) {
+                if (activeProcess !== process) {
+                    false
+                } else {
                     runCatching { stdinWriter?.close() }
                     stdinWriter = null
                     activeProcess = null
+                    runningProfileId = null
+                    pendingTurn = null
+                    !stopped
                 }
             }
 
-            if (!stopped) {
-                onError("Claude process exited with code $exitCode.")
+            if (shouldReport) {
+                onError(
+                    "Claude process exited with code $exitCode."
+                )
             }
         }.start()
     }
 
-    private fun handleOutputLine(line: String) {
+    private fun handleOutputLine(
+        process: Process,
+        line: String
+    ) {
+        val isCurrentProcess = synchronized(processLock) {
+            activeProcess === process
+        }
+        if (!isCurrentProcess) return
+
         if (
             line.isBlank() ||
             line.startsWith(STDIN_WARNING_PREFIX)
@@ -207,13 +274,7 @@ class ClaudeProcess(
             }
 
             "assistant" -> handleAssistantEvent(event)
-
-            "result" -> {
-                onResult(
-                    event.optBoolean("is_error", false),
-                    event.optString("result", "")
-                )
-            }
+            "result" -> handleResultEvent(process, event)
 
             else -> {
                 // Ignore currently unsupported event types so new Claude
@@ -239,6 +300,84 @@ class ClaudeProcess(
         }
     }
 
+    private fun handleResultEvent(
+        process: Process,
+        event: JSONObject
+    ) {
+        val isError = event.optBoolean("is_error", false)
+        val result = event.optString("result", "")
+        val apiErrorStatus = readApiErrorStatus(event)
+
+        if (
+            isError &&
+            apiErrorStatus != null &&
+            apiErrorStatus in RETRYABLE_API_STATUSES &&
+            retryPendingTurn(process, apiErrorStatus)
+        ) {
+            return
+        }
+
+        val shouldDeliver = synchronized(processLock) {
+            if (activeProcess !== process) {
+                false
+            } else {
+                pendingTurn = null
+                true
+            }
+        }
+
+        if (shouldDeliver) {
+            onResult(isError, result)
+        }
+    }
+
+    private fun retryPendingTurn(
+        failedProcess: Process,
+        apiErrorStatus: Int
+    ): Boolean = synchronized(processLock) {
+        if (activeProcess !== failedProcess) {
+            return@synchronized false
+        }
+
+        val turn =
+            pendingTurn ?: return@synchronized false
+        val currentProfileId =
+            runningProfileId ?: return@synchronized false
+        val nextProfile = ProfileStore.getNextUntriedProfile(
+            context = context,
+            currentProfileId = currentProfileId,
+            triedProfileIds = turn.triedProfileIds
+        ) ?: return@synchronized false
+
+        turn.triedProfileIds += nextProfile.id
+        ProfileStore.setActiveProfile(context, nextProfile.id)
+        onStatus(
+            "API status $apiErrorStatus; " +
+                "switching to profile: ${nextProfile.name}"
+        )
+
+        return@synchronized try {
+            ensureProcessStartedLocked(nextProfile)
+            writeUserMessageLocked(turn.text)
+            true
+        } catch (error: Throwable) {
+            pendingTurn = null
+            onError(
+                "Profile failover failed:\n" +
+                    error.stackTraceToString()
+            )
+            false
+        }
+    }
+
+    private fun readApiErrorStatus(
+        event: JSONObject
+    ): Int? = when (val value = event.opt("api_error_status")) {
+        is Number -> value.toInt()
+        is String -> value.toIntOrNull()
+        else -> null
+    }
+
     private fun createUserMessage(text: String): JSONObject {
         val content = JSONArray().put(
             JSONObject()
@@ -256,6 +395,9 @@ class ClaudeProcess(
     }
 
     companion object {
-        private const val STDIN_WARNING_PREFIX = "Warning: no stdin data"
+        private const val STDIN_WARNING_PREFIX =
+            "Warning: no stdin data"
+        private val RETRYABLE_API_STATUSES =
+            setOf(401, 402, 403, 429)
     }
 }
