@@ -19,10 +19,15 @@ class RuntimeBootstrap(private val context: Context) {
     private val workspaceDir: File get() = File(context.filesDir, "workspace")
     private val claudeFile: File get() = File(runtimeDir, "claude")
     private val loaderFile: File get() = File(runtimeDir, "lib/ld-musl-aarch64.so.1")
+    private val prootFile: File get() = File(runtimeDir, "bin/proot")
+    private val resolvConfFile: File get() = File(runtimeDir, "etc/resolv.conf")
+    private val prootTmpDir: File get() = File(runtimeDir, "tmp")
 
     fun isInstalled(): Boolean =
         claudeFile.isFile && claudeFile.canExecute() &&
-            loaderFile.isFile && loaderFile.canExecute()
+            loaderFile.isFile && loaderFile.canExecute() &&
+            prootFile.isFile && prootFile.canExecute() &&
+            resolvConfFile.isFile && resolvConfFile.canRead()
 
     fun workspacePath(): String {
         if (!workspaceDir.exists()) workspaceDir.mkdirs()
@@ -44,6 +49,9 @@ class RuntimeBootstrap(private val context: Context) {
                 stagingDir.deleteRecursively()
                 stagingDir.mkdirs()
                 File(runtimeDir, "lib").mkdirs()
+                File(runtimeDir, "bin").mkdirs()
+                File(runtimeDir, "etc").mkdirs()
+                prootTmpDir.mkdirs()
 
                 onProgress("Step 2/5: Resolving the latest Claude Code GitHub release.")
                 val release = JSONObject(downloadText(CLAUDE_LATEST_RELEASE_API))
@@ -137,30 +145,126 @@ class RuntimeBootstrap(private val context: Context) {
                     path.removePrefix("./") == "lib/ld-musl-aarch64.so.1"
                 }
 
+                onProgress("Step 3/5: Resolving the verified AArch64 PRoot release.")
+                val prootRelease = JSONObject(downloadText(PROOT_RELEASE_API))
+                val prootAssets = prootRelease.optJSONArray("assets")
+                    ?: throw InstallException(
+                        "PRoot release $PROOT_RELEASE_TAG contains no assets array."
+                    )
+
+                var prootArchiveUrl: String? = null
+                var prootArchiveDigest: String? = null
+                for (index in 0 until prootAssets.length()) {
+                    val asset = prootAssets.getJSONObject(index)
+                    if (asset.optString("name") == PROOT_ASSET_NAME) {
+                        prootArchiveUrl = asset.optString("browser_download_url")
+                        prootArchiveDigest = asset.optString("digest")
+                        break
+                    }
+                }
+
+                val resolvedProotArchiveUrl = prootArchiveUrl
+                    ?: throw InstallException(
+                        "PRoot release $PROOT_RELEASE_TAG has no $PROOT_ASSET_NAME asset."
+                    )
+                if (resolvedProotArchiveUrl != PROOT_ARCHIVE_URL) {
+                    throw InstallException(
+                        "PRoot release returned an unexpected asset URL: " +
+                            resolvedProotArchiveUrl
+                    )
+                }
+
+                val expectedProotChecksum = prootArchiveDigest
+                    ?.removePrefix("sha256:")
+                    ?.takeIf { SHA256_PATTERN.matches(it) }
+                    ?: throw InstallException(
+                        "PRoot release asset has no valid SHA-256 digest."
+                    )
+
+                onProgress("Step 3/5: Downloading $PROOT_ASSET_NAME.")
+                val prootArchive = File(stagingDir, PROOT_ASSET_NAME)
+                downloadToFile(resolvedProotArchiveUrl, prootArchive)
+
+                onProgress("Step 3/5: Verifying the PRoot archive SHA-256.")
+                val actualProotChecksum = sha256(prootArchive)
+                if (!actualProotChecksum.equals(expectedProotChecksum, ignoreCase = true)) {
+                    throw InstallException(
+                        "PRoot archive checksum mismatch. Expected " +
+                            "$expectedProotChecksum, got $actualProotChecksum."
+                    )
+                }
+
+                onProgress("Step 3/5: Extracting the static AArch64 PRoot binary.")
+                val stagedProot = File(stagingDir, "proot")
+                extractTarGzEntry(
+                    prootArchive,
+                    stagedProot
+                ) { path ->
+                    path.removePrefix("./") == "proot"
+                }
+
                 onProgress("Step 4/5: Installing files and setting executable permissions.")
                 replaceFile(stagedClaude, claudeFile)
                 replaceFile(stagedLoader, loaderFile)
-                if (!claudeFile.setExecutable(true, true) || !loaderFile.setExecutable(true, true)) {
+                replaceFile(stagedProot, prootFile)
+
+                resolvConfFile.parentFile?.mkdirs()
+                resolvConfFile.writeText(RESOLV_CONF_CONTENT)
+
+                if (
+                    !claudeFile.setExecutable(true, true) ||
+                    !loaderFile.setExecutable(true, true) ||
+                    !prootFile.setExecutable(true, true)
+                ) {
                     throw InstallException("Android refused to mark the runtime files executable.")
                 }
 
-                onProgress("Step 5/5: Verifying Claude through the musl loader.")
+                if (
+                    !prootTmpDir.isDirectory ||
+                    !prootTmpDir.canWrite() ||
+                    !resolvConfFile.isFile ||
+                    !resolvConfFile.canRead()
+                ) {
+                    throw InstallException(
+                        "Could not create the writable PRoot temp directory or " +
+                            "readable DNS configuration."
+                    )
+                }
+
+                onProgress("Step 5/5: Verifying Claude through PRoot and the musl loader.")
                 val verification = ProcessBuilder(
+                    prootFile.absolutePath,
+                    "-b",
+                    "${resolvConfFile.absolutePath}:/etc/resolv.conf",
+                    "--",
                     loaderFile.absolutePath,
                     claudeFile.absolutePath,
                     "--version"
                 )
                     .directory(workspaceDir.apply { mkdirs() })
                     .redirectErrorStream(true)
-                    .apply { environment().remove("LD_PRELOAD") }
+                    .apply {
+                        environment().remove("LD_PRELOAD")
+                        environment()["PROOT_TMP_DIR"] = prootTmpDir.absolutePath
+                    }
                     .start()
-                val versionOutput = verification.inputStream.bufferedReader().use { it.readText().trim() }
+                val versionOutput = verification.inputStream.bufferedReader().use {
+                    it.readText().trim()
+                }
                 val exitCode = verification.waitFor()
                 if (exitCode != 0 || versionOutput.isBlank()) {
-                    throw InstallException(
-                        "Claude verification failed (exit $exitCode): " +
-                            versionOutput.ifBlank { "no output" }
-                    )
+                    val detail = versionOutput.ifBlank { "no output" }
+                    if (isProotTraceFailure(detail)) {
+                        throw InstallException(
+                            "PRoot verification failed because ptrace/tracing appears " +
+                                "to be blocked on this device (exit $exitCode): $detail"
+                        )
+                    } else {
+                        throw InstallException(
+                            "Claude verification through PRoot failed " +
+                                "(exit $exitCode): $detail"
+                        )
+                    }
                 }
 
                 stagingDir.deleteRecursively()
@@ -176,7 +280,7 @@ class RuntimeBootstrap(private val context: Context) {
                 dumpRuntimeFiles(onProgress)
                 onDone(
                     true,
-                    "Installed Claude Code $version via Alpine musl loader " +
+                    "Installed Claude Code $version via PRoot DNS bind and Alpine musl loader " +
                         "(${installedMiB} MiB). Verified: $versionOutput"
                 )
             } catch (e: Exception) {
@@ -185,9 +289,21 @@ class RuntimeBootstrap(private val context: Context) {
                 stagingDir.deleteRecursively()
                 claudeFile.delete()
                 loaderFile.delete()
+                prootFile.delete()
+                resolvConfFile.delete()
                 onDone(false, e.message ?: "Runtime installation failed.")
             }
         }.start()
+    }
+
+    private fun isProotTraceFailure(output: String): Boolean {
+        val normalized = output.lowercase()
+        return normalized.contains("ptrace") ||
+            normalized.contains("tracee") ||
+            normalized.contains("seccomp") ||
+            normalized.contains("operation not permitted") ||
+            normalized.contains("permission denied") ||
+            normalized.contains("function not implemented")
     }
 
     // TEMPORARY DIAGNOSTIC: remove after the on-device runtime-size investigation.
@@ -442,6 +558,17 @@ class RuntimeBootstrap(private val context: Context) {
     private class InstallException(message: String) : Exception(message)
 
     companion object {
+        private const val PROOT_RELEASE_TAG = "0.3.2"
+        private const val PROOT_ASSET_NAME = "proot-apps-aarch64.tar.gz"
+        private const val PROOT_RELEASE_API =
+            "https://api.github.com/repos/linuxserver/proot-apps/releases/tags/" +
+                PROOT_RELEASE_TAG
+        private const val PROOT_ARCHIVE_URL =
+            "https://github.com/linuxserver/proot-apps/releases/download/" +
+                "$PROOT_RELEASE_TAG/$PROOT_ASSET_NAME"
+        private const val RESOLV_CONF_CONTENT =
+            "nameserver 8.8.8.8\nnameserver 1.1.1.1"
+
         private const val CLAUDE_LATEST_RELEASE_API =
             "https://api.github.com/repos/anthropics/claude-code/releases/latest"
         private const val CHECKSUMS_ASSET_NAME = "SHASUMS256.txt"
@@ -454,6 +581,7 @@ class RuntimeBootstrap(private val context: Context) {
         private const val DOWNLOAD_BUFFER_SIZE = 64 * 1024
         private const val TAR_BLOCK_SIZE = 512
         private val VERSION_PATTERN = Regex("""\d+\.\d+\.\d+""")
+        private val SHA256_PATTERN = Regex("""[0-9a-fA-F]{64}""")
         private val CHECKSUM_LINE_PATTERN = Regex("""([0-9a-fA-F]{64})\s+(.+)""")
     }
 }
