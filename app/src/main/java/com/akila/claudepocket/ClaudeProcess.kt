@@ -29,7 +29,6 @@ class ClaudeProcess(private val context: Context) {
                         prootPath,
                         "-b",
                         "$resolvConfPath:/etc/resolv.conf",
-                        "--",
                         loaderPath,
                         claudePath,
                         "-p"
