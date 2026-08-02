@@ -3,11 +3,12 @@ package com.akila.claudepocket
 import android.content.Context
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.widget.doAfterTextChanged
 import com.akila.claudepocket.databinding.ActivitySettingsBinding
 
 /**
- * Stores ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, and ANTHROPIC_BASE_URL in
- * this app's own SharedPreferences file. Never written outside app-private storage.
+ * Stores authentication, endpoint, and model settings in this app's own
+ * SharedPreferences file. Never written outside app-private storage.
  */
 class SettingsActivity : AppCompatActivity() {
 
@@ -18,6 +19,12 @@ class SettingsActivity : AppCompatActivity() {
         const val KEY_API_KEY = "api_key"
         const val KEY_AUTH_TOKEN = "auth_token"
         const val KEY_BASE_URL = "base_url"
+        const val KEY_SELECTED_MODEL = "selected_model"
+
+        const val DEFAULT_MODEL = "qwen/qwen3-coder:free"
+        private const val DEEPSEEK_MODEL = "deepseek/deepseek-v4-flash:free"
+        private const val GLM_MODEL = "z-ai/glm-4.5-air:free"
+        private const val AUTO_ROUTER_MODEL = "openrouter/free"
 
         fun getApiKey(context: Context): String =
             context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(KEY_API_KEY, "") ?: ""
@@ -28,6 +35,13 @@ class SettingsActivity : AppCompatActivity() {
 
         fun getBaseUrl(context: Context): String =
             context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(KEY_BASE_URL, "") ?: ""
+
+        fun getSelectedModel(context: Context): String =
+            context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getString(KEY_SELECTED_MODEL, DEFAULT_MODEL)
+                ?.trim()
+                .orEmpty()
+                .ifBlank { DEFAULT_MODEL }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -40,11 +54,50 @@ class SettingsActivity : AppCompatActivity() {
         binding.authTokenField.setText(prefs.getString(KEY_AUTH_TOKEN, ""))
         binding.baseUrlField.setText(prefs.getString(KEY_BASE_URL, ""))
 
+        when (val selectedModel = getSelectedModel(this)) {
+            DEFAULT_MODEL -> binding.modelQwenButton.isChecked = true
+            DEEPSEEK_MODEL -> binding.modelDeepSeekButton.isChecked = true
+            GLM_MODEL -> binding.modelGlmButton.isChecked = true
+            AUTO_ROUTER_MODEL -> binding.modelAutoRouterButton.isChecked = true
+            else -> {
+                binding.modelRadioGroup.clearCheck()
+                binding.customModelField.setText(selectedModel)
+            }
+        }
+
+        binding.modelRadioGroup.setOnCheckedChangeListener { _, checkedId ->
+            if (checkedId != -1 && binding.customModelField.text.isNotEmpty()) {
+                binding.customModelField.text.clear()
+            }
+        }
+
+        binding.customModelField.doAfterTextChanged { text ->
+            if (
+                !text.isNullOrBlank() &&
+                binding.modelRadioGroup.checkedRadioButtonId != -1
+            ) {
+                binding.modelRadioGroup.clearCheck()
+            }
+        }
+
         binding.saveButton.setOnClickListener {
+            val customModel = binding.customModelField.text.toString().trim()
+            val selectedModel = if (customModel.isNotBlank()) {
+                customModel
+            } else {
+                when (binding.modelRadioGroup.checkedRadioButtonId) {
+                    R.id.modelDeepSeekButton -> DEEPSEEK_MODEL
+                    R.id.modelGlmButton -> GLM_MODEL
+                    R.id.modelAutoRouterButton -> AUTO_ROUTER_MODEL
+                    else -> DEFAULT_MODEL
+                }
+            }
+
             prefs.edit()
                 .putString(KEY_API_KEY, binding.apiKeyField.text.toString().trim())
                 .putString(KEY_AUTH_TOKEN, binding.authTokenField.text.toString().trim())
                 .putString(KEY_BASE_URL, binding.baseUrlField.text.toString().trim())
+                .putString(KEY_SELECTED_MODEL, selectedModel)
                 .apply()
             finish()
         }
