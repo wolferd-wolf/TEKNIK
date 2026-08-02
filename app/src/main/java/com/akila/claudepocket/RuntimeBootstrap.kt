@@ -236,7 +236,6 @@ class RuntimeBootstrap(private val context: Context) {
                     prootFile.absolutePath,
                     "-b",
                     "${resolvConfFile.absolutePath}:/etc/resolv.conf",
-                    "--",
                     loaderFile.absolutePath,
                     claudeFile.absolutePath,
                     "--version"
