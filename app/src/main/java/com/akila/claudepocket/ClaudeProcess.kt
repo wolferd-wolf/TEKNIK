@@ -96,6 +96,7 @@ class ClaudeProcess(
             "stream-json",
             "--output-format",
             "stream-json",
+            "--verbose",
             "--permission-mode",
             "bypassPermissions"
         )
