@@ -24,6 +24,7 @@ class ClaudeProcess(
     private var activeProcess: Process? = null
     private var stdinWriter: BufferedWriter? = null
     private var runningProfileId: String? = null
+    private var runningProfilesRevision: Long? = null
     private var pendingTurn: PendingTurn? = null
 
     @Volatile
@@ -44,6 +45,8 @@ class ClaudeProcess(
 
                     val profile =
                         ProfileStore.getActiveProfile(context)
+                    val profilesRevision =
+                        ProfileStore.getProfilesRevision(context)
                     val turn = PendingTurn(
                         text = text,
                         triedProfileIds = linkedSetOf(profile.id)
@@ -51,7 +54,10 @@ class ClaudeProcess(
                     pendingTurn = turn
 
                     try {
-                        ensureProcessStartedLocked(profile)
+                        ensureProcessStartedLocked(
+                            profile,
+                            profilesRevision
+                        )
                         writeUserMessageLocked(text)
                     } catch (error: Throwable) {
                         if (pendingTurn === turn) {
@@ -81,12 +87,14 @@ class ClaudeProcess(
     }
 
     private fun ensureProcessStartedLocked(
-        profile: ClaudeProfile
+        profile: ClaudeProfile,
+        profilesRevision: Long
     ) {
         if (
             activeProcess?.isAlive == true &&
             stdinWriter != null &&
-            runningProfileId == profile.id
+            runningProfileId == profile.id &&
+            runningProfilesRevision == profilesRevision
         ) {
             return
         }
@@ -163,6 +171,7 @@ class ClaudeProcess(
         val process = processBuilder.start()
         activeProcess = process
         runningProfileId = profile.id
+        runningProfilesRevision = profilesRevision
         stdinWriter = process.outputStream.bufferedWriter()
 
         startOutputReader(process)
@@ -175,6 +184,7 @@ class ClaudeProcess(
         stdinWriter = null
         activeProcess = null
         runningProfileId = null
+        runningProfilesRevision = null
 
         process?.destroy()
         if (process?.isAlive == true) {
@@ -231,6 +241,7 @@ class ClaudeProcess(
                     stdinWriter = null
                     activeProcess = null
                     runningProfileId = null
+                    runningProfilesRevision = null
                     pendingTurn = null
                     !stopped
                 }
@@ -351,13 +362,18 @@ class ClaudeProcess(
 
         turn.triedProfileIds += nextProfile.id
         ProfileStore.setActiveProfile(context, nextProfile.id)
+        val profilesRevision =
+            ProfileStore.getProfilesRevision(context)
         onStatus(
             "API status $apiErrorStatus; " +
                 "switching to profile: ${nextProfile.name}"
         )
 
         return@synchronized try {
-            ensureProcessStartedLocked(nextProfile)
+            ensureProcessStartedLocked(
+                nextProfile,
+                profilesRevision
+            )
             writeUserMessageLocked(turn.text)
             true
         } catch (error: Throwable) {
