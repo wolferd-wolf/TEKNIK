@@ -21,10 +21,10 @@ class SettingsActivity : AppCompatActivity() {
         const val KEY_BASE_URL = "base_url"
         const val KEY_SELECTED_MODEL = "selected_model"
 
-        const val DEFAULT_MODEL = "qwen/qwen3-coder:free"
+        const val DEFAULT_MODEL = "openrouter/free"
+        private const val QWEN_MODEL = "qwen/qwen3-coder:free"
         private const val DEEPSEEK_MODEL = "deepseek/deepseek-v4-flash:free"
         private const val GLM_MODEL = "z-ai/glm-4.5-air:free"
-        private const val AUTO_ROUTER_MODEL = "openrouter/free"
 
         fun getApiKey(context: Context): String =
             context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(KEY_API_KEY, "") ?: ""
@@ -55,10 +55,10 @@ class SettingsActivity : AppCompatActivity() {
         binding.baseUrlField.setText(prefs.getString(KEY_BASE_URL, ""))
 
         when (val selectedModel = getSelectedModel(this)) {
-            DEFAULT_MODEL -> binding.modelQwenButton.isChecked = true
+            QWEN_MODEL -> binding.modelQwenButton.isChecked = true
             DEEPSEEK_MODEL -> binding.modelDeepSeekButton.isChecked = true
             GLM_MODEL -> binding.modelGlmButton.isChecked = true
-            AUTO_ROUTER_MODEL -> binding.modelAutoRouterButton.isChecked = true
+            DEFAULT_MODEL -> binding.modelAutoRouterButton.isChecked = true
             else -> {
                 binding.modelRadioGroup.clearCheck()
                 binding.customModelField.setText(selectedModel)
@@ -86,9 +86,10 @@ class SettingsActivity : AppCompatActivity() {
                 customModel
             } else {
                 when (binding.modelRadioGroup.checkedRadioButtonId) {
+                    R.id.modelQwenButton -> QWEN_MODEL
                     R.id.modelDeepSeekButton -> DEEPSEEK_MODEL
                     R.id.modelGlmButton -> GLM_MODEL
-                    R.id.modelAutoRouterButton -> AUTO_ROUTER_MODEL
+                    R.id.modelAutoRouterButton -> DEFAULT_MODEL
                     else -> DEFAULT_MODEL
                 }
             }
