@@ -34,6 +34,12 @@ class ClaudeProcess(private val context: Context) {
                         "-p"
                     )
                     if (hasSentMessage) command += "-c"
+
+                    val selectedModel = SettingsActivity.getSelectedModel(context)
+                    if (selectedModel.isNotBlank()) {
+                        command += listOf("--model", selectedModel)
+                    }
+
                     command += text
 
                     val processBuilder = ProcessBuilder(command)
