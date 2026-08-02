@@ -34,13 +34,26 @@ class ClaudeProcess(private val context: Context) {
                     environment["HOME"] = homeDir.absolutePath
                     environment["USER"] = "claude"
                     environment["LOGNAME"] = "claude"
-                    environment["ANTHROPIC_API_KEY"] = SettingsActivity.getApiKey(context)
+                    val authToken = SettingsActivity.getAuthToken(context)
+                    if (authToken.isNotBlank()) {
+                        environment["ANTHROPIC_AUTH_TOKEN"] = authToken
+                        environment["ANTHROPIC_API_KEY"] = ""
+                    } else {
+                        environment.remove("ANTHROPIC_AUTH_TOKEN")
+                        environment["ANTHROPIC_API_KEY"] = SettingsActivity.getApiKey(context)
+                    }
                     val baseUrl = SettingsActivity.getBaseUrl(context)
                     if (baseUrl.isNotBlank()) {
                         environment["ANTHROPIC_BASE_URL"] = baseUrl
                     } else {
                         environment.remove("ANTHROPIC_BASE_URL")
                     }
+
+                    val resolvConf = File("/etc/resolv.conf")
+                    onOutputLine(
+                        "DNS diagnostic: /etc/resolv.conf exists=${resolvConf.exists()}, " +
+                            "readable=${resolvConf.canRead()}"
+                    )
 
                     val process = processBuilder.start()
                     activeProcess = process
