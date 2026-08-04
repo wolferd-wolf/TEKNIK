@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "generated_at_utc": "2026-08-04T19:07:16Z",
+  "result": "failure",
+  "run": {
+    "id": 30940657836,
+    "url": "https://github.com/wolferd-wolf/TEKNIK/actions/runs/30940657836",
+    "branch": "gpt/release-export-size-check",
+    "commit": "be73e766bf4901fcb74f8da8dfcc907a7d9e5a8c"
+  },
+  "export": {
+    "preset": "Android ARM64",
+    "command": "godot --headless --path . --export-release \"Android ARM64\" build/TEKNIK-arm64-release.apk",
+    "apk_bytes": "",
+    "apk_mb_decimal": "",
+    "apk_mib": "",
+    "debug_baseline_mb_decimal": "69.24",
+    "reduction_mb_decimal": "",
+    "reduction_percent": "",
+    "sha256": "",
+    "signing_certificate_sha256": "",
+    "real_device_install_run_verified": false
+  }
+}
