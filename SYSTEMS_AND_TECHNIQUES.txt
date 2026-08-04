@@ -1,0 +1,97 @@
+TEKNIK CLEAN REBUILD - CURRENT SYSTEMS AND TECHNIQUES
+Branch: rebuild/playable-world
+Milestone: playable procedural world foundation
+
+This file describes what the clean rebuild actually uses now. It does not describe the abandoned prototype and it does not claim systems that are only planned.
+
+1. ENGINE AND PLATFORM
+- Godot 4.7.1 using the Mobile renderer.
+- Jolt Physics for 3D collision.
+- Android ARM64 only.
+- Target device: Vivo T3x 5G, 6 GB RAM.
+- First-person CharacterBody3D controller with a capsule collision shape.
+- Real-time directional shadows are disabled during this foundation milestone.
+
+2. PROCEDURAL TERRAIN
+- Deterministic world seed: 734921.
+- FastNoiseLite height noise with four fractal octaves.
+- A second low-frequency FastNoiseLite field influences biome/terrain variation.
+- World columns are generated from height values rather than storing a complete voxel array.
+- Block types currently used: air, grass, dirt, stone, and sand.
+- Chunk dimensions: 12 x 12 blocks horizontally and 30 blocks high.
+
+3. CURRENT CHUNK-GENERATION OPTIMIZATIONS
+- Height cache: each chunk builds a 14 x 14 cached height field, including a one-block border. Neighbor tests normally read this cache instead of recalculating terrain noise for every face.
+- Exposed-face meshing: faces between two solid blocks are omitted. Only faces touching air are added to the mesh.
+- Packed chunk mesh: one ArrayMesh surface is created for a chunk instead of one node or mesh per block.
+- Shared terrain material: all chunks reuse one StandardMaterial3D and use vertex colors for block color and directional face shading.
+- Collision-first build priority: chunks needed for the nearby collision area are sorted ahead of visual-only chunks.
+- Nearest-first order: within the same priority class, chunks nearest the player are built first.
+- Stale queue pruning: queued chunks outside the latest render radius are discarded when the player changes chunk.
+- Limited residency: render radius is 3 chunks; unload radius is 4 chunks.
+- Reduced collision residency: collision exists only inside radius 1, a 3 x 3 chunk area around the player.
+- Collision commit budgets: at most one collider is added and two colliders are removed per frame.
+- Movement safety hold: movement predicts the next position and checks the centre plus four capsule-footprint points. The player is stopped before entering a chunk whose collision is not ready.
+- Safe spawn: the player is created only after the complete nearby collision ring is available.
+- Atomic edit replacement: mining and placement keep the old mesh/collider active until the rebuilt replacement is ready, preventing temporary holes.
+- Rapid-edit coalescing: repeated edits to the same chunk within the coalescing window are collapsed into one replacement build.
+
+4. IMPORTANT CHUNK LIMITATIONS - NOT YET OPTIMIZED
+- Chunk mesh generation is still synchronous GDScript on the main thread.
+- BUILD_BUDGET_USEC is checked between complete chunks, not inside a chunk build. One chunk can therefore exceed the frame budget; phone telemetry has shown roughly 40-80 ms chunk build times.
+- The mesher is exposed-face meshing, not greedy meshing. Adjacent coplanar faces are not merged yet.
+- There are no worker threads for terrain or mesh-data preparation yet.
+- Chunk generation is not yet sliced incrementally across frames.
+- These are the next real chunk-performance problems. They must be solved from target-device frame-time evidence, not hidden by unrelated features.
+
+5. STREAMING
+- Render target: 7 x 7 chunk window around the current centre.
+- Collision target: 3 x 3 chunk window.
+- Visual chunks outside the unload radius are removed.
+- Build, collision-add, and collision-remove queues are tracked separately.
+- Telemetry reports loaded chunk count, mesh queue, last mesh time, exposed face count, collision time, and queue sizes.
+
+6. MINING AND PLACEMENT
+- Camera raycast interaction with a six-metre range.
+- Android mining and placement occur only from explicit MINE and PLACE buttons.
+- Screen look gestures are kept separate from mining input.
+- Placement is rejected when the new block would intersect the player.
+- The selector outlines only the exact face hit by the ray.
+
+7. SAVING
+- Persistent block overrides are stored in user://teknik_world_v1.json.
+- Save writes use a pending file, semantic validation, rollback file, and atomic promotion.
+- A SaveGuardian checks the primary save and can recover a valid backup.
+- Pending edits are flushed on application pause, focus loss, and close request.
+
+8. ANDROID CONTROLS
+- Sensor-landscape orientation.
+- Left virtual joystick for movement.
+- Right-side drag for camera look.
+- Separate JUMP, MINE, and PLACE controls.
+- Android-emulated mouse taps are blocked from the desktop mining path.
+
+9. PERFORMANCE TELEMETRY
+- FPS and frame-time sampling.
+- Chunk build time and exposed-face count.
+- Collision build time and queue state.
+- Stream-hold episodes and duration.
+- Edit requests, coalesced edits, atomic swaps, and failures.
+- Save and lifecycle-save commits/failures.
+- Static memory, draw calls, rendered primitives, and node count.
+- JSONL session telemetry plus a JSON session summary.
+
+10. BUILD VALIDATION
+- Strict Godot import/parse log checking.
+- Presentation and Android-input smoke test.
+- Procedural world and collision-first streaming smoke test.
+- Atomic edit smoke test.
+- Transactional save, lifecycle save, and recovery tests.
+- ARM64 Android APK export.
+- CI is only an automated gate. The Vivo T3x gameplay recording is the final authority for visuals, smoothness, controls, and stability.
+
+11. EXPLICITLY NOT STARTED
+- Physics contraptions.
+- Create-style machines.
+- Trains, engines, power networks, factories, automation, or aeronautics.
+- These remain blocked until the playable-world foundation is stable on the target phone.

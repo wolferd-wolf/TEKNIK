@@ -1,0 +1,103 @@
+name: TEKNIK Clean Rebuild
+
+on:
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: teknik-clean-rebuild-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-and-export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GODOT_VERSION: "4.7.1"
+      GODOT_DIR: ${{ github.workspace }}/.godot-ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip libgl1 libx11-6 libxcursor1 libxinerama1 libxrandr2 libxi6 libasound2t64
+
+      - name: Download Godot and export templates
+        run: |
+          mkdir -p "$GODOT_DIR" "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable" build
+          curl --retry 3 --retry-all-errors -fL "https://downloads.godotengine.org/?flavor=stable&platform=linux.64&slug=linux.x86_64.zip&version=${GODOT_VERSION}" -o /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d "$GODOT_DIR"
+          mv "$GODOT_DIR"/Godot_v*-stable_linux.x86_64 "$GODOT_DIR/godot"
+          chmod +x "$GODOT_DIR/godot"
+          curl --retry 3 --retry-all-errors -fL "https://downloads.godotengine.org/?flavor=stable&platform=templates&slug=export_templates.tpz&version=${GODOT_VERSION}" -o /tmp/templates.tpz
+          unzip -q /tmp/templates.tpz -d /tmp/templates
+          cp -R /tmp/templates/templates/* "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
+          "$GODOT_DIR/godot" --version
+
+      - name: Import and parse project
+        run: |
+          bash scripts/ci/run_godot_strict.sh "$GODOT_DIR/godot" build/project-parse.log --headless --path . --editor --quit
+
+      - name: Run presentation and input smoke test
+        run: |
+          bash scripts/ci/run_godot_strict.sh "$GODOT_DIR/godot" build/presentation-input-smoke.log --headless --path . --script res://tests/presentation_input_smoke.gd
+
+      - name: Run resource telemetry smoke test
+        run: |
+          bash scripts/ci/run_godot_strict.sh "$GODOT_DIR/godot" build/resource-telemetry-smoke.log --headless --path . --script res://tests/resource_telemetry_smoke.gd
+
+      - name: Run procedural world smoke test
+        run: |
+          bash scripts/ci/run_godot_strict.sh "$GODOT_DIR/godot" build/world-smoke.log --headless --path . --script res://tests/world_smoke.gd
+
+      - name: Run atomic edit smoke test
+        run: |
+          bash scripts/ci/run_godot_strict.sh "$GODOT_DIR/godot" build/atomic-edit-smoke.log --headless --path . --script res://tests/atomic_edit_smoke.gd
+
+      - name: Run transactional save smoke test
+        run: |
+          bash scripts/ci/run_godot_strict.sh "$GODOT_DIR/godot" build/transactional-save-smoke.log --headless --path . --script res://tests/transactional_save_smoke.gd
+
+      - name: Run lifecycle save smoke test
+        run: |
+          bash scripts/ci/run_godot_strict.sh "$GODOT_DIR/godot" build/lifecycle-save-smoke.log --headless --path . --script res://tests/lifecycle_save_smoke.gd
+
+      - name: Run save recovery smoke test
+        run: |
+          bash scripts/ci/run_godot_strict.sh "$GODOT_DIR/godot" build/save-guardian-smoke.log --headless --path . --script res://tests/save_guardian_smoke.gd
+
+      - name: Prepare Android SDK paths
+        run: |
+          mkdir -p "$HOME/.config/godot" build
+          cat > "$HOME/.config/godot/editor_settings-4.7.tres" <<SETTINGS
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          SETTINGS
+
+      - name: Export ARM64 debug APK
+        run: |
+          bash scripts/ci/run_godot_strict.sh "$GODOT_DIR/godot" build/android-export.log --headless --path . --export-debug 'Android ARM64' build/TEKNIK-debug.apk
+
+      - name: Upload APK and validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TEKNIK-playable-world-validation
+          path: |
+            build/TEKNIK-debug.apk
+            build/*.log
+          if-no-files-found: error
