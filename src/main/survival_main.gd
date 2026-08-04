@@ -1,0 +1,517 @@
+extends "res://src/main/multi_lod_main.gd"
+
+const ItemRegistry = preload("res://src/survival/item_registry.gd")
+const StackInventory = preload("res://src/survival/stack_inventory.gd")
+const RecipeBook = preload("res://src/survival/recipe_book.gd")
+const HotbarSelectionState = preload("res://src/survival/hotbar_selection_state.gd")
+
+const INVENTORY_PATH: String = "user://teknik-inventory.json"
+const HOTBAR_STATE_PATH: String = "user://teknik-hotbar-state.json"
+const INVENTORY_SAVE_DELAY_MS: int = 700
+const HOTBAR_PANEL_SIZE := Vector2(612.0, 77.0)
+const HOTBAR_SLOT_SIZE := Vector2(72.0, 58.0)
+const HOTBAR_BOTTOM_MARGIN: float = 8.0
+const INVENTORY_WINDOW_SIZE := Vector2(620.0, 460.0)
+const MATERIAL_CACHE_LIMIT: int = 8192
+
+var _material_cache: Dictionary = {}
+
+var _inventory: TeknikStackInventory = StackInventory.new()
+var _hotbar_selection: TeknikHotbarSelectionState = HotbarSelectionState.new()
+var _selected_item: StringName = ItemRegistry.ITEM_STONE
+var _inventory_save_due_ms: int = 0
+var _inventory_label: Label
+var _inventory_rows: Dictionary = {}
+var _hotbar_buttons: Dictionary = {}
+var _craft_button: Button
+var _craft_status: Label
+var _gameplay_hud_layer: CanvasLayer
+var _left_hud_column: VBoxContainer
+var _bottom_hotbar_panel: PanelContainer
+var _inventory_button: Button
+var _inventory_window: PanelContainer
+
+
+func _ready() -> void:
+	_load_inventory()
+	_load_hotbar_selection()
+	_selected_item = _hotbar_selection.choose_available(Callable(_inventory, "count"))
+	super._ready()
+	_build_inventory_hud()
+	_refresh_inventory_hud()
+	_runtime_log.event("info", "survival", "inventory_ready", {
+		"slots": StackInventory.SLOT_COUNT,
+		"items": _inventory.encode(),
+		"selected_item": str(_selected_item),
+		"recipes": RecipeBook.registered_recipes(),
+		"creative_mode": false,
+	})
+
+
+func _process(delta: float) -> void:
+	super._process(delta)
+	if _inventory_save_due_ms > 0 and Time.get_ticks_msec() >= _inventory_save_due_ms:
+		_save_inventory_now()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_PREDELETE:
+		_save_inventory_now()
+		_save_hotbar_selection_now()
+	super._notification(what)
+
+
+func _on_break_requested(origin: Vector3, direction: Vector3) -> void:
+	if _try_break_engineering_item(origin, direction):
+		return
+	var hit: Dictionary = _raycast_world(origin, direction)
+	if hit.is_empty():
+		return
+	var voxel: Vector3i = InteractionMath.removal_voxel(hit.position, hit.normal)
+	_survival_break_voxel(voxel, "removed")
+
+
+func _on_place_requested(origin: Vector3, direction: Vector3) -> void:
+	var hit: Dictionary = _raycast_world(origin, direction)
+	if hit.is_empty():
+		return
+	var voxel: Vector3i = InteractionMath.placement_voxel(hit.position, hit.normal)
+	if ItemRegistry.is_object_placeable(_selected_item):
+		_place_engineering_item(voxel, _selected_item, true)
+		return
+	var material: int = ItemRegistry.material_for_item(_selected_item)
+	if material == ItemRegistry.AIR:
+		return
+	_survival_place_voxel(voxel, material, "placed", true)
+
+
+func _can_place_engineering_item(_voxel: Vector3i, _item_id: StringName) -> bool:
+	return false
+
+
+func _place_engineering_item(_voxel: Vector3i, _item_id: StringName, _consume_item: bool) -> bool:
+	return false
+
+
+func _try_break_engineering_item(_origin: Vector3, _direction: Vector3) -> bool:
+	return false
+
+
+func _survival_break_voxel(voxel: Vector3i, action: String) -> bool:
+	var current: int = _current_material(voxel)
+	if current == VoxelChunk.AIR:
+		return false
+	var item_id: StringName = ItemRegistry.item_for_material(current)
+	if item_id == &"":
+		return false
+	if _inventory.add(item_id, 1) != 0:
+		_runtime_log.event("warning", "survival", "drop_rejected_inventory_full", {
+			"voxel": str(voxel),
+			"item": str(item_id),
+		})
+		return false
+	_apply_voxel_edit(voxel, VoxelChunk.AIR, action)
+	_mark_inventory_changed("collected", item_id, 1)
+	return true
+
+
+func _survival_place_voxel(voxel: Vector3i, material: int, action: String, check_player: bool) -> bool:
+	if _current_material(voxel) != VoxelChunk.AIR:
+		return false
+	if check_player and _placement_intersects_player(voxel):
+		return false
+	var item_id: StringName = ItemRegistry.item_for_material(material)
+	if item_id == &"" or not _inventory.remove(item_id, 1):
+		_runtime_log.event("info", "survival", "placement_denied_missing_item", {
+			"voxel": str(voxel),
+			"item": str(item_id),
+		})
+		return false
+	_apply_voxel_edit(voxel, material, action)
+	_mark_inventory_changed("consumed", item_id, -1)
+	return true
+
+
+func _craft_recipe(recipe_id: StringName) -> bool:
+	var definition: Dictionary = RecipeBook.recipe(recipe_id)
+	if definition.is_empty():
+		return false
+	if not RecipeBook.craft(_inventory, recipe_id):
+		if _craft_status != null:
+			_craft_status.text = "Need 4 Stone"
+		_runtime_log.event("info", "survival", "craft_denied", {
+			"recipe": str(recipe_id),
+			"inventory": _inventory.encode(),
+		})
+		_refresh_inventory_hud()
+		return false
+	var output_item := StringName(definition.output_item)
+	var output_count: int = int(definition.output_count)
+	if _craft_status != null:
+		_craft_status.text = "+%d %s" % [output_count, ItemRegistry.display_name(output_item)]
+	_mark_inventory_changed("crafted", output_item, output_count)
+	_runtime_log.event("info", "survival", "recipe_crafted", {
+		"recipe": str(recipe_id),
+		"output": str(output_item),
+		"count": output_count,
+	})
+	return true
+
+
+func _select_hotbar_item(item_id: StringName) -> bool:
+	if not ItemRegistry.is_placeable(item_id) or _inventory.count(item_id) <= 0:
+		return false
+	if not _hotbar_selection.select(item_id):
+		return false
+	_selected_item = _hotbar_selection.selected_item
+	_save_hotbar_selection_now()
+	_refresh_inventory_hud()
+	_runtime_log.event("info", "survival", "hotbar_selected", {
+		"item": str(_selected_item),
+		"count": _inventory.count(_selected_item),
+	})
+	return true
+
+
+func _current_material(voxel: Vector3i) -> int:
+	if _world_edits.has_override(voxel):
+		return _world_edits.get_override(voxel, VoxelChunk.AIR)
+	if _material_cache.has(voxel):
+		return _material_cache[voxel]
+	var generated: int = TerrainGenerator.voxel_at(WORLD_SEED, voxel)
+	if _material_cache.size() >= MATERIAL_CACHE_LIMIT:
+		_material_cache.clear()
+	_material_cache[voxel] = generated
+	return generated
+
+
+func _mark_inventory_changed(event_name: String, item_id: StringName, delta: int) -> void:
+	_inventory_save_due_ms = Time.get_ticks_msec() + INVENTORY_SAVE_DELAY_MS
+	var previous_selection: StringName = _selected_item
+	_selected_item = _hotbar_selection.choose_available(Callable(_inventory, "count"))
+	if previous_selection != _selected_item:
+		_save_hotbar_selection_now()
+	_refresh_inventory_hud()
+	_runtime_log.event("info", "survival", event_name, {
+		"item": str(item_id),
+		"delta": delta,
+		"count": _inventory.count(item_id),
+		"selected_item": str(_selected_item),
+	})
+
+
+func _ensure_left_hud_column() -> VBoxContainer:
+	if is_instance_valid(_left_hud_column):
+		return _left_hud_column
+	_gameplay_hud_layer = CanvasLayer.new()
+	_gameplay_hud_layer.name = "GameplayHUD"
+	_gameplay_hud_layer.layer = 6
+	add_child(_gameplay_hud_layer)
+	_left_hud_column = VBoxContainer.new()
+	_left_hud_column.name = "LeftHUDColumn"
+	_left_hud_column.position = Vector2(12.0, 54.0)
+	_left_hud_column.custom_minimum_size = Vector2(330.0, 0.0)
+	_left_hud_column.add_theme_constant_override("separation", 8)
+	_gameplay_hud_layer.add_child(_left_hud_column)
+	return _left_hud_column
+
+
+func _add_left_hud_panel(panel: Control, order: int) -> void:
+	var column: VBoxContainer = _ensure_left_hud_column()
+	panel.set_meta("hud_order", order)
+	column.add_child(panel)
+	var target_index: int = 0
+	for child: Node in column.get_children():
+		if child == panel:
+			continue
+		if int(child.get_meta("hud_order", 0)) < order:
+			target_index += 1
+	column.move_child(panel, target_index)
+
+
+func _build_inventory_hud() -> void:
+	_ensure_left_hud_column()
+
+	_inventory_button = Button.new()
+	_inventory_button.name = "InventoryButton"
+	_inventory_button.text = "INVENTORY"
+	_inventory_button.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_inventory_button.position = Vector2(12.0, -72.0)
+	_inventory_button.custom_minimum_size = Vector2(136.0, 56.0)
+	_inventory_button.pressed.connect(_toggle_inventory_window)
+	_gameplay_hud_layer.add_child(_inventory_button)
+
+	_bottom_hotbar_panel = PanelContainer.new()
+	_bottom_hotbar_panel.name = "BottomHotbar"
+	_bottom_hotbar_panel.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_bottom_hotbar_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_bottom_hotbar_panel.position = Vector2(-360.0, -(HOTBAR_PANEL_SIZE.y + HOTBAR_BOTTOM_MARGIN))
+	_bottom_hotbar_panel.custom_minimum_size = HOTBAR_PANEL_SIZE
+	_gameplay_hud_layer.add_child(_bottom_hotbar_panel)
+
+	var hotbar := HBoxContainer.new()
+	hotbar.name = "PlaceableHotbar"
+	hotbar.add_theme_constant_override("separation", 4)
+	_bottom_hotbar_panel.add_child(hotbar)
+	var slot_number: int = 1
+	for item_id: StringName in ItemRegistry.placeable_items():
+		var button := Button.new()
+		button.name = "Hotbar_%s" % str(item_id)
+		button.custom_minimum_size = HOTBAR_SLOT_SIZE
+		button.toggle_mode = true
+		button.set_meta("slot_number", slot_number)
+		button.pressed.connect(func() -> void: _select_hotbar_item(item_id))
+		hotbar.add_child(button)
+		_hotbar_buttons[item_id] = button
+		slot_number += 1
+
+	_inventory_window = PanelContainer.new()
+	_inventory_window.name = "InventoryScreen"
+	_inventory_window.set_anchors_preset(Control.PRESET_CENTER)
+	_inventory_window.position = Vector2(-310.0, -230.0)
+	_inventory_window.custom_minimum_size = INVENTORY_WINDOW_SIZE
+	_inventory_window.visible = false
+	_gameplay_hud_layer.add_child(_inventory_window)
+
+	var inventory_content := VBoxContainer.new()
+	inventory_content.add_theme_constant_override("separation", 10)
+	_inventory_window.add_child(inventory_content)
+
+	var title := Label.new()
+	title.text = "INVENTORY"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 24)
+	inventory_content.add_child(title)
+
+	_inventory_label = Label.new()
+	_inventory_label.name = "InventorySummary"
+	_inventory_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	inventory_content.add_child(_inventory_label)
+
+	var inventory_grid := GridContainer.new()
+	inventory_grid.name = "InventoryGrid"
+	inventory_grid.columns = 2
+	inventory_grid.add_theme_constant_override("h_separation", 12)
+	inventory_grid.add_theme_constant_override("v_separation", 6)
+	inventory_content.add_child(inventory_grid)
+	for item_id: StringName in ItemRegistry.registered_items():
+		var row := Label.new()
+		row.name = "Inventory_%s" % str(item_id)
+		row.custom_minimum_size = Vector2(280.0, 36.0)
+		row.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		inventory_grid.add_child(row)
+		_inventory_rows[item_id] = row
+
+	var craft_row := HBoxContainer.new()
+	craft_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	craft_row.add_theme_constant_override("separation", 8)
+	inventory_content.add_child(craft_row)
+	_craft_button = Button.new()
+	_craft_button.name = "CraftStoneGear"
+	_craft_button.text = "Craft Gear (4 Stone)"
+	_craft_button.custom_minimum_size = Vector2(190.0, 46.0)
+	_craft_button.pressed.connect(func() -> void: _craft_recipe(RecipeBook.RECIPE_STONE_GEAR))
+	craft_row.add_child(_craft_button)
+	_craft_status = Label.new()
+	_craft_status.name = "CraftStatus"
+	_craft_status.custom_minimum_size = Vector2(210.0, 46.0)
+	_craft_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	craft_row.add_child(_craft_status)
+
+	var close_button := Button.new()
+	close_button.name = "CloseInventory"
+	close_button.text = "CLOSE"
+	close_button.custom_minimum_size = Vector2(140.0, 48.0)
+	close_button.pressed.connect(_toggle_inventory_window)
+	inventory_content.add_child(close_button)
+
+
+func _toggle_inventory_window() -> void:
+	if _inventory_window != null:
+		_inventory_window.visible = not _inventory_window.visible
+
+
+func _hotbar_label(item_id: StringName) -> String:
+	match item_id:
+		ItemRegistry.ITEM_WORKBENCH:
+			return "Bench"
+		ItemRegistry.ITEM_STONE_SHAFT:
+			return "Shaft"
+		ItemRegistry.ITEM_HAND_CRANK:
+			return "Crank"
+		ItemRegistry.ITEM_STONE_CRUSHER:
+			return "Crusher"
+		_:
+			return ItemRegistry.display_name(item_id)
+
+
+func _refresh_inventory_hud() -> void:
+	if _inventory_label == null:
+		return
+	_inventory_label.text = "Selected: %s" % ItemRegistry.display_name(_selected_item)
+	for item_id: StringName in ItemRegistry.placeable_items():
+		var button := _hotbar_buttons.get(item_id) as Button
+		if button == null:
+			continue
+		var amount: int = _inventory.count(item_id)
+		button.text = "%d\n%s\n%d" % [
+			int(button.get_meta("slot_number", 0)),
+			_hotbar_label(item_id),
+			amount,
+		]
+		button.disabled = amount <= 0
+		button.button_pressed = item_id == _selected_item
+	for item_id: StringName in ItemRegistry.registered_items():
+		var row := _inventory_rows.get(item_id) as Label
+		if row == null:
+			continue
+		var placement_kind: String = "ITEM"
+		if ItemRegistry.is_voxel_placeable(item_id):
+			placement_kind = "BLOCK"
+		elif ItemRegistry.is_object_placeable(item_id):
+			placement_kind = "ENGINEERING"
+		row.text = "%s   x%d   [%s]" % [
+			ItemRegistry.display_name(item_id),
+			_inventory.count(item_id),
+			placement_kind,
+		]
+	if _craft_button != null:
+		_craft_button.disabled = not RecipeBook.can_craft(_inventory, RecipeBook.RECIPE_STONE_GEAR)
+
+
+func _load_inventory() -> void:
+	if not FileAccess.file_exists(INVENTORY_PATH):
+		return
+	var file := FileAccess.open(INVENTORY_PATH, FileAccess.READ)
+	if file == null:
+		return
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	if parsed is Dictionary and _inventory.decode(parsed):
+		return
+	push_warning("SURVIVAL inventory save was invalid; starting empty")
+	_inventory.clear()
+
+
+func _load_hotbar_selection() -> void:
+	if not FileAccess.file_exists(HOTBAR_STATE_PATH):
+		return
+	var file := FileAccess.open(HOTBAR_STATE_PATH, FileAccess.READ)
+	if file == null:
+		return
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	if parsed is Dictionary and _hotbar_selection.decode(parsed):
+		return
+	push_warning("SURVIVAL hotbar save was invalid; using Stone")
+	_hotbar_selection = HotbarSelectionState.new()
+
+
+func _save_inventory_now() -> void:
+	if _inventory_save_due_ms == 0 and FileAccess.file_exists(INVENTORY_PATH):
+		return
+	var temporary_path: String = INVENTORY_PATH + ".tmp"
+	var file := FileAccess.open(temporary_path, FileAccess.WRITE)
+	if file == null:
+		push_error("SURVIVAL inventory save could not open temporary file")
+		return
+	file.store_string(JSON.stringify(_inventory.encode(), "\t"))
+	file.flush()
+	file = null
+	var absolute_target: String = ProjectSettings.globalize_path(INVENTORY_PATH)
+	var absolute_temporary: String = ProjectSettings.globalize_path(temporary_path)
+	if FileAccess.file_exists(INVENTORY_PATH):
+		DirAccess.remove_absolute(absolute_target)
+	var result: Error = DirAccess.rename_absolute(absolute_temporary, absolute_target)
+	if result != OK:
+		push_error("SURVIVAL inventory save rename failed: %s" % error_string(result))
+		return
+	_inventory_save_due_ms = 0
+	_runtime_log.event("info", "survival", "inventory_saved", {
+		"path": INVENTORY_PATH,
+		"items": _inventory.encode(),
+	})
+
+
+func _save_hotbar_selection_now() -> void:
+	var temporary_path: String = HOTBAR_STATE_PATH + ".tmp"
+	var file := FileAccess.open(temporary_path, FileAccess.WRITE)
+	if file == null:
+		push_error("SURVIVAL hotbar save could not open temporary file")
+		return
+	file.store_string(JSON.stringify(_hotbar_selection.encode(), "\t"))
+	file.flush()
+	file = null
+	var absolute_target: String = ProjectSettings.globalize_path(HOTBAR_STATE_PATH)
+	var absolute_temporary: String = ProjectSettings.globalize_path(temporary_path)
+	if FileAccess.file_exists(HOTBAR_STATE_PATH):
+		DirAccess.remove_absolute(absolute_target)
+	var result: Error = DirAccess.rename_absolute(absolute_temporary, absolute_target)
+	if result != OK:
+		push_error("SURVIVAL hotbar save rename failed: %s" % error_string(result))
+
+
+func qa_survival_break(voxel: Vector3i, action: String = "qa_survival_removed") -> bool:
+	return _survival_break_voxel(voxel, action)
+
+
+func qa_survival_place(voxel: Vector3i, material: int, action: String = "qa_survival_placed") -> bool:
+	return _survival_place_voxel(voxel, material, action, false)
+
+
+func qa_place_engineering_item(voxel: Vector3i, item_id: StringName, consume_item: bool = false) -> bool:
+	return _place_engineering_item(voxel, item_id, consume_item)
+
+
+func qa_inventory_count(item_id: StringName) -> int:
+	return _inventory.count(item_id)
+
+
+func qa_grant_item(item_id: StringName, amount: int) -> bool:
+	var remainder: int = _inventory.add(item_id, amount)
+	if remainder != 0:
+		return false
+	_mark_inventory_changed("qa_granted", item_id, amount)
+	return true
+
+
+func qa_select_hotbar_item(item_id: StringName) -> bool:
+	return _select_hotbar_item(item_id)
+
+
+func qa_craft_recipe(recipe_id: StringName) -> bool:
+	return _craft_recipe(recipe_id)
+
+
+func qa_save_inventory_now() -> void:
+	_inventory_save_due_ms = maxi(_inventory_save_due_ms, 1)
+	_save_inventory_now()
+	_save_hotbar_selection_now()
+
+
+func qa_reload_inventory_for_test() -> bool:
+	var expected: Dictionary = _inventory.encode()
+	var restored: TeknikStackInventory = StackInventory.new()
+	var file := FileAccess.open(INVENTORY_PATH, FileAccess.READ)
+	if file == null:
+		return false
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	if not parsed is Dictionary or not restored.decode(parsed):
+		return false
+	return restored.encode() == expected
+
+
+func qa_reload_hotbar_for_test() -> bool:
+	var restored := HotbarSelectionState.new()
+	var file := FileAccess.open(HOTBAR_STATE_PATH, FileAccess.READ)
+	if file == null:
+		return false
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	return parsed is Dictionary and restored.decode(parsed) and restored.selected_item == _selected_item
+
+
+func qa_playability_snapshot() -> Dictionary:
+	var snapshot: Dictionary = super.qa_playability_snapshot()
+	snapshot["inventory"] = _inventory.encode()
+	snapshot["selected_item"] = str(_selected_item)
+	snapshot["survival_only"] = true
+	snapshot["stone_gears"] = _inventory.count(ItemRegistry.ITEM_STONE_GEAR)
+	return snapshot

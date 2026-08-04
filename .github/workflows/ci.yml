@@ -1,0 +1,220 @@
+# Focused Phase 1 + CC0 texture-array pipeline. It preserves the verified cave
+# foundation, validates independent mip chains, distance filtering, ores, items,
+# save data and mobile UI, then publishes one ARM64 APK.
+name: TEKNIK CC0 Texture Array APK
+
+on:
+  push:
+    paths-ignore:
+      - "CLAUDE_GPT_PROJECT_CHANNEL.md"
+      - "MANAGER_BRIEFING.md"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: teknik-cc0-texture-array-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  phase-one-arm64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 48
+    env:
+      GODOT_VERSION: "4.7.1"
+      GODOT_RELEASE: "4.7.1-stable"
+      GODOT_BIN: /usr/local/bin/godot
+      GODOT_CPP_REF: "ba0edfed90512ec64aba51d4295a3e7e30112f86"
+      ANDROID_NDK_VERSION: "28.1.13356709"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify cave and ore native core first
+        run: cargo test --manifest-path native/rust/Cargo.toml --release
+
+      - name: Install focused build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential clang lld scons git curl unzip xvfb python3-pil libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
+
+      - name: Build or verify CC0 terrain texture layers
+        run: |
+          set -o pipefail
+          python3 tools/build_cc0_terrain_layers.py |& tee /tmp/teknik-texture-build.log
+          python3 tools/build_cc0_terrain_layers.py --verify |& tee -a /tmp/teknik-texture-build.log
+          if [ -n "$(git status --porcelain -- assets/textures/terrain_layers)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add assets/textures/terrain_layers
+            git commit -m "Generate CC0 terrain texture layers [skip ci]"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
+
+      - name: Install Godot and export templates
+        run: |
+          curl --fail --silent --show-error --location --retry 3 "https://github.com/godotengine/godot/releases/download/${GODOT_RELEASE}/Godot_v${GODOT_RELEASE}_linux.x86_64.zip" --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          sudo install -m 0755 "/tmp/godot/Godot_v${GODOT_RELEASE}_linux.x86_64" "${GODOT_BIN}"
+          curl --fail --silent --show-error --location --retry 3 "https://github.com/godotengine/godot/releases/download/${GODOT_RELEASE}/Godot_v${GODOT_RELEASE}_export_templates.tpz" --output /tmp/export-templates.tpz
+          mkdir -p /tmp/export-templates "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          unzip -q /tmp/export-templates.tpz -d /tmp/export-templates
+          cp -R /tmp/export-templates/templates/. "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
+
+      - name: Check out pinned godot-cpp
+        run: |
+          rm -rf native/godot-cpp
+          git init -q native/godot-cpp
+          git -C native/godot-cpp remote add origin https://github.com/godotengine/godot-cpp.git
+          git -C native/godot-cpp fetch -q --depth 1 origin "$GODOT_CPP_REF"
+          git -C native/godot-cpp checkout -q --detach FETCH_HEAD
+
+      - name: Restore native build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            native/rust/target
+            native/godot-cpp/bin
+            native/godot-cpp/gen
+            native/godot-cpp/obj
+            native/godot-cpp/.sconsign.dblite
+          key: teknik-cc0-texture-array-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/rust/Cargo.toml', 'native/rust/src/**', 'native/cpp/**', 'native/SConstruct', 'tools/build_cc0_terrain_layers.py', 'assets/textures/terrain_layers/**') }}
+
+      - name: Build Linux native bridge
+        run: |
+          cargo build --manifest-path native/rust/Cargo.toml --release
+          mkdir -p /tmp/godot-api
+          (cd /tmp/godot-api && godot --headless --dump-extension-api)
+          cp /tmp/godot-api/extension_api.json extension_api.json
+          (cd native && scons -j2 platform=linux arch=x86_64 target=template_debug custom_api_file="$GITHUB_WORKSPACE/extension_api.json" rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/release")
+          test -s native/bin/libteknik_native.linux.template_debug.x86_64.so
+
+      - name: Import project and validate terrain, Phase 1 and save contracts
+        run: |
+          set -o pipefail
+          godot --headless --path . --editor --quit |& tee /tmp/teknik-import.log
+          test -s .godot/global_script_class_cache.cfg
+          timeout 180s godot --headless --path . --script res://tests/run_cave_generation_tests.gd |& tee /tmp/teknik-cave-parity.log
+          grep -q "CAVE_GENERATION_TESTS_PASS" /tmp/teknik-cave-parity.log
+          timeout 120s godot --headless --path . --script res://tests/run_terrain_texture_ore_tests.gd |& tee /tmp/teknik-texture-ore.log
+          grep -q "TERRAIN_TEXTURE_ORE_TESTS_PASS" /tmp/teknik-texture-ore.log
+          timeout 120s godot --headless --path . --script res://tests/run_phase_one_item_tests.gd |& tee /tmp/teknik-phase-one.log
+          grep -q "PHASE_ONE_ITEM_TESTS_PASS" /tmp/teknik-phase-one.log
+          timeout 120s godot --headless --path . --script res://tests/run_survival_inventory_tests.gd |& tee /tmp/teknik-inventory.log
+          grep -q "SURVIVAL_INVENTORY_TEST_RESULT PASS" /tmp/teknik-inventory.log
+          timeout 120s godot --headless --path . --script res://tests/run_engineering_progression_tests.gd |& tee /tmp/teknik-progression.log
+          grep -q "ENGINEERING_PROGRESSION_TEST_RESULT PASS" /tmp/teknik-progression.log
+          timeout 120s godot --headless --path . --script res://tests/run_kinetic_machine_tests.gd |& tee /tmp/teknik-kinetic.log
+          grep -q "KINETIC_MACHINE_TEST_RESULT PASS" /tmp/teknik-kinetic.log
+
+      - name: Publish focused failure logs
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: TEKNIK-TextureArray-Failure-Logs-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 7
+          path: /tmp/teknik-*.log
+
+      - name: Validate 36-row mobile inventory and workbench touch scrolling
+        run: |
+          set -o pipefail
+          timeout 150s xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Dummy -- --qa-ui-layout | tee /tmp/teknik-phase-one-ui.log
+          grep -q "QA_RESOLVED_MOBILE_LAYOUT_PASS" /tmp/teknik-phase-one-ui.log
+          grep -q "QA_FOCUSED_UI_PASS" /tmp/teknik-phase-one-ui.log
+
+      - name: Install Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android command-line tools
+        uses: android-actions/setup-android@v3
+
+      - name: Install ARM64 Android dependencies
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --sdk_root="$ANDROID_HOME" "platform-tools" "build-tools;35.0.1" "platforms;android-35" "cmdline-tools;latest" "cmake;3.10.2.4988404" "ndk;${ANDROID_NDK_VERSION}"
+
+      - name: Build native Android ARM64 extension
+        run: |
+          export NDK_ROOT="$ANDROID_HOME/ndk/${ANDROID_NDK_VERSION}"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+          rustup target add aarch64-linux-android
+          cargo build --manifest-path native/rust/Cargo.toml --release --target aarch64-linux-android
+          (cd native && ANDROID_NDK_ROOT="$NDK_ROOT" ANDROID_HOME="$ANDROID_HOME" scons -j2 platform=android arch=arm64 target=template_debug android_api_level=24 custom_api_file="$GITHUB_WORKSPACE/extension_api.json" rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/aarch64-linux-android/release")
+          test -s native/bin/libteknik_native.android.template_debug.arm64.so
+
+      - name: Export ARM64 debug APK
+        run: |
+          mkdir -p "$HOME/.config/godot" "$HOME/.android" build
+          printf '%s\n' '[gd_resource type="EditorSettings" format=3]' '' '[resource]' "export/android/java_sdk_path = \"$JAVA_HOME\"" "export/android/android_sdk_path = \"$ANDROID_HOME\"" > "$HOME/.config/godot/editor_settings-${GODOT_VERSION%.*}.tres"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          godot --headless --path . --export-debug "Android ARM64" build/TEKNIK-arm64-debug.apk
+          test -s build/TEKNIK-arm64-debug.apk
+
+      - name: Publish CC0 texture-array phone APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TEKNIK-CC0-TextureArray-Android-ARM64-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: build/TEKNIK-arm64-debug.apk
+
+  publish-ci-run-report:
+    if: ${{ always() }}
+    needs: phase-one-arm64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Update concise ci-reports status
+        env:
+          BUILD_RESULT: ${{ needs.phase-one-arm64.result }}
+        run: |
+          set -Eeuo pipefail
+          CREATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          jq -n \
+            --arg created_at "$CREATED_AT" --arg run_id "$GITHUB_RUN_ID" \
+            --arg run_attempt "$GITHUB_RUN_ATTEMPT" --arg run_url "$RUN_URL" \
+            --arg repository "$GITHUB_REPOSITORY" --arg workflow "$GITHUB_WORKFLOW" \
+            --arg event "$GITHUB_EVENT_NAME" --arg ref "$GITHUB_REF" \
+            --arg ref_name "$GITHUB_REF_NAME" --arg sha "$GITHUB_SHA" \
+            --arg actor "$GITHUB_ACTOR" --arg result "$BUILD_RESULT" \
+            '{schema:1,generated_at_utc:$created_at,run:{id:($run_id|tonumber),attempt:($run_attempt|tonumber),url:$run_url,repository:$repository,workflow:$workflow,event:$event,ref:$ref,branch_or_tag:$ref_name,commit_sha:$sha,actor:$actor,overall_result:$result},required_jobs:{phase_one_arm64:$result}}' > /tmp/latest.json
+          {
+            echo "# TEKNIK CC0 Texture Array APK Run"
+            echo
+            echo "- **Result:** **$BUILD_RESULT**"
+            echo "- **Run:** [$GITHUB_RUN_ID]($RUN_URL)"
+            echo "- **Commit:** \`$GITHUB_SHA\`"
+            echo "- **Generated:** $CREATED_AT"
+          } > /tmp/latest.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin ci-reports:refs/remotes/origin/ci-reports || true
+          if git show-ref --verify --quiet refs/remotes/origin/ci-reports; then
+            git switch --force-create ci-reports refs/remotes/origin/ci-reports
+          else
+            git switch --orphan ci-reports
+            git rm -rf . || true
+          fi
+          cp /tmp/latest.json latest.json
+          cp /tmp/latest.md latest.md
+          git add latest.json latest.md
+          if ! git diff --cached --quiet; then
+            git commit -m "Record CC0 texture-array run ${GITHUB_RUN_ID} [skip ci]"
+            git push origin HEAD:ci-reports
+          fi

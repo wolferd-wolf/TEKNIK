@@ -1,0 +1,739 @@
+extends Node3D
+
+const WorldSeed = preload("res://src/world/world_seed.gd")
+const VoxelChunk = preload("res://src/world/voxel_chunk.gd")
+const TerrainGenerator = preload("res://src/world/voxel_terrain_generator.gd")
+const GreedyMesher = preload("res://src/world/greedy_mesher.gd")
+const ChunkStreamPlan = preload("res://src/world/chunk_stream_plan.gd")
+const ChunkStreamState = preload("res://src/world/chunk_stream_state.gd")
+const WorldWindowPlan = preload("res://src/world/world_window_plan.gd")
+
+const WORLD_SEED: int = 73_421
+var CHUNK_RADIUS: int = 3
+const TREE_SPACING: int = 6
+const DISTANT_WORLD_RADIUS: int = 320
+const DISTANT_TERRAIN_STEP: int = 4
+
+var _total_quads: int = 0
+var _tree_count: int = 0
+var _boulder_count: int = 0
+var _grass_count: int = 0
+var _cloud_count: int = 0
+var _render_instance_count: int = 0
+var _distant_quads: int = 0
+var _world_sample_cache: Dictionary = {}
+var _world_column_cache: Dictionary = {}
+var _chunk_stream: TeknikChunkStreamState = ChunkStreamState.new()
+var _terrain_nodes: Dictionary = {}
+var _world_center: Vector3i = Vector3i.ZERO
+var _feature_root: Node3D
+var _streamed_feature_instances: int = 0
+var _distant_terrain: MeshInstance3D
+var _exploration_anchor: Node3D
+
+
+func _ready() -> void:
+	var build_started_ms: int = Time.get_ticks_msec()
+	_build_environment()
+	_build_exploration_anchor()
+	_build_terrain_ordered()
+	_build_clouds()
+	print(
+		"WORLD_QA build_ms=", Time.get_ticks_msec() - build_started_ms,
+		" render_instances=", _render_instance_count,
+		" grass=", _grass_count,
+		" clouds=", _cloud_count,
+		" view=", _qa_view_name()
+	)
+
+	var screenshot_path: String = _qa_screenshot_path()
+	if not screenshot_path.is_empty():
+		var shift: Vector2i = _qa_stream_shift()
+		if shift != Vector2i.ZERO:
+			call_deferred("_apply_qa_stream_shift", shift)
+		call_deferred("_capture_qa_screenshot", screenshot_path)
+
+
+func _process(_delta: float) -> void:
+	_update_world_streaming()
+
+
+func _build_exploration_anchor() -> void:
+	_exploration_anchor = Node3D.new()
+	_exploration_anchor.name = "ExplorationAnchor"
+	add_child(_exploration_anchor)
+
+
+func _update_world_streaming() -> void:
+	if _exploration_anchor == null:
+		return
+	var requested_center: Vector3i = WorldWindowPlan.chunk_coordinate(
+		_exploration_anchor.global_position,
+		VoxelChunk.SIZE
+	)
+	if requested_center == _world_center:
+		return
+	_refresh_world_window(requested_center, requested_center)
+
+
+func _apply_qa_stream_shift(shift: Vector2i) -> void:
+	_exploration_anchor.position = Vector3(
+		float(shift.x * VoxelChunk.SIZE),
+		0.0,
+		float(shift.y * VoxelChunk.SIZE)
+	)
+	_update_world_streaming()
+	print("WORLD_QA anchor_shift=", shift, " active_center=", _world_center)
+
+
+func _build_environment() -> void:
+	var sky_material := ProceduralSkyMaterial.new()
+	sky_material.sky_top_color = Color("356689")
+	sky_material.sky_horizon_color = Color("8faeb8")
+	sky_material.ground_bottom_color = Color("273b3d")
+	sky_material.ground_horizon_color = Color("9db3aa")
+	sky_material.sun_angle_max = 18.0
+	sky_material.sun_curve = 0.08
+
+	var sky := Sky.new()
+	sky.sky_material = sky_material
+
+	var environment := Environment.new()
+	environment.background_mode = Environment.BG_SKY
+	environment.sky = sky
+	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	environment.ambient_light_color = Color("c4cfc3")
+	environment.ambient_light_energy = 0.28
+	environment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
+	environment.tonemap_mode = Environment.TONE_MAPPER_ACES
+	environment.fog_enabled = true
+	environment.fog_light_color = Color("9fb7bc")
+	environment.fog_light_energy = 0.36
+	environment.fog_density = 0.0022
+	environment.fog_sky_affect = 0.38
+
+	var world_environment := WorldEnvironment.new()
+	world_environment.environment = environment
+	add_child(world_environment)
+
+	var sun := DirectionalLight3D.new()
+	sun.rotation_degrees = Vector3(-47.0, -38.0, 0.0)
+	sun.light_color = Color("ffe1a6")
+	sun.light_energy = 0.82
+	sun.shadow_enabled = true
+	sun.shadow_blur = 1.35
+	sun.directional_shadow_max_distance = 135.0
+	add_child(sun)
+
+	var camera := Camera3D.new()
+	camera.position = _camera_position()
+	camera.fov = 50.0
+	camera.far = 280.0
+	add_child(camera)
+	camera.look_at(_camera_target(), Vector3.UP)
+
+
+func _build_terrain_ordered() -> void:
+	var camera_position: Vector3 = _camera_position()
+	var priority_coordinate := Vector3i(
+		floori(camera_position.x / float(VoxelChunk.SIZE)),
+		0,
+		floori(camera_position.z / float(VoxelChunk.SIZE))
+	)
+	_refresh_world_window(Vector3i.ZERO, priority_coordinate)
+
+
+func _refresh_world_window(center: Vector3i, priority: Vector3i) -> void:
+	_refresh_terrain(center, priority)
+	if _feature_root == null or center != _world_center:
+		_world_center = center
+		_rebuild_streamed_features()
+		_build_distant_terrain()
+
+
+func _rebuild_streamed_features() -> void:
+	if _feature_root != null:
+		remove_child(_feature_root)
+		_feature_root.queue_free()
+		_render_instance_count -= _streamed_feature_instances
+	_streamed_feature_instances = 0
+	_feature_root = Node3D.new()
+	_feature_root.name = "StreamedWorldFeatures"
+	add_child(_feature_root)
+	_build_water()
+	_build_forest()
+	_build_boulders()
+	_build_ground_detail()
+	print(
+		"WORLD_QA feature_center=", _world_center,
+		" feature_instances=", _streamed_feature_instances
+	)
+
+
+func _refresh_terrain(center: Vector3i, priority: Vector3i) -> void:
+	var delta: Dictionary = _chunk_stream.reconcile(center, CHUNK_RADIUS, priority)
+	var to_unload: Array[Vector3i] = delta.unload
+	for coordinate: Vector3i in to_unload:
+		var terrain: MeshInstance3D = _terrain_nodes.get(coordinate)
+		if terrain != null:
+			_total_quads -= int(terrain.get_meta("quad_count", 0))
+			terrain.queue_free()
+			_terrain_nodes.erase(coordinate)
+			_render_instance_count -= 1
+		_chunk_stream.mark_unloaded(coordinate)
+
+	var to_load: Array[Vector3i] = delta.load
+	for coordinate: Vector3i in to_load:
+		var chunk: TeknikVoxelChunk = TerrainGenerator.generate_chunk(WORLD_SEED, coordinate)
+		var report: Dictionary = GreedyMesher.build_mesh(
+			chunk,
+			coordinate * VoxelChunk.SIZE,
+			Callable(self, "_sample_world_voxel"),
+			Callable(self, "_sample_world_color")
+		)
+		_total_quads += int(report.quads)
+
+		var terrain := MeshInstance3D.new()
+		terrain.mesh = report.mesh
+		terrain.position = Vector3(
+			coordinate.x * VoxelChunk.SIZE,
+			0.0,
+			coordinate.z * VoxelChunk.SIZE
+		)
+		terrain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+		terrain.set_meta("quad_count", int(report.quads))
+		add_child(terrain)
+		_terrain_nodes[coordinate] = terrain
+		_chunk_stream.mark_loaded(coordinate)
+		_render_instance_count += 1
+
+	_world_sample_cache.clear()
+	_world_column_cache.clear()
+	print(
+		"WORLD_QA chunks=", _chunk_stream.active_count(),
+		" loaded=", to_load.size(),
+		" unloaded=", to_unload.size(),
+		" quads=", _total_quads
+	)
+
+
+func _build_water() -> void:
+	var water_bounds: Vector2i = WorldWindowPlan.distant_x_bounds(
+		_world_center,
+		VoxelChunk.SIZE,
+		DISTANT_WORLD_RADIUS
+	)
+	var world_min: int = water_bounds.x
+	var world_max: int = water_bounds.y
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var indices := PackedInt32Array()
+	var half_width: float = 5.35
+	var segment_index: int = 0
+	for world_x: int in range(world_min, world_max + 1, 2):
+		var center_z: float = TerrainGenerator.river_center_z(WORLD_SEED, world_x)
+		vertices.append(Vector3(
+			float(world_x),
+			float(TerrainGenerator.WATER_LEVEL) + 0.58,
+			center_z - half_width
+		))
+		vertices.append(Vector3(
+			float(world_x),
+			float(TerrainGenerator.WATER_LEVEL) + 0.58,
+			center_z + half_width
+		))
+		normals.append(Vector3.UP)
+		normals.append(Vector3.UP)
+		if segment_index > 0:
+			var previous: int = (segment_index - 1) * 2
+			var current: int = segment_index * 2
+			indices.append_array(PackedInt32Array([
+				previous, current, current + 1,
+				previous, current + 1, previous + 1,
+			]))
+		segment_index += 1
+
+	var arrays: Array = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var water_mesh := ArrayMesh.new()
+	water_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+
+	var water_material := StandardMaterial3D.new()
+	water_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	water_material.albedo_color = Color(0.055, 0.29, 0.4, 0.82)
+	water_material.metallic = 0.18
+	water_material.roughness = 0.2
+	water_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	water_material.emission_enabled = true
+	water_material.emission = Color("123d4d")
+	water_material.emission_energy_multiplier = 0.08
+	water_mesh.surface_set_material(0, water_material)
+
+	var water := MeshInstance3D.new()
+	water.mesh = water_mesh
+	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_feature_root.add_child(water)
+	_render_instance_count += 1
+	_streamed_feature_instances += 1
+
+
+func _build_distant_terrain() -> void:
+	if _distant_terrain != null:
+		remove_child(_distant_terrain)
+		_distant_terrain.queue_free()
+		_render_instance_count -= 1
+	_distant_quads = 0
+	var active_rect: Rect2i = WorldWindowPlan.active_world_rect(
+		_world_center, CHUNK_RADIUS, VoxelChunk.SIZE
+	)
+	var distant_rect: Rect2i = WorldWindowPlan.distant_world_rect(
+		_world_center, VoxelChunk.SIZE, DISTANT_WORLD_RADIUS
+	)
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var colors := PackedColorArray()
+	var indices := PackedInt32Array()
+
+	for world_z: int in range(
+		distant_rect.position.y,
+		distant_rect.end.y,
+		DISTANT_TERRAIN_STEP
+	):
+		for world_x: int in range(
+			distant_rect.position.x,
+			distant_rect.end.x,
+			DISTANT_TERRAIN_STEP
+		):
+			if (
+				world_x >= active_rect.position.x and world_x < active_rect.end.x
+				and world_z >= active_rect.position.y and world_z < active_rect.end.y
+			):
+				continue
+			var base: int = vertices.size()
+			var corners: Array[Vector2i] = [
+				Vector2i(world_x, world_z),
+				Vector2i(world_x + DISTANT_TERRAIN_STEP, world_z),
+				Vector2i(world_x + DISTANT_TERRAIN_STEP, world_z + DISTANT_TERRAIN_STEP),
+				Vector2i(world_x, world_z + DISTANT_TERRAIN_STEP),
+			]
+			for corner: Vector2i in corners:
+				var height: int = TerrainGenerator.surface_height(WORLD_SEED, corner.x, corner.y)
+				vertices.append(Vector3(float(corner.x), float(height) + 0.04, float(corner.y)))
+				normals.append(Vector3.UP)
+				var biome_color: Color = TerrainGenerator.surface_color(
+					WORLD_SEED,
+					TerrainGenerator.GRASS,
+					Vector3i(corner.x, height, corner.y)
+				)
+				colors.append(biome_color.lerp(Color("455f42"), 0.42))
+			indices.append_array(PackedInt32Array([
+				base, base + 3, base + 2,
+				base, base + 2, base + 1,
+			]))
+			_distant_quads += 1
+
+	var arrays: Array = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var material := StandardMaterial3D.new()
+	material.vertex_color_use_as_albedo = true
+	material.roughness = 0.98
+	material.cull_mode = BaseMaterial3D.CULL_BACK
+	mesh.surface_set_material(0, material)
+
+	var distant := MeshInstance3D.new()
+	distant.mesh = mesh
+	distant.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(distant)
+	_distant_terrain = distant
+	_render_instance_count += 1
+	print("WORLD_QA distant_quads=", _distant_quads)
+
+
+func _build_forest() -> void:
+	var trunk_transforms: Array[Transform3D] = []
+	var lower_canopy_transforms: Array[Transform3D] = []
+	var world_rect: Rect2i = WorldWindowPlan.active_world_rect(
+		_world_center, CHUNK_RADIUS, VoxelChunk.SIZE, 5
+	)
+	var world_min_x: int = world_rect.position.x
+	var world_max_x: int = world_rect.end.x
+	var world_min_z: int = world_rect.position.y
+	var world_max_z: int = world_rect.end.y
+
+	for grid_z: int in range(world_min_z, world_max_z, TREE_SPACING):
+		for grid_x: int in range(world_min_x, world_max_x, TREE_SPACING):
+			var cell_x: int = floori(float(grid_x) / float(TREE_SPACING))
+			var cell_z: int = floori(float(grid_z) / float(TREE_SPACING))
+			var jitter_x: float = (WorldSeed.sample_unit(WORLD_SEED + 719, cell_x, cell_z) - 0.5) * 4.0
+			var jitter_z: float = (WorldSeed.sample_unit(WORLD_SEED + 733, cell_x, cell_z) - 0.5) * 4.0
+			var world_x: int = roundi(float(grid_x) + jitter_x)
+			var world_z: int = roundi(float(grid_z) + jitter_z)
+			var vegetation: Vector3 = TerrainGenerator.vegetation_profile(
+				WORLD_SEED, world_x, world_z
+			)
+			var tree_chance: float = 0.025 + vegetation.x * 0.23
+			if WorldSeed.sample_unit(WORLD_SEED + 701, cell_x, cell_z) > tree_chance:
+				continue
+			var height: int = TerrainGenerator.surface_height(WORLD_SEED, world_x, world_z)
+			if height <= TerrainGenerator.WATER_LEVEL + 2:
+				continue
+			if TerrainGenerator.river_distance(WORLD_SEED, world_x, world_z) < 7.5:
+				continue
+			if TerrainGenerator.surface_slope(WORLD_SEED, world_x, world_z) > 1:
+				continue
+			var camera_position: Vector3 = _camera_position()
+			if Vector2(
+				float(world_x) - camera_position.x,
+				float(world_z) - camera_position.z
+			).length() < 18.0:
+				continue
+
+			var scale: float = lerpf(
+				0.78,
+				1.28,
+				WorldSeed.sample_unit(WORLD_SEED + 751, cell_x, cell_z)
+			) * lerpf(0.76, 1.12, vegetation.x)
+			var rotation: float = WorldSeed.sample_unit(WORLD_SEED + 769, cell_x, cell_z) * TAU
+			var trunk_height: float = lerpf(0.86, 1.18, vegetation.x)
+			var canopy_width: float = lerpf(0.82, 1.14, vegetation.x)
+			var trunk_basis := Basis(Vector3.UP, rotation).scaled(
+				Vector3(scale, scale * trunk_height, scale)
+			)
+			var canopy_basis := Basis(Vector3.UP, rotation).scaled(
+				Vector3(
+					scale * canopy_width,
+					scale * lerpf(0.78, 1.22, vegetation.x),
+					scale * lerpf(0.88, 1.08, vegetation.y)
+				)
+			)
+			var ground := Vector3(float(world_x) + 0.5, float(height) + 1.0, float(world_z) + 0.5)
+			trunk_transforms.append(Transform3D(
+				trunk_basis,
+				ground + Vector3.UP * 1.35 * scale * trunk_height
+			))
+			lower_canopy_transforms.append(Transform3D(
+				canopy_basis,
+				ground + Vector3.UP * 3.7 * scale * trunk_height
+			))
+
+	_tree_count = trunk_transforms.size()
+	_add_tree_multimesh(_trunk_mesh(), trunk_transforms)
+	_add_tree_multimesh(_lower_canopy_mesh(), lower_canopy_transforms)
+	print("WORLD_QA trees=", _tree_count)
+
+
+func _build_boulders() -> void:
+	var transforms: Array[Transform3D] = []
+	var world_rect: Rect2i = WorldWindowPlan.active_world_rect(
+		_world_center, CHUNK_RADIUS, VoxelChunk.SIZE, 6
+	)
+	var camera_position: Vector3 = _camera_position()
+
+	for grid_z: int in range(world_rect.position.y, world_rect.end.y, 10):
+		for grid_x: int in range(world_rect.position.x, world_rect.end.x, 10):
+			var cell_x: int = floori(float(grid_x) / 10.0)
+			var cell_z: int = floori(float(grid_z) / 10.0)
+			var world_x: int = grid_x + roundi((WorldSeed.sample_unit(WORLD_SEED + 823, cell_x, cell_z) - 0.5) * 6.0)
+			var world_z: int = grid_z + roundi((WorldSeed.sample_unit(WORLD_SEED + 839, cell_x, cell_z) - 0.5) * 6.0)
+			var vegetation: Vector3 = TerrainGenerator.vegetation_profile(
+				WORLD_SEED, world_x, world_z
+			)
+			var height: int = TerrainGenerator.surface_height(WORLD_SEED, world_x, world_z)
+			var elevation: float = clampf(
+				(float(height) - 10.0) / float(TerrainGenerator.MAX_SURFACE_HEIGHT - 10),
+				0.0,
+				1.0
+			)
+			var boulder_chance: float = 0.04 + vegetation.z * 0.11 + elevation * 0.08
+			if WorldSeed.sample_unit(WORLD_SEED + 811, cell_x, cell_z) > boulder_chance:
+				continue
+			if TerrainGenerator.river_distance(WORLD_SEED, world_x, world_z) < 8.0:
+				continue
+			if Vector2(
+				float(world_x) - camera_position.x,
+				float(world_z) - camera_position.z
+			).length() < 8.0:
+				continue
+			var width: float = lerpf(0.65, 1.55, WorldSeed.sample_unit(WORLD_SEED + 853, cell_x, cell_z))
+			var depth: float = lerpf(0.7, 1.4, WorldSeed.sample_unit(WORLD_SEED + 877, cell_x, cell_z))
+			var rise: float = lerpf(0.45, 1.1, WorldSeed.sample_unit(WORLD_SEED + 881, cell_x, cell_z))
+			var rotation: float = WorldSeed.sample_unit(WORLD_SEED + 907, cell_x, cell_z) * TAU
+			var basis := Basis(Vector3.UP, rotation).scaled(Vector3(width, rise, depth))
+			transforms.append(Transform3D(
+				basis,
+				Vector3(float(world_x) + 0.5, float(height) + 1.0 + rise * 0.42, float(world_z) + 0.5)
+			))
+
+	_boulder_count = transforms.size()
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3.ONE
+	mesh.material = _material(Color("697471"), 0.98)
+	_add_tree_multimesh(mesh, transforms)
+	print("WORLD_QA boulders=", _boulder_count)
+
+
+func _build_ground_detail() -> void:
+	var transforms: Array[Transform3D] = []
+	var world_rect: Rect2i = WorldWindowPlan.active_world_rect(
+		_world_center, CHUNK_RADIUS, VoxelChunk.SIZE, 4
+	)
+	var camera_position: Vector3 = _camera_position()
+
+	for grid_z: int in range(world_rect.position.y, world_rect.end.y, 3):
+		for grid_x: int in range(world_rect.position.x, world_rect.end.x, 3):
+			var cell_x: int = floori(float(grid_x) / 3.0)
+			var cell_z: int = floori(float(grid_z) / 3.0)
+			var world_x: int = grid_x + roundi((WorldSeed.sample_unit(WORLD_SEED + 953, cell_x, cell_z) - 0.5) * 2.0)
+			var world_z: int = grid_z + roundi((WorldSeed.sample_unit(WORLD_SEED + 967, cell_x, cell_z) - 0.5) * 2.0)
+			var vegetation: Vector3 = TerrainGenerator.vegetation_profile(
+				WORLD_SEED, world_x, world_z
+			)
+			var cover_chance: float = 0.018 + vegetation.y * 0.16
+			if WorldSeed.sample_unit(WORLD_SEED + 947, cell_x, cell_z) > cover_chance:
+				continue
+			if Vector2(
+				float(world_x) - camera_position.x,
+				float(world_z) - camera_position.z
+			).length() > 112.0:
+				continue
+			if TerrainGenerator.surface_material(WORLD_SEED, world_x, world_z) != TerrainGenerator.GRASS:
+				continue
+			if TerrainGenerator.surface_slope(WORLD_SEED, world_x, world_z) > 1:
+				continue
+			var height: int = TerrainGenerator.surface_height(WORLD_SEED, world_x, world_z)
+			var scale: float = lerpf(0.65, 1.2, WorldSeed.sample_unit(WORLD_SEED + 977, cell_x, cell_z))
+			var rotation: float = WorldSeed.sample_unit(WORLD_SEED + 991, cell_x, cell_z) * TAU
+			var basis := Basis(Vector3.UP, rotation).scaled(Vector3(
+				scale * lerpf(0.72, 1.08, vegetation.y),
+				scale * lerpf(0.72, 1.18, vegetation.y),
+				scale * lerpf(0.72, 1.08, vegetation.y)
+			))
+			transforms.append(Transform3D(
+				basis,
+				Vector3(float(world_x) + 0.5, float(height) + 1.0 + 0.3 * scale, float(world_z) + 0.5)
+			))
+
+	_grass_count = transforms.size()
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = 0.018
+	mesh.bottom_radius = 0.13
+	mesh.height = 0.34
+	mesh.radial_segments = 4
+	mesh.rings = 1
+	mesh.material = _material(Color("315f2d"), 0.98)
+	_add_tree_multimesh(mesh, transforms, false)
+
+
+func _build_clouds() -> void:
+	var transforms: Array[Transform3D] = []
+	for cloud_index: int in range(12):
+		var world_x: float = lerpf(
+			-105.0, 135.0,
+			WorldSeed.sample_unit(WORLD_SEED + 1013, cloud_index, 0)
+		)
+		var world_z: float = lerpf(
+			-105.0, 105.0,
+			WorldSeed.sample_unit(WORLD_SEED + 1021, cloud_index, 0)
+		)
+		var height: float = lerpf(
+			43.0, 57.0,
+			WorldSeed.sample_unit(WORLD_SEED + 1031, cloud_index, 0)
+		)
+		var width: float = lerpf(7.0, 13.5, WorldSeed.sample_unit(WORLD_SEED + 1039, cloud_index, 0))
+		var depth: float = lerpf(4.0, 7.0, WorldSeed.sample_unit(WORLD_SEED + 1051, cloud_index, 0))
+		var thickness: float = lerpf(1.65, 2.8, WorldSeed.sample_unit(WORLD_SEED + 1061, cloud_index, 0))
+		var rotation: float = WorldSeed.sample_unit(WORLD_SEED + 1069, cloud_index, 0) * TAU
+		var basis := Basis(Vector3.UP, rotation).scaled(Vector3(width, thickness, depth))
+		transforms.append(Transform3D(basis, Vector3(world_x, height, world_z)))
+
+	_cloud_count = transforms.size()
+	var mesh := SphereMesh.new()
+	mesh.radius = 1.0
+	mesh.height = 1.4
+	mesh.radial_segments = 8
+	mesh.rings = 4
+	var cloud_material := StandardMaterial3D.new()
+	cloud_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	cloud_material.albedo_color = Color(0.88, 0.93, 0.95, 0.82)
+	cloud_material.roughness = 1.0
+	cloud_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mesh.material = cloud_material
+	_add_tree_multimesh(mesh, transforms, false, false)
+
+
+func _add_tree_multimesh(
+	mesh: Mesh,
+	transforms: Array[Transform3D],
+	cast_shadows: bool = true,
+	streamed: bool = true
+) -> void:
+	if transforms.is_empty():
+		return
+	var multimesh := MultiMesh.new()
+	multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	multimesh.mesh = mesh
+	multimesh.instance_count = transforms.size()
+	for index: int in range(transforms.size()):
+		multimesh.set_instance_transform(index, transforms[index])
+
+	var instance := MultiMeshInstance3D.new()
+	instance.multimesh = multimesh
+	if cast_shadows:
+		instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	else:
+		instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	if streamed:
+		_feature_root.add_child(instance)
+		_streamed_feature_instances += 1
+	else:
+		add_child(instance)
+	_render_instance_count += 1
+
+
+func _sample_world_voxel(world_position: Vector3i) -> int:
+	if _world_sample_cache.has(world_position):
+		return int(_world_sample_cache[world_position])
+	if world_position.y < 0:
+		return TerrainGenerator.STONE
+	var column_key := Vector2i(world_position.x, world_position.z)
+	if not _world_column_cache.has(column_key):
+		_world_column_cache[column_key] = TerrainGenerator.sample_column(
+			WORLD_SEED, world_position.x, world_position.z
+		)
+	var column: Vector2i = _world_column_cache[column_key]
+	var material: int = TerrainGenerator.material_from_column(world_position.y, column)
+	_world_sample_cache[world_position] = material
+	return material
+
+
+func _sample_world_color(material: int, world_position: Vector3i) -> Color:
+	return TerrainGenerator.surface_color(WORLD_SEED, material, world_position)
+
+
+func _camera_position() -> Vector3:
+	var view_name: String = _qa_view_name()
+	var world_x: int = -70
+	var world_z_offset: float = 16.0
+	var height_offset: float = 7.5
+	if view_name == "river":
+		world_x = -34
+		world_z_offset = -20.0
+		height_offset = 9.5
+	elif view_name == "upland":
+		world_x = 48
+		world_z_offset = 42.0
+		height_offset = 10.5
+	var world_z: int = roundi(
+		TerrainGenerator.river_center_z(WORLD_SEED, world_x) + world_z_offset
+	)
+	var ground_height: int = TerrainGenerator.surface_height(WORLD_SEED, world_x, world_z)
+	return Vector3(float(world_x), float(ground_height) + height_offset, float(world_z))
+
+
+func _camera_target() -> Vector3:
+	var view_name: String = _qa_view_name()
+	var target_x: int = 38
+	var river_offset: float = 0.0
+	var target_height: float = float(TerrainGenerator.WATER_LEVEL) + 4.0
+	if view_name == "river":
+		target_x = 54
+		target_height = float(TerrainGenerator.WATER_LEVEL) + 3.5
+	elif view_name == "upland":
+		target_x = -8
+		river_offset = 7.0
+		target_height = float(TerrainGenerator.WATER_LEVEL) + 6.0
+	return Vector3(
+		float(target_x),
+		target_height,
+		TerrainGenerator.river_center_z(WORLD_SEED, target_x) + river_offset
+	)
+
+
+func _trunk_mesh() -> BoxMesh:
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(0.62, 2.7, 0.62)
+	mesh.material = _material(Color("614632"), 0.92)
+	return mesh
+
+
+func _lower_canopy_mesh() -> SphereMesh:
+	var mesh := SphereMesh.new()
+	mesh.radius = 1.55
+	mesh.height = 3.25
+	mesh.radial_segments = 8
+	mesh.rings = 4
+	mesh.material = _material(Color("396b47"), 0.96)
+	return mesh
+
+
+func _material(color: Color, roughness: float) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = color
+	material.roughness = roughness
+	return material
+
+
+func _qa_screenshot_path() -> String:
+	var arguments: PackedStringArray = OS.get_cmdline_user_args()
+	for index: int in range(arguments.size()):
+		var argument: String = arguments[index]
+		if argument.begins_with("--qa-screenshot="):
+			return argument.trim_prefix("--qa-screenshot=")
+		if argument == "--qa-screenshot" and index + 1 < arguments.size():
+			return arguments[index + 1]
+	return ""
+
+
+func _qa_view_name() -> String:
+	var arguments: PackedStringArray = OS.get_cmdline_user_args()
+	for index: int in range(arguments.size()):
+		var argument: String = arguments[index]
+		var requested: String = ""
+		if argument.begins_with("--qa-view="):
+			requested = argument.trim_prefix("--qa-view=")
+		elif argument == "--qa-view" and index + 1 < arguments.size():
+			requested = arguments[index + 1]
+		if requested in ["hero", "river", "upland"]:
+			return requested
+	return "hero"
+
+
+func _qa_stream_shift() -> Vector2i:
+	var arguments: PackedStringArray = OS.get_cmdline_user_args()
+	for index: int in range(arguments.size()):
+		var argument: String = arguments[index]
+		var requested: String = ""
+		if argument.begins_with("--qa-stream-shift="):
+			requested = argument.trim_prefix("--qa-stream-shift=")
+		elif argument == "--qa-stream-shift" and index + 1 < arguments.size():
+			requested = arguments[index + 1]
+		var axes: PackedStringArray = requested.split(",")
+		if axes.size() == 2 and axes[0].is_valid_int() and axes[1].is_valid_int():
+			return Vector2i(int(axes[0]), int(axes[1]))
+	return Vector2i.ZERO
+
+
+func _capture_qa_screenshot(path: String) -> void:
+	for frame: int in range(20):
+		await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+
+	var absolute_path: String = path if path.is_absolute_path() else ProjectSettings.globalize_path(path)
+	DirAccess.make_dir_recursive_absolute(absolute_path.get_base_dir())
+	var image: Image = get_viewport().get_texture().get_image()
+	var result: Error = image.save_png(absolute_path)
+	if result == OK:
+		print("QA_SCREENSHOT_SAVED ", absolute_path)
+		get_tree().quit(0)
+	else:
+		push_error("Failed to save QA screenshot: %s" % error_string(result))
+		get_tree().quit(1)

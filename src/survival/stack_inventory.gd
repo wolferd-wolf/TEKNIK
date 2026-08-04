@@ -1,0 +1,117 @@
+class_name TeknikStackInventory
+extends RefCounted
+
+const ItemRegistry = preload("res://src/survival/item_registry.gd")
+const SCHEMA: int = 2
+const LEGACY_SCHEMA: int = 1
+const SLOT_COUNT: int = 36
+const LEGACY_SLOT_COUNT: int = 12
+
+var _slots: Array[Dictionary] = []
+
+
+func _init() -> void:
+	clear()
+
+
+func clear() -> void:
+	_slots.clear()
+	for _index: int in range(SLOT_COUNT):
+		_slots.append({"item": &"", "count": 0})
+
+
+func add(item_id: StringName, amount: int) -> int:
+	var stack_limit: int = ItemRegistry.max_stack(item_id)
+	if amount <= 0 or stack_limit <= 0:
+		return amount
+	var remaining: int = amount
+	for slot: Dictionary in _slots:
+		if StringName(slot.item) != item_id or int(slot.count) >= stack_limit:
+			continue
+		var accepted: int = mini(remaining, stack_limit - int(slot.count))
+		slot.count = int(slot.count) + accepted
+		remaining -= accepted
+		if remaining == 0:
+			return 0
+	for slot: Dictionary in _slots:
+		if int(slot.count) > 0:
+			continue
+		var accepted: int = mini(remaining, stack_limit)
+		slot.item = item_id
+		slot.count = accepted
+		remaining -= accepted
+		if remaining == 0:
+			break
+	return remaining
+
+
+func remove(item_id: StringName, amount: int) -> bool:
+	if amount <= 0:
+		return true
+	if count(item_id) < amount:
+		return false
+	var remaining: int = amount
+	for slot: Dictionary in _slots:
+		if StringName(slot.item) != item_id:
+			continue
+		var taken: int = mini(remaining, int(slot.count))
+		slot.count = int(slot.count) - taken
+		remaining -= taken
+		if int(slot.count) == 0:
+			slot.item = &""
+		if remaining == 0:
+			return true
+	return true
+
+
+func count(item_id: StringName) -> int:
+	var total: int = 0
+	for slot: Dictionary in _slots:
+		if StringName(slot.item) == item_id:
+			total += int(slot.count)
+	return total
+
+
+func slots() -> Array[Dictionary]:
+	return _slots.duplicate(true)
+
+
+func encode() -> Dictionary:
+	var serialized: Array[Dictionary] = []
+	for slot: Dictionary in _slots:
+		serialized.append({"item": str(slot.item), "count": int(slot.count)})
+	return {"schema": SCHEMA, "slots": serialized}
+
+
+func decode(payload: Dictionary) -> bool:
+	var schema: int = int(payload.get("schema", -1))
+	var expected_slots: int = 0
+	match schema:
+		LEGACY_SCHEMA:
+			expected_slots = LEGACY_SLOT_COUNT
+		SCHEMA:
+			expected_slots = SLOT_COUNT
+		_:
+			return false
+	var incoming: Variant = payload.get("slots", [])
+	if not incoming is Array or (incoming as Array).size() != expected_slots:
+		return false
+	var restored: Array[Dictionary] = []
+	for value: Variant in incoming:
+		if not value is Dictionary:
+			return false
+		var source: Dictionary = value
+		var item_id := StringName(str(source.get("item", "")))
+		var amount: int = int(source.get("count", 0))
+		if amount < 0:
+			return false
+		if amount > 0 and (
+			not ItemRegistry.is_registered(item_id)
+			or amount > ItemRegistry.max_stack(item_id)
+		):
+			return false
+		restored.append({"item": item_id if amount > 0 else &"", "count": amount})
+	while restored.size() < SLOT_COUNT:
+		restored.append({"item": &"", "count": 0})
+	_slots = restored
+	return true
