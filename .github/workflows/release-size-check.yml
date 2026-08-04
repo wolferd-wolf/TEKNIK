@@ -1,0 +1,381 @@
+name: TEKNIK Android Release Size Check
+
+on:
+  push:
+    branches:
+      - gpt/release-export-size-check
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: teknik-release-size-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-arm64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      apk_bytes: ${{ steps.release_size.outputs.apk_bytes }}
+      apk_mb: ${{ steps.release_size.outputs.apk_mb }}
+      apk_mib: ${{ steps.release_size.outputs.apk_mib }}
+      reduction_mb: ${{ steps.release_size.outputs.reduction_mb }}
+      reduction_percent: ${{ steps.release_size.outputs.reduction_percent }}
+      sha256: ${{ steps.release_size.outputs.sha256 }}
+      signing_cert_sha256: ${{ steps.release_size.outputs.signing_cert_sha256 }}
+    env:
+      GODOT_VERSION: "4.7.1"
+      GODOT_RELEASE: "4.7.1-stable"
+      GODOT_BIN: /usr/local/bin/godot
+      GODOT_CPP_REF: "ba0edfed90512ec64aba51d4295a3e7e30112f86"
+      ANDROID_NDK_VERSION: "28.1.13356709"
+      ANDROID_BUILD_TOOLS: "35.0.1"
+      DEBUG_BASELINE_MB: "69.24"
+      RELEASE_PRESET: "Android ARM64"
+      RELEASE_APK: "build/TEKNIK-arm64-release.apk"
+
+    steps:
+      - name: Check out current game head
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install focused build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential clang lld scons git curl unzip zip python3 libgl1 libxcursor1 libxinerama1 libxrandr2 libxi6
+
+      - name: Install Godot and matching export templates
+        run: |
+          set -Eeuo pipefail
+          curl --fail --silent --show-error --location --retry 3 \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_RELEASE}/Godot_v${GODOT_RELEASE}_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          sudo install -m 0755 \
+            "/tmp/godot/Godot_v${GODOT_RELEASE}_linux.x86_64" \
+            "${GODOT_BIN}"
+          curl --fail --silent --show-error --location --retry 3 \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_RELEASE}/Godot_v${GODOT_RELEASE}_export_templates.tpz" \
+            --output /tmp/export-templates.tpz
+          mkdir -p /tmp/export-templates \
+            "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          unzip -q /tmp/export-templates.tpz -d /tmp/export-templates
+          cp -R /tmp/export-templates/templates/. \
+            "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
+
+      - name: Check out pinned godot-cpp
+        run: |
+          set -Eeuo pipefail
+          rm -rf native/godot-cpp
+          git init -q native/godot-cpp
+          git -C native/godot-cpp remote add origin https://github.com/godotengine/godot-cpp.git
+          git -C native/godot-cpp fetch -q --depth 1 origin "$GODOT_CPP_REF"
+          git -C native/godot-cpp checkout -q --detach FETCH_HEAD
+
+      - name: Restore native build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            native/rust/target
+            native/godot-cpp/bin
+            native/godot-cpp/gen
+            native/godot-cpp/obj
+            native/godot-cpp/.sconsign.dblite
+          key: teknik-release-size-${{ runner.os }}-${{ env.GODOT_VERSION }}-${{ env.GODOT_CPP_REF }}-${{ hashFiles('native/rust/Cargo.toml', 'native/rust/src/**', 'native/cpp/**', 'native/SConstruct') }}
+
+      - name: Build Linux host bridge and import project
+        run: |
+          set -Eeuo pipefail
+          cargo test --manifest-path native/rust/Cargo.toml --release
+          cargo build --manifest-path native/rust/Cargo.toml --release
+          mkdir -p /tmp/godot-api
+          (cd /tmp/godot-api && godot --headless --dump-extension-api)
+          cp /tmp/godot-api/extension_api.json extension_api.json
+          (cd native && scons -j2 \
+            platform=linux \
+            arch=x86_64 \
+            target=template_debug \
+            custom_api_file="$GITHUB_WORKSPACE/extension_api.json" \
+            rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/release")
+          test -s native/bin/libteknik_native.linux.template_debug.x86_64.so
+          godot --headless --path . --editor --quit |& tee /tmp/teknik-release-import.log
+          ! grep -q "SCRIPT ERROR" /tmp/teknik-release-import.log
+          ! grep -q "Parse Error" /tmp/teknik-release-import.log
+          ! grep -q "ERR_FILE_CORRUPT" /tmp/teknik-release-import.log
+
+      - name: Install Java 17 and Android SDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android command-line tools
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android ARM64 dependencies
+        run: |
+          set -Eeuo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --sdk_root="$ANDROID_HOME" \
+            "platform-tools" \
+            "build-tools;${ANDROID_BUILD_TOOLS}" \
+            "platforms;android-35" \
+            "cmdline-tools;latest" \
+            "cmake;3.10.2.4988404" \
+            "ndk;${ANDROID_NDK_VERSION}"
+
+      - name: Build native Android ARM64 release extension
+        run: |
+          set -Eeuo pipefail
+          export NDK_ROOT="$ANDROID_HOME/ndk/${ANDROID_NDK_VERSION}"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+          rustup target add aarch64-linux-android
+          cargo build \
+            --manifest-path native/rust/Cargo.toml \
+            --release \
+            --target aarch64-linux-android
+          (cd native && \
+            ANDROID_NDK_ROOT="$NDK_ROOT" \
+            ANDROID_HOME="$ANDROID_HOME" \
+            scons -j2 \
+              platform=android \
+              arch=arm64 \
+              target=template_release \
+              android_api_level=24 \
+              custom_api_file="$GITHUB_WORKSPACE/extension_api.json" \
+              rust_lib_dir="$GITHUB_WORKSPACE/native/rust/target/aarch64-linux-android/release")
+          test -s native/bin/libteknik_native.android.template_release.arm64.so
+
+      - name: Generate isolated self-signed release key
+        id: release_key
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          RELEASE_KEYSTORE="$RUNNER_TEMP/teknik-device-test-release.jks"
+          RELEASE_ALIAS="teknik-device-test"
+          RELEASE_PASSWORD="$(python3 - <<'PY'
+          import secrets
+          print(secrets.token_hex(24))
+          PY
+          )"
+          keytool -genkeypair -noprompt \
+            -keystore "$RELEASE_KEYSTORE" \
+            -storetype JKS \
+            -storepass "$RELEASE_PASSWORD" \
+            -alias "$RELEASE_ALIAS" \
+            -keypass "$RELEASE_PASSWORD" \
+            -keyalg RSA \
+            -keysize 4096 \
+            -validity 10000 \
+            -dname "CN=Akila TEKNIK Device Testing,O=TEKNIK,C=IN"
+          echo "keystore=$RELEASE_KEYSTORE" >> "$GITHUB_OUTPUT"
+          echo "alias=$RELEASE_ALIAS" >> "$GITHUB_OUTPUT"
+          echo "password=$RELEASE_PASSWORD" >> "$GITHUB_OUTPUT"
+
+      - name: Export signed ARM64 release APK
+        env:
+          GODOT_ANDROID_KEYSTORE_RELEASE_PATH: ${{ steps.release_key.outputs.keystore }}
+          GODOT_ANDROID_KEYSTORE_RELEASE_USER: ${{ steps.release_key.outputs.alias }}
+          GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD: ${{ steps.release_key.outputs.password }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$HOME/.config/godot" build
+          printf '%s\n' \
+            '[gd_resource type="EditorSettings" format=3]' \
+            '' \
+            '[resource]' \
+            "export/android/java_sdk_path = \"$JAVA_HOME\"" \
+            "export/android/android_sdk_path = \"$ANDROID_HOME\"" \
+            > "$HOME/.config/godot/editor_settings-${GODOT_VERSION%.*}.tres"
+          godot --headless --path . \
+            --export-release "$RELEASE_PRESET" "$RELEASE_APK" \
+            |& tee /tmp/teknik-release-export.log
+          test -s "$RELEASE_APK"
+
+      - name: Verify package, architecture and release signature
+        run: |
+          set -Eeuo pipefail
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}"
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$RELEASE_APK" \
+            | tee /tmp/teknik-release-signature.log
+          "$BUILD_TOOLS/aapt" dump badging "$RELEASE_APK" \
+            | tee /tmp/teknik-release-badging.log
+          grep -q "package: name='com.wolferdwolf.teknik'" /tmp/teknik-release-badging.log
+          zipinfo -1 "$RELEASE_APK" | tee /tmp/teknik-release-entries.log >/dev/null
+          grep -q '^lib/arm64-v8a/libgodot_android.so$' /tmp/teknik-release-entries.log
+          if grep -Eq '^lib/(armeabi-v7a|x86|x86_64)/' /tmp/teknik-release-entries.log; then
+            echo "Unexpected non-ARM64 native library found" >&2
+            exit 1
+          fi
+
+      - name: Measure release APK against debug baseline
+        id: release_size
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          apk = Path(os.environ["RELEASE_APK"])
+          baseline_mb = float(os.environ["DEBUG_BASELINE_MB"])
+          byte_count = apk.stat().st_size
+          release_mb = byte_count / 1_000_000
+          release_mib = byte_count / (1024 * 1024)
+          reduction_mb = baseline_mb - release_mb
+          reduction_percent = reduction_mb / baseline_mb * 100
+          digest = hashlib.sha256(apk.read_bytes()).hexdigest()
+
+          signature_text = Path("/tmp/teknik-release-signature.log").read_text()
+          match = re.search(r"Signer #1 certificate SHA-256 digest: ([0-9a-fA-F:]+)", signature_text)
+          signing_cert = match.group(1) if match else "unavailable"
+
+          report = {
+              "schema": 1,
+              "commit": os.environ["GITHUB_SHA"],
+              "preset": os.environ["RELEASE_PRESET"],
+              "command": f'godot --headless --path . --export-release "{os.environ["RELEASE_PRESET"]}" {apk}',
+              "apk": str(apk),
+              "apk_bytes": byte_count,
+              "apk_mb_decimal": round(release_mb, 2),
+              "apk_mib": round(release_mib, 2),
+              "debug_baseline_mb_decimal": baseline_mb,
+              "reduction_mb_decimal": round(reduction_mb, 2),
+              "reduction_percent": round(reduction_percent, 2),
+              "sha256": digest,
+              "signing_certificate_sha256": signing_cert,
+              "signing": "ephemeral self-signed JKS; not committed or uploaded",
+              "device_install_run_verified": False,
+          }
+          Path("build/release-size-report.json").write_text(json.dumps(report, indent=2) + "\n")
+          Path("build/release-size-report.txt").write_text(
+              "TEKNIK Android Release Size Check\n"
+              f"Commit: {report['commit']}\n"
+              f"Preset: {report['preset']}\n"
+              f"Command: {report['command']}\n"
+              f"APK bytes: {byte_count}\n"
+              f"APK decimal MB: {release_mb:.2f}\n"
+              f"APK MiB: {release_mib:.2f}\n"
+              f"Debug baseline decimal MB: {baseline_mb:.2f}\n"
+              f"Reduction decimal MB: {reduction_mb:.2f}\n"
+              f"Reduction percent: {reduction_percent:.2f}%\n"
+              f"SHA-256: {digest}\n"
+              f"Signing certificate SHA-256: {signing_cert}\n"
+              "Real-device install/run: not verified in GitHub Actions\n"
+          )
+          print(json.dumps(report, indent=2))
+
+          output_path = Path(os.environ["GITHUB_OUTPUT"])
+          with output_path.open("a") as output:
+              output.write(f"apk_bytes={byte_count}\n")
+              output.write(f"apk_mb={release_mb:.2f}\n")
+              output.write(f"apk_mib={release_mib:.2f}\n")
+              output.write(f"reduction_mb={reduction_mb:.2f}\n")
+              output.write(f"reduction_percent={reduction_percent:.2f}\n")
+              output.write(f"sha256={digest}\n")
+              output.write(f"signing_cert_sha256={signing_cert}\n")
+          PY
+
+      - name: Upload signed release APK and size report
+        uses: actions/upload-artifact@v4
+        with:
+          name: TEKNIK-Android-ARM64-Release-Size-Check-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          path: |
+            build/TEKNIK-arm64-release.apk
+            build/release-size-report.json
+            build/release-size-report.txt
+
+      - name: Upload release export failure logs
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: TEKNIK-Release-Size-Check-Failure-Logs-${{ github.sha }}
+          if-no-files-found: warn
+          retention-days: 7
+          path: /tmp/teknik-release-*.log
+
+  publish-release-report:
+    if: ${{ always() }}
+    needs: release-arm64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Publish release result to ci-reports
+        env:
+          BUILD_RESULT: ${{ needs.release-arm64.result }}
+          APK_BYTES: ${{ needs.release-arm64.outputs.apk_bytes }}
+          APK_MB: ${{ needs.release-arm64.outputs.apk_mb }}
+          APK_MIB: ${{ needs.release-arm64.outputs.apk_mib }}
+          REDUCTION_MB: ${{ needs.release-arm64.outputs.reduction_mb }}
+          REDUCTION_PERCENT: ${{ needs.release-arm64.outputs.reduction_percent }}
+          APK_SHA256: ${{ needs.release-arm64.outputs.sha256 }}
+          SIGNING_CERT_SHA256: ${{ needs.release-arm64.outputs.signing_cert_sha256 }}
+        run: |
+          set -Eeuo pipefail
+          CREATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          jq -n \
+            --arg generated_at_utc "$CREATED_AT" \
+            --arg result "$BUILD_RESULT" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --arg run_url "$RUN_URL" \
+            --arg branch "$GITHUB_REF_NAME" \
+            --arg commit "$GITHUB_SHA" \
+            --arg preset "Android ARM64" \
+            --arg command 'godot --headless --path . --export-release "Android ARM64" build/TEKNIK-arm64-release.apk' \
+            --arg apk_bytes "$APK_BYTES" \
+            --arg apk_mb "$APK_MB" \
+            --arg apk_mib "$APK_MIB" \
+            --arg debug_baseline_mb "69.24" \
+            --arg reduction_mb "$REDUCTION_MB" \
+            --arg reduction_percent "$REDUCTION_PERCENT" \
+            --arg sha256 "$APK_SHA256" \
+            --arg signing_cert_sha256 "$SIGNING_CERT_SHA256" \
+            '{schema:1,generated_at_utc:$generated_at_utc,result:$result,run:{id:($run_id|tonumber),url:$run_url,branch:$branch,commit:$commit},export:{preset:$preset,command:$command,apk_bytes:$apk_bytes,apk_mb_decimal:$apk_mb,apk_mib:$apk_mib,debug_baseline_mb_decimal:$debug_baseline_mb,reduction_mb_decimal:$reduction_mb,reduction_percent:$reduction_percent,sha256:$sha256,signing_certificate_sha256:$signing_cert_sha256,real_device_install_run_verified:false}}' \
+            > /tmp/release-size-check.json
+          {
+            echo "# TEKNIK Android Release Size Check"
+            echo
+            echo "- **Result:** **$BUILD_RESULT**"
+            echo "- **Run:** [$GITHUB_RUN_ID]($RUN_URL)"
+            echo "- **Commit:** \`$GITHUB_SHA\`"
+            echo "- **Preset:** \`Android ARM64\`"
+            echo "- **Command:** \`godot --headless --path . --export-release \"Android ARM64\" build/TEKNIK-arm64-release.apk\`"
+            echo "- **Release size:** ${APK_MB:-unavailable} MB (${APK_MIB:-unavailable} MiB; ${APK_BYTES:-unavailable} bytes)"
+            echo "- **Debug baseline:** 69.24 MB"
+            echo "- **Reduction:** ${REDUCTION_MB:-unavailable} MB (${REDUCTION_PERCENT:-unavailable}%)"
+            echo "- **APK SHA-256:** ${APK_SHA256:-unavailable}"
+            echo "- **Signing certificate SHA-256:** ${SIGNING_CERT_SHA256:-unavailable}"
+            echo "- **Real-device install/run:** Not verified by GitHub Actions"
+            echo "- **Generated:** $CREATED_AT"
+          } > /tmp/release-size-check.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin ci-reports:refs/remotes/origin/ci-reports || true
+          if git show-ref --verify --quiet refs/remotes/origin/ci-reports; then
+            git switch --force-create ci-reports refs/remotes/origin/ci-reports
+          else
+            git switch --orphan ci-reports
+            git rm -rf . || true
+          fi
+          cp /tmp/release-size-check.json release-size-check.json
+          cp /tmp/release-size-check.md release-size-check.md
+          git add release-size-check.json release-size-check.md
+          if ! git diff --cached --quiet; then
+            git commit -m "Record Android release size check ${GITHUB_RUN_ID} [skip ci]"
+            git push origin HEAD:ci-reports
+          fi
