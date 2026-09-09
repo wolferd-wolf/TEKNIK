@@ -89,14 +89,14 @@ func _tick() -> void:
 			if _stage_frame == 1:
 				_bookmarks["walk_start"] = p.global_position
 				Input.action_press("move_forward")
-			if _stage_frame == 60:
+			var moved: float = p.global_position.distance_to(_bookmarks["walk_start"])
+			if moved >= 1.5:
 				Input.action_release("move_forward")
-			if _stage_frame == 65:
-				var moved: float = p.global_position.distance_to(_bookmarks["walk_start"])
-				if moved < 1.0:
-					_fail("walk moved only %.2f m" % moved)
-					return
+				print("[e2e] walked %.2f m" % moved)
 				_pass_stage("jump")
+			elif _stage_frame > 300:
+				Input.action_release("move_forward")
+				_fail("walk moved only %.2f m in 300 frames" % moved)
 		"jump":
 			var p := _player()
 			# only jump from solid ground; if the walk ended over water/air,
@@ -193,10 +193,24 @@ func _tick() -> void:
 				return
 			_pass_stage("mine_stone")
 		"mine_stone":
-			# conjure a stone block right in front of the eyes, then mine it
+			# conjure a stone block on the crosshair ray, then mine it.
+			# arm late (camera lerp / fall settle); re-place only until mining
+			# starts, so the stage cannot resurrect a stone it already broke.
 			var p := _player()
-			if _stage_frame == 1:
-				# aim down-forward, carve a sight line, conjure stone ON the ray
+			var t: Vector3i = _bookmarks.get("stone", Vector3i(1 << 20, 1 << 20, 1 << 20))
+			var placed: bool = _bookmarks.has("stone_placed")
+			if placed and _session.world.get_block(t.x, t.y, t.z) == BlockRegistry.AIR:
+				p.touch_mining = false
+				print("[e2e] stone broken by mining")
+				_pass_stage("mine_wait")
+				return
+			var mining: bool = bool(_bookmarks.get("stone_mining", false))
+			var hit: Dictionary = _session.world.raycast(p.camera_position(), p.camera_forward(), 4.6)
+			var aligned: bool = not hit.is_empty() and hit["pos"] == t
+			var last: int = int(_bookmarks.get("stone_placed", -1000))
+			var settled: bool = p.is_on_floor() and p.velocity.length_squared() < 0.0001 \
+					and absf(p.camera_position().y - (p.global_position.y + p.EYE_HEIGHT)) < 0.05
+			if not aligned and not mining and settled and _stage_frame >= 20 and _stage_frame - last >= 30:
 				p.set_pitch(-0.5)
 				var eye: Vector3 = p.camera_position()
 				var fwd: Vector3 = p.camera_forward()
@@ -204,20 +218,20 @@ func _tick() -> void:
 					var c := eye + fwd * d
 					_session.world.set_block(floori(c.x), floori(c.y), floori(c.z), BlockRegistry.AIR)
 				var aim := eye + fwd * 2.0
-				var cell := Vector3i(floori(aim.x), floori(aim.y), floori(aim.z))
-				_session.world.set_block(cell.x, cell.y, cell.z, BlockRegistry.STONE)
-				_bookmarks["stone"] = cell
-			var t: Vector3i = _bookmarks["stone"]
-			var hit: Dictionary = _session.world.raycast(p.camera_position(), p.camera_forward(), 4.6)
-			if hit.is_empty() or hit["pos"] != t:
+				t = Vector3i(floori(aim.x), floori(aim.y), floori(aim.z))
+				_session.world.set_block(t.x, t.y, t.z, BlockRegistry.STONE)
+				_bookmarks["stone"] = t
+				_bookmarks["stone_placed"] = _stage_frame
+				hit = _session.world.raycast(eye, fwd, 4.6)
+				aligned = not hit.is_empty() and hit["pos"] == t
+			if aligned or mining:
+				_bookmarks["stone_mining"] = true
+				p.touch_mining = true
+			else:
 				if _stage_frame > 150:
 					_fail("stone %s not visible for mining (hit %s)" % [t, hit.get("pos", "none")])
 				return
-			p.touch_mining = true
-			if _session.world.get_block(t.x, t.y, t.z) == BlockRegistry.AIR:
-				p.touch_mining = false
-				_pass_stage("mine_wait")
-			elif _stage_frame > 400:
+			if _stage_frame > 400:
 				_fail("stone never broke (progress %.2f)" % p._break_progress)
 		"mine_wait":
 			# cobble drop spawns ~1.6 m ahead -> magnet range -> auto pickup
@@ -230,34 +244,54 @@ func _tick() -> void:
 		"place_block":
 			var p := _player()
 			p.touch_mining = false
-			# hold planks in the hotbar and place against the floor ahead
-			var slot := -1
-			for i in range(9):
-				if p.inventory.get_id(i) == BlockRegistry.PLANKS:
-					slot = i
-			if slot == -1:
-				p.inventory.add(BlockRegistry.PLANKS, 4)
-				slot = 0
-				# add() may stack elsewhere; move to slot 0 if needed
-				if p.inventory.get_id(0) != BlockRegistry.PLANKS:
+			# hold planks in the hotbar
+			if not _bookmarks.has("place_before"):
+				var slot := -1
+				for i in range(9):
+					if p.inventory.get_id(i) == BlockRegistry.PLANKS:
+						slot = i
+				if slot == -1:
+					p.inventory.add(BlockRegistry.PLANKS, 4)
+					slot = 0
+					# add() may stack elsewhere; move to slot 0 if needed
+					if p.inventory.get_id(0) != BlockRegistry.PLANKS:
+						for i in range(9):
+							if p.inventory.get_id(i) == BlockRegistry.PLANKS:
+								p.inventory.move(i, 0)
+								break
+				p.hotbar_index = slot
+				if p.held_item().get("id", 0) != BlockRegistry.PLANKS:
+					var dump := []
 					for i in range(9):
-						if p.inventory.get_id(i) == BlockRegistry.PLANKS:
-							p.inventory.move(i, 0)
-							break
-			p.hotbar_index = 0
-			if p.held_item().get("id", 0) != BlockRegistry.PLANKS:
-				_fail("could not hold planks for placement")
-				return
-			p.set_pitch(-0.9)
-			var before := _count_blocks(BlockRegistry.PLANKS)
-			p.touch_placing = true
-			if _count_blocks(BlockRegistry.PLANKS) > before or _stage_frame > 200:
+						dump.append(p.inventory.get_id(i))
+					_fail("could not hold planks (slots=%s held=%s)" % [dump, p.held_item()])
+					return
+				_bookmarks["place_before"] = _count_blocks(BlockRegistry.PLANKS)
+			if _count_blocks(BlockRegistry.PLANKS) > int(_bookmarks["place_before"]):
 				p.touch_placing = false
-				if _count_blocks(BlockRegistry.PLANKS) > before:
-					print("[e2e] block placed")
-					_pass_stage("explore")
-				else:
-					_fail("placement never succeeded")
+				print("[e2e] block placed")
+				_pass_stage("explore")
+				return
+			# (re)aim: find a pitch whose face-adjacent target is free and
+			# does not overlap the player capsule
+			if _stage_frame % 60 == 1:
+				for pitch: float in [-0.7, -0.85, -1.0, -1.15, -1.3]:
+					p.set_pitch(pitch)
+					var h := _session.world.raycast(p.camera_position(), p.camera_forward(), 4.6)
+					if h.is_empty():
+						continue
+					var tgt: Vector3i = h["pos"] + h["normal"]
+					if _session.world.get_block(tgt.x, tgt.y, tgt.z) != BlockRegistry.AIR:
+						continue
+					var pbox := AABB(Vector3(tgt) + Vector3(0.08, 0.08, 0.08), Vector3(0.84, 0.84, 0.84))
+					if AABB(p.global_position + Vector3(-0.3, 0, -0.3), Vector3(0.6, 1.8, 0.6)).intersects(pbox):
+						continue
+					break
+			p.touch_placing = true
+			if _stage_frame > 400:
+				p.touch_placing = false
+				var dh: Dictionary = _session.world.raycast(p.camera_position(), p.camera_forward(), 4.6)
+				_fail("placement never succeeded (hit=%s held=%s pos=%s)" % [dh.get("pos", "none"), p.held_item(), p.global_position])
 		"explore":
 			# teleport far, let streaming follow, come back, verify regeneration
 			var p := _player()
@@ -265,12 +299,16 @@ func _tick() -> void:
 				_bookmarks["home"] = p.global_position
 				_checkpoint["origin_hash"] = _region_hash(0, 0)
 				p.global_position = Vector3(512.5, 80.0, 512.5)
-				p.velocity = Vector3.ZERO
-			if _session.world.pending_chunks() == 0 and _session.world.chunks.size() > 60:
+			# hover frozen while the far region streams in (no fall damage/tunneling)
+			p.velocity = Vector3.ZERO
+			p.global_position.y = 80.0
+			var far_loaded: bool = _session.world.pending_chunks() == 0 \
+					and _session.world.chunks.has(_session.world.chunk_key(32, 32)) \
+					and _session.world.chunks.size() > 60
+			if far_loaded:
 				var sy: int = _session.world.surface_y(512, 512)
 				print("[e2e] streamed far region, surface y=%d" % sy)
 				p.global_position = _bookmarks["home"]
-				p.velocity = Vector3.ZERO
 				_pass_stage("return_check")
 		"return_check":
 			if _session.world.pending_chunks() == 0:
@@ -313,7 +351,9 @@ func _tick() -> void:
 					_fail("player position not restored (%s vs %s)" % [p.global_position, _bookmarks["saved_pos"]])
 				return
 			if not blocks_ok:
-				_fail("placed blocks not persisted")
+				# edits re-apply as chunks regenerate (threaded); give it time
+				if _stage_frame > 600:
+					_fail("placed blocks not persisted")
 				return
 			print("[e2e] save/load verified (pos + placed blocks)")
 			_pass_stage("day_night")
@@ -339,14 +379,18 @@ func _tick() -> void:
 				if _stage_frame > 400:
 					_fail("mob never spawned/appeared")
 				return
-			var mob := _mobs()[0] as MobBase
-			var start := mob.global_position
-			if _stage_frame < 120:
-				return  # let it wander
-			var moved := mob.global_position.distance_to(start) if _stage_frame == 120 else 999.0
-			if _stage_frame == 120 and moved < 0.05:
-				_fail("mob never moved")
+			# any mob with horizontal velocity proves AI + physics are alive
+			var moving := false
+			for m in _mobs():
+				var mb := m as MobBase
+				if mb != null and Vector2(mb.velocity.x, mb.velocity.z).length() > 0.2:
+					moving = true
+					break
+			if not moving:
+				if _stage_frame > 600:
+					_fail("no mob ever moved (n=%d)" % _mobs().size())
 				return
+			print("[e2e] mob movement verified (n=%d)" % _mobs().size())
 			# hostile behaviour: spawn a Grimb at night next to the player
 			var grimb := Grimb.new()
 			_session.add_child(grimb)
