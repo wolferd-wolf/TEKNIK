@@ -1,0 +1,51 @@
+; TEKNIK - original voxel survival sandbox
+; Engine configuration (Godot 4.7.1, GL Compatibility renderer for mobile)
+
+config_version=5
+
+[application]
+
+config/name="TEKNIK"
+config/description="Original voxel survival sandbox with machines, built for Android."
+run/main_scene="res://src/main.tscn"
+config/features=PackedStringArray("4.7")
+boot_splash/bg_color=Color(0.07, 0.1, 0.16, 1)
+config/icon="res://textures/icon.svg"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/handheld/orientation=0
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[input_devices]
+
+pointing/emulate_touch_from_mouse=false
+pointing/emulate_mouse_from_touch=true
+
+[layer_names]
+
+3d_physics/layer_1="world"
+3d_physics/layer_2="player"
+3d_physics/layer_3="mobs"
+3d_physics/layer_4="drops"
+
+[physics]
+
+3d/default_gravity=24.0
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true
+lights_and_shadows/directional_shadow/size=2048
+lights_and_shadows/directional_shadow/size.mobile=1024
+lights_and_shadows/directional_shadow/soft_shadow_filter_quality=2
+lights_and_shadows/directional_shadow/soft_shadow_filter_quality.mobile=1
+anti_aliasing/quality/msaa_3d=1
+anti_aliasing/quality/msaa_3d.mobile=0
+environment/defaults/default_clear_color=Color(0.72, 0.82, 0.92, 1)
+textures/default_filters/anisotropic_filtering_level=1
