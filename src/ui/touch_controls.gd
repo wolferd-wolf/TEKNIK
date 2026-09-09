@@ -9,7 +9,7 @@ const LOOK_SENSITIVITY := 0.0042
 const PLACE_REPEAT := 0.28
 
 var player: Player
-var inventory_toggle: Callable
+var hud: Node
 
 var _joy_touch := -1
 var _joy_center := Vector2.ZERO
@@ -60,10 +60,14 @@ func _build() -> void:
 	_btn_place.button_up.connect(func() -> void: _set_placing(false))
 
 	var btn_inv := _make_button("Bag", Vector2(-24, 24), false)
-	btn_inv.pressed.connect(func() -> void: inventory_toggle.call())
+	btn_inv.pressed.connect(func() -> void:
+		if hud != null and hud.has_method("inventory_open"):
+			if hud.inventory_open():
+				hud.close_inventory()
+			else:
+				hud.open_inventory())
 	var btn_pause := _make_button("| |", Vector2(-70, 24), false)
 	btn_pause.pressed.connect(func() -> void:
-		var hud := get_parent() as Node
 		if hud != null and hud.has_method("open_pause"):
 			hud.open_pause())
 

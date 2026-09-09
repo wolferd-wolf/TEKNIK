@@ -229,6 +229,7 @@ func _build_labels(root: Control) -> void:
 func _build_touch(root: Control) -> void:
 	_touch = TouchControls.new()
 	_touch.name = "Touch"
+	_touch.hud = self
 	root.add_child(_touch)
 
 
